@@ -48,7 +48,7 @@ using has_phi_method = Concepts ::is_detected<phi_method_t, T>;
 /// in case of dynamic size, will abort execution if that is not the case.
 /// @return The value of the angle in the transverse plane.
 template <typename Derived>
-double phi(const Eigen::MatrixBase<Derived>& v) noexcept {
+typename Derived::Scalar phi(const Eigen::MatrixBase<Derived>& v) noexcept {
   constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
   if constexpr (rows != -1) {
     // static size, do compile time check
@@ -63,7 +63,8 @@ double phi(const Eigen::MatrixBase<Derived>& v) noexcept {
     }
   }
 
-  return std::atan2(v[1], v[0]);
+  using std::atan2;
+  return atan2(v[1], v[0]);
 }
 
 /// Calculate phi (transverse plane angle) from anything implementing a method
@@ -84,7 +85,7 @@ double phi(const T& v) noexcept {
 /// in case of dynamic size, will abort execution if that is not the case.
 /// @return The transverse radius value.
 template <typename Derived>
-double perp(const Eigen::MatrixBase<Derived>& v) noexcept {
+typename Derived::Scalar perp(const Eigen::MatrixBase<Derived>& v) noexcept {
   constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
   if constexpr (rows != -1) {
     // static size, do compile time check
@@ -98,7 +99,8 @@ double perp(const Eigen::MatrixBase<Derived>& v) noexcept {
       std::abort();
     }
   }
-  return std::sqrt(v[0] * v[0] + v[1] * v[1]);
+  using std::sqrt;
+  return sqrt(v[0] * v[0] + v[1] * v[1]);
 }
 
 /// Calculate the theta angle (longitudinal w.r.t. z axis) of a vector
@@ -108,7 +110,7 @@ double perp(const Eigen::MatrixBase<Derived>& v) noexcept {
 /// in case of dynamic size, will abort execution if that is not the case.
 /// @return The theta value
 template <typename Derived>
-double theta(const Eigen::MatrixBase<Derived>& v) noexcept {
+typename Derived::Scalar theta(const Eigen::MatrixBase<Derived>& v) noexcept {
   constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
   if constexpr (rows != -1) {
     // static size, do compile time check
@@ -120,8 +122,9 @@ double theta(const Eigen::MatrixBase<Derived>& v) noexcept {
       std::abort();
     }
   }
-
-  return std::atan2(std::sqrt(v[0] * v[0] + v[1] * v[1]), v[2]);
+  using std::atan2;
+  using std::sqrt;
+  return atan2(sqrt(v[0] * v[0] + v[1] * v[1]), v[2]);
 }
 
 /// Calculate the pseudorapidity for a vector.
@@ -131,7 +134,7 @@ double theta(const Eigen::MatrixBase<Derived>& v) noexcept {
 /// in case of dynamic size, will abort execution if that is not the case.
 /// @return The pseudorapidity value
 template <typename Derived>
-double eta(const Eigen::MatrixBase<Derived>& v) noexcept {
+typename Derived::Scalar eta(const Eigen::MatrixBase<Derived>& v) noexcept {
   constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
   if constexpr (rows != -1) {
     // static size, do compile time check
@@ -144,7 +147,8 @@ double eta(const Eigen::MatrixBase<Derived>& v) noexcept {
     }
   }
 
-  return std::atanh(v[2] / v.norm());
+  using std::atanh;
+  return atanh(v[2] / v.norm());
 }
 
 /// Helper method to extract the binning value from a 3D vector.

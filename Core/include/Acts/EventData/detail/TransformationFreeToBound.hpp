@@ -11,6 +11,7 @@
 #include "Acts/Geometry/GeometryContext.hpp"
 #include "Acts/Utilities/Definitions.hpp"
 #include "Acts/Utilities/ParameterDefinitions.hpp"
+#include <Acts/Utilities/Helpers.hpp>
 
 namespace Acts {
 
@@ -30,6 +31,26 @@ namespace detail {
 BoundVector transformFreeToBoundParameters(const FreeVector& freeParams,
                                            const Surface& surface,
                                            const GeometryContext& geoCtx);
+
+/// templated implementation for the Free-to-bound transform. Used for autodiff
+template<typename T>
+inline ActsVector<T, eBoundSize> transformFreeToBoundParametersImpl(const ActsVector<T, eFreeSize> &freeParams,
+                                                             const ActsVector<T, 2> &localPosition)
+{
+  // initialize the bound vector
+  ActsVector<T, eBoundSize> bp = ActsVector<T, eBoundSize>::Zero();
+  
+  auto direction = freeParams.template segment<3>(eFreeDir0);
+  
+  bp[eBoundLoc0] = localPosition[ePos0];
+  bp[eBoundLoc1] = localPosition[ePos1];
+  bp[eBoundTime] = freeParams[eFreeTime];
+  bp[eBoundPhi] = VectorHelpers::phi(direction);
+  bp[eBoundTheta] = VectorHelpers::theta(direction);
+  bp[eBoundQOverP] = freeParams[eFreeQOverP];
+  
+  return bp;
+}
 
 /// Convert position and direction to bound track parameters.
 ///

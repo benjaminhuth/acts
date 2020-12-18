@@ -190,3 +190,19 @@ inline double DiscSurface::pathCorrection(const GeometryContext& gctx,
   /// we can ignore the global position here
   return 1. / std::abs(Surface::normal(gctx, position).dot(direction));
 }
+
+template<typename T>
+inline Result<ActsVector<T,2>> DiscSurface::globalToLocalImpl(
+      const ActsVector<T,3> &position,
+      const Eigen::Transform<T, 3, Eigen::Affine> &transform, double tolerance)
+{
+  ActsVector<T,3> loc3Dframe = transform.inverse() * position;
+  if (loc3Dframe.z() * loc3Dframe.z() > tolerance * tolerance) {
+    return Result<ActsVector<T,2>>::failure(SurfaceError::GlobalPositionNotOnSurface);
+  }
+  
+  using Acts::VectorHelpers::perp;
+  using Acts::VectorHelpers::phi;
+  
+  return Result<ActsVector<T,2>>::success({perp(loc3Dframe), phi(loc3Dframe)});
+}

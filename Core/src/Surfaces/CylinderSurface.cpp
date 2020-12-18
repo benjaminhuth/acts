@@ -112,23 +112,7 @@ Acts::Vector3D Acts::CylinderSurface::localToGlobal(
 Acts::Result<Acts::Vector2D> Acts::CylinderSurface::globalToLocal(
     const GeometryContext& gctx, const Vector3D& position,
     const Vector3D& /*unused*/, double tolerance) const {
-  double inttol = tolerance;
-  if (tolerance == s_onSurfaceTolerance) {
-    // transform default value!
-    // @TODO: check if s_onSurfaceTolerance would do here
-    inttol = bounds().get(CylinderBounds::eR) * 0.0001;
-  }
-  if (inttol < 0.01) {
-    inttol = 0.01;
-  }
-  const Transform3D& sfTransform = transform(gctx);
-  Transform3D inverseTrans(sfTransform.inverse());
-  Vector3D loc3Dframe(inverseTrans * position);
-  if (std::abs(perp(loc3Dframe) - bounds().get(CylinderBounds::eR)) > inttol) {
-    return Result<Vector2D>::failure(SurfaceError::GlobalPositionNotOnSurface);
-  }
-  return Result<Vector2D>::success(
-      {bounds().get(CylinderBounds::eR) * phi(loc3Dframe), loc3Dframe.z()});
+    return globalToLocalImpl(position, transform(gctx), bounds(), tolerance);
 }
 
 std::string Acts::CylinderSurface::name() const {

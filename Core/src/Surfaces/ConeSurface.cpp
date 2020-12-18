@@ -112,13 +112,7 @@ Acts::Vector3D Acts::ConeSurface::localToGlobal(
 Acts::Result<Acts::Vector2D> Acts::ConeSurface::globalToLocal(
     const GeometryContext& gctx, const Vector3D& position,
     const Vector3D& /*unused*/, double tolerance) const {
-  Vector3D loc3Dframe = transform(gctx).inverse() * position;
-  double r = loc3Dframe.z() * bounds().tanAlpha();
-  if (std::abs(perp(loc3Dframe) - r) > tolerance) {
-    return Result<Vector2D>::failure(SurfaceError::GlobalPositionNotOnSurface);
-  }
-  return Result<Acts::Vector2D>::success(
-      Vector2D(r * atan2(loc3Dframe.y(), loc3Dframe.x()), loc3Dframe.z()));
+  return globalToLocalImpl(position, transform(gctx), bounds(), tolerance);
 }
 
 double Acts::ConeSurface::pathCorrection(const GeometryContext& gctx,

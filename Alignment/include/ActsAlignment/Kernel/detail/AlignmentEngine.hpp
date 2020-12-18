@@ -92,7 +92,7 @@ struct TrackAlignmentState {
 ///
 /// @return The track alignment state containing fundamental alignment
 /// ingredients
-template <typename source_link_t, typename parameters_t = BoundTrackParameters>
+template <typename source_link_t, typename derivative_function_t, typename parameters_t = BoundTrackParameters>
 TrackAlignmentState trackAlignmentState(
     const GeometryContext& gctx,
     const Acts::MultiTrajectory<source_link_t>& multiTraj,
@@ -100,7 +100,8 @@ TrackAlignmentState trackAlignmentState(
     const std::pair<ActsMatrixX<BoundScalar>,
                     std::unordered_map<size_t, size_t>>& globalTrackParamsCov,
     const std::unordered_map<const Surface*, size_t>& idxedAlignSurfaces,
-    const std::bitset<6>& alignMask) {
+    const std::bitset<6>& alignMask,
+    const derivative_function_t &derivative_function) {
   using CovMatrix = typename parameters_t::CovarianceMatrix;
 
   // Construct an alignment state
@@ -226,8 +227,8 @@ TrackAlignmentState trackAlignmentState(
       FreeVector pathDerivative = FreeVector::Zero();
       pathDerivative.head<3>() = direction;
       // Get the derivative of bound parameters w.r.t. alignment parameters
-      const AlignmentToBoundMatrix alignToBound =
-          surface->alignmentToBoundDerivative(gctx, pathDerivative, freeParams);
+      const AlignmentToBoundMatrix alignToBound = 
+        derivative_function(surface, gctx, pathDerivative, freeParams);
       //@Todo: use separate consideration for different surfaces
       AlignmentMatrix project = AlignmentMatrix::Identity();
       for (unsigned int iAlignParam = 0; iAlignParam < 6; iAlignParam++) {

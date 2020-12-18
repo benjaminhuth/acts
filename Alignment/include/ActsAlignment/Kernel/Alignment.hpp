@@ -159,14 +159,14 @@ struct Alignment {
   ///
   /// @result The alignment state for a single track
   template <typename source_link_t, typename start_parameters_t,
-            typename fit_options_t>
+            typename fit_options_t, typename derivative_function_t>
   Acts::Result<detail::TrackAlignmentState> evaluateTrackAlignmentState(
       const Acts::GeometryContext& gctx,
       const std::vector<source_link_t>& sourcelinks,
       const start_parameters_t& sParameters, const fit_options_t& fitOptions,
       const std::unordered_map<const Acts::Surface*, size_t>&
           idxedAlignSurfaces,
-      const std::bitset<Acts::eAlignmentSize>& alignMask) const {
+      const std::bitset<Acts::eAlignmentSize>& alignMask, const derivative_function_t &derivative_function) const {
     // Perform the fit
     auto fitRes = m_fitter.fit(sourcelinks, sParameters, fitOptions);
     if (not fitRes.ok()) {
@@ -182,7 +182,7 @@ struct Alignment {
     // Calculate the alignment state
     const auto alignState = detail::trackAlignmentState(
         gctx, fitOutput.fittedStates, fitOutput.trackTip, globalTrackParamsCov,
-        idxedAlignSurfaces, alignMask);
+        idxedAlignSurfaces, alignMask, derivative_function);
     if (alignState.alignmentDof == 0) {
       ACTS_VERBOSE("No alignment dof on track");
       return AlignmentError::NoAlignmentDofOnTrack;
@@ -239,9 +239,20 @@ struct Alignment {
       fitOptionsWithRefSurface.referenceSurface =
           &sParameters.referenceSurface();
       // The result for one single track
+          
+      // NOTE This is just used for simple autodiff comparison
+      auto ordinary_derivative = [](const Acts::Surface *surface, 
+                                    const Acts::GeometryContext& gctx, 
+                                    const Acts::FreeVector& free_params, 
+                                    const Acts::FreeVector& pathDerivative)
+      {
+        return surface->alignmentToBoundDerivative(gctx, free_params, pathDerivative);
+      };
+          
       auto evaluateRes = evaluateTrackAlignmentState(
           fitOptions.geoContext, sourcelinks, sParameters,
-          fitOptionsWithRefSurface, alignResult.idxedAlignSurfaces, alignMask);
+          fitOptionsWithRefSurface, alignResult.idxedAlignSurfaces, alignMask, ordinary_derivative);
+      
       if (not evaluateRes.ok()) {
         ACTS_WARNING("Evaluation of alignment state for track " << iTraj
                                                                 << " failed");

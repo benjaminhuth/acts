@@ -182,3 +182,31 @@ CylinderSurface::localCartesianToBoundLocalDerivative(
 
   return loc3DToLocBound;
 }
+
+template<typename T>
+inline Result<ActsVector<T,2>> CylinderSurface::globalToLocalImpl(
+      const ActsVector<T,3> &position,
+      const Eigen::Transform<T, 3, Eigen::Affine> &transform,
+      const CylinderBounds &bounds, double tolerance)
+{
+  using Acts::VectorHelpers::perp;
+  using Acts::VectorHelpers::phi;
+  using std::abs;
+    
+  double inttol = tolerance;
+  if (tolerance == s_onSurfaceTolerance) {
+    // transform default value!
+    // @TODO: check if s_onSurfaceTolerance would do here
+    inttol = bounds.get(CylinderBounds::eR) * 0.0001;
+  }
+  if (inttol < 0.01) {
+    inttol = 0.01;
+  }
+  decltype(transform) inverseTrans(transform.inverse());
+  ActsVector<T,3> loc3Dframe(inverseTrans * position);
+  if (abs(perp(loc3Dframe) - bounds.get(CylinderBounds::eR)) > inttol) {
+    return Result<ActsVector<T,2>>::failure(SurfaceError::GlobalPositionNotOnSurface);
+  }
+  return Result<ActsVector<T,2>>::success(
+      {bounds.get(CylinderBounds::eR) * phi(loc3Dframe), loc3Dframe.z()});
+}

@@ -25,20 +25,30 @@ inline Result<Vector2D> LineSurface::globalToLocal(const GeometryContext& gctx,
                                                    const Vector3D& position,
                                                    const Vector3D& momentum,
                                                    double /*tolerance*/) const {
+  return globalToLocalImpl(position, momentum, transform(gctx));
+}
+
+template<typename T>
+inline Result<ActsVector<T,2>> LineSurface::globalToLocalImpl(
+      const ActsVector<T,3> &position, const ActsVector<T,3> &direction,
+      const Eigen::Transform<T, 3, Eigen::Affine> &transform)
+{
   using VectorHelpers::perp;
-  const auto& sTransform = transform(gctx);
-  const auto& tMatrix = sTransform.matrix();
-  Vector3D lineDirection(tMatrix(0, 2), tMatrix(1, 2), tMatrix(2, 2));
+  using Vector3 = ActsVector<T,3>;
+  using Vector2 = ActsVector<T,2>;
+  
+  const auto& tMatrix = transform.matrix();
+  Vector3 lineDirection(tMatrix(0, 2), tMatrix(1, 2), tMatrix(2, 2));
   // Bring the global position into the local frame
-  Vector3D loc3Dframe = sTransform.inverse() * position;
+  Vector3 loc3Dframe = transform.inverse() * position;
   // construct localPosition with sign*perp(candidate) and z.()
-  Vector2D lposition(perp(loc3Dframe), loc3Dframe.z());
-  Vector3D sCenter(tMatrix(0, 3), tMatrix(1, 3), tMatrix(2, 3));
-  Vector3D decVec(position - sCenter);
+  Vector2 lposition(perp(loc3Dframe), loc3Dframe.z());
+  Vector3 sCenter(tMatrix(0, 3), tMatrix(1, 3), tMatrix(2, 3));
+  Vector3 decVec(position - sCenter);
   // assign the right sign
-  double sign = ((lineDirection.cross(momentum)).dot(decVec) < 0.) ? -1. : 1.;
+  double sign = ((lineDirection.cross(direction)).dot(decVec) < 0.) ? -1. : 1.;
   lposition[eBoundLoc0] *= sign;
-  return Result<Vector2D>::success(lposition);
+  return Result<Vector2>::success(lposition);
 }
 
 inline std::string LineSurface::name() const {

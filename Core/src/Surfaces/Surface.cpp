@@ -8,6 +8,8 @@
 
 #include "Acts/Surfaces/Surface.hpp"
 
+#include <autodiff/forward.hpp>
+
 #include "Acts/Surfaces/detail/AlignmentHelper.hpp"
 
 #include <iomanip>
@@ -61,6 +63,9 @@ Acts::AlignmentToBoundMatrix Acts::Surface::alignmentToBoundDerivative(
   // 4) The derivative of bound parameters w.r.t. alignment
   // parameters is alignToBoundWithoutCorrection +
   // jacToLocal*pathDerivative*alignToPath
+  
+  std::cout << "By-Hand: alignToPath = \n" << alignToPath << std::endl;
+  
   AlignmentToBoundMatrix alignToBound =
       alignToBoundWithoutCorrection + jacToLocal * pathDerivative * alignToPath;
 
@@ -109,6 +114,110 @@ Acts::Surface::alignmentToBoundDerivativeWithoutCorrection(
   return alignToBound;
 }
 
+namespace
+{
+    auto anglesToTransform(const autodiff::Vector3dual &angles)
+    {        
+        const auto phi = angles(0);   // x
+        const auto theta = angles(1); // y
+        const auto psi = angles(2);   // z
+        
+        using std::cos, std::sin;
+        autodiff::Matrix3dual R;
+        R <<  cos(theta)*cos(psi), sin(phi)*sin(theta)*cos(psi) - cos(phi)*sin(psi), cos(phi)*sin(theta)*cos(psi) + sin(phi)*sin(psi),
+              cos(theta)*sin(psi), sin(phi)*sin(theta)*sin(psi) + cos(phi)*cos(psi), cos(phi)*sin(theta)*sin(psi) - sin(phi)*cos(psi),
+             -sin(theta),          sin(phi)*cos(theta),                              cos(phi)*cos(theta);
+             
+        return R;
+    }
+}
+
+
+/// This in fact corresponds to Surface::alignmentToBoundDerivativeWithoutCorrection, but it is anyways just for testing
+/// Works only for PlaneSurface now I think
+Acts::AlignmentToBoundMatrix Acts::Surface::alignmentToBoundDerivativeAutodiff(
+    const Acts::GeometryContext& gctx, 
+    const Acts::FreeVector& free_params, 
+    const Acts::FreeVector& pathDerivative) const
+{
+    if( type() != SurfaceType::Plane )
+        throw std::runtime_error("alignmentToBoundDerivativeAutodiff is just available for Plane surfaces");
+    
+    using namespace autodiff::forward;
+    using FreeVectorAutodiff = ActsVector<autodiff::dual,eFreeSize>;
+    using AlignmentVectorAutodiff = ActsVector<autodiff::dual,eAlignmentSize>;
+    using BoundVectorAutodiff = ActsVector<autodiff::dual,eBoundSize>;    
+    
+    // The transformation function: free params + alignment params -> bound_parameters
+    auto f = [](const AlignmentVectorAutodiff &alignment_params, const FreeVectorAutodiff &track_params)
+    {
+        using std::atan2, std::sqrt;
+        
+        const auto center = alignment_params.segment<3>(eAlignmentCenter0);
+        const auto angles = alignment_params.segment<3>(eAlignmentRotation0);
+        const auto pos = track_params.segment<3>(eFreePos0);
+        const auto dir = track_params.segment<3>(eFreeDir0);
+        
+        const auto R = anglesToTransform(angles);
+        const auto loc_pos = R.transpose() * (pos - center);
+        
+        const auto phi = atan2(dir[1], dir[0]);
+        const auto theta = atan2(sqrt(dir[0] * dir[0] + dir[1] * dir[1]), dir[2]);
+        
+        // NOTE this is not generic, just for plane/disk-surface
+        BoundVectorAutodiff bound;
+        bound(eBoundLoc0) = loc_pos(0);
+        bound(eBoundLoc1) = loc_pos(1);
+        bound(eBoundPhi) = phi;
+        bound(eBoundTheta) = theta;
+        bound(eBoundQOverP) = track_params(eFreeQOverP);
+        bound(eBoundTime) = track_params(eFreeTime);
+        
+        return bound;
+    };
+    
+    // The transformation function: free params + alignment params -> path correction
+    auto g = [](const AlignmentVectorAutodiff &alignment_params, const FreeVectorAutodiff &track_params)
+    {
+        const auto center = alignment_params.segment<3>(eAlignmentCenter0);
+        const auto angles = alignment_params.segment<3>(eAlignmentRotation0);
+        
+        const auto pos = track_params.segment<3>(eFreePos0);
+        const auto dir = track_params.segment<3>(eFreeDir0);
+        const auto R = anglesToTransform(angles);
+        const auto ez = R.col(2);
+        
+        return autodiff::dual{ (center - pos).dot(ez) / dir.dot(ez) };
+    };
+    
+    // Get alignment parameters
+    autodiff::Vector3dual center = this->center(gctx).cast<autodiff::dual>();
+    autodiff::Vector3dual rot = this->transform(gctx).rotation().eulerAngles(2,1,0).cast<autodiff::dual>();
+    
+    // reorder angles to get correct order in jacobian
+    AlignmentVectorAutodiff alignment_params;
+    alignment_params << center, rot(2), rot(1), rot(0); 
+    FreeVectorAutodiff ad_free_params = free_params.cast<autodiff::dual>();
+    
+    // 1) alignToBound
+    AlignmentToBoundMatrix alignToBound = 
+        jacobian(f, wrt(alignment_params), at(alignment_params, ad_free_params)).cast<double>();
+        
+    // 2) jacToLocal
+    FreeToBoundMatrix jacToLocal = 
+        jacobian(f, wrt(ad_free_params), at(alignment_params, ad_free_params)).cast<double>();
+        
+    // 3) alignToPath
+    AlignmentRowVector alignToPath = 
+        gradient(g, wrt(alignment_params), at(alignment_params, ad_free_params)).cast<double>();
+    
+    // Combine the results
+    alignToBound += jacToLocal * pathDerivative * alignToPath;
+    
+    return alignToBound;
+}
+
+
 Acts::AlignmentRowVector Acts::Surface::alignmentToPathDerivative(
     const GeometryContext& gctx, const FreeVector& parameters) const {
   // The global posiiton
@@ -128,12 +237,11 @@ Acts::AlignmentRowVector Acts::Surface::alignmentToPathDerivative(
   const auto [rotToLocalXAxis, rotToLocalYAxis, rotToLocalZAxis] =
       detail::rotationToLocalAxesDerivative(rotation);
   // Initialize the derivative of propagation path w.r.t. local frame
-  // translation (origin) and rotation
+  // translation (origin) and rotation      
   AlignmentRowVector alignToPath = AlignmentRowVector::Zero();
   alignToPath.segment<3>(eAlignmentCenter0) = localZAxis.transpose() / dz;
   alignToPath.segment<3>(eAlignmentRotation0) =
       -pcRowVec * rotToLocalZAxis / dz;
-
   return alignToPath;
 }
 

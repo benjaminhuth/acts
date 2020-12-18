@@ -26,6 +26,9 @@
 
 #include <memory>
 
+#include <autodiff/forward.hpp>
+#include <autodiff/forward/eigen.hpp>
+
 namespace Acts {
 
 class DetectorElementBase;
@@ -436,6 +439,11 @@ class Surface : public virtual GeometryObject,
   AlignmentToBoundMatrix alignmentToBoundDerivative(
       const GeometryContext& gctx, const FreeVector& parameters,
       const FreeVector& pathDerivative) const;
+      
+  AlignmentToBoundMatrix alignmentToBoundDerivativeAutodiff(
+      const GeometryContext &gctx, 
+      const FreeVector &parameters, 
+      const FreeVector &pathDerivative) const;
 
   /// Calculate the derivative of path length at the geometry constraint or
   /// point-of-closest-approach w.r.t. alignment parameters of the surface (i.e.
@@ -463,7 +471,7 @@ class Surface : public virtual GeometryObject,
   /// cartesian coordinates
   virtual LocalCartesianToBoundLocalMatrix localCartesianToBoundLocalDerivative(
       const GeometryContext& gctx, const Vector3D& position) const = 0;
-
+      
  protected:
   /// Transform3D definition that positions
   /// (translation, rotation) the surface in global space
@@ -483,7 +491,7 @@ class Surface : public virtual GeometryObject,
   /// Possibility to attach a material descrption
   std::shared_ptr<const ISurfaceMaterial> m_surfaceMaterial;
 
- private:
+//  private:
   /// Calculate the derivative of bound track parameters w.r.t.
   /// alignment parameters of its reference surface (i.e. origin in global 3D
   /// Cartesian coordinates and its rotation represented with extrinsic Euler

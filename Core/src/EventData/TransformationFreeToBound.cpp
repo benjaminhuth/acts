@@ -16,26 +16,23 @@
 Acts::BoundVector Acts::detail::transformFreeToBoundParameters(
     const FreeVector& freeParams, const Surface& surface,
     const GeometryContext& geoCtx) {
+    
   // initialize the bound vector
   BoundVector bp = BoundVector::Zero();
   // convert global to local position on the surface
   auto position = freeParams.segment<3>(eFreePos0);
   auto direction = freeParams.segment<3>(eFreeDir0);
   auto result = surface.globalToLocal(geoCtx, position, direction);
+  
   if (result.ok()) {
-    auto localPosition = result.value();
-    bp[eBoundLoc0] = localPosition[ePos0];
-    bp[eBoundLoc1] = localPosition[ePos1];
+    const auto localPosition = result.value();
+    bp = transformFreeToBoundParametersImpl(freeParams, localPosition);
   } else {
     ACTS_LOCAL_LOGGER(
         Acts::getDefaultLogger("ParameterTransformation", Logging::INFO));
     ACTS_FATAL(
         "Inconsistency in global to local transformation from free to bound.")
   }
-  bp[eBoundTime] = freeParams[eFreeTime];
-  bp[eBoundPhi] = VectorHelpers::phi(direction);
-  bp[eBoundTheta] = VectorHelpers::theta(direction);
-  bp[eBoundQOverP] = freeParams[eFreeQOverP];
   return bp;
 }
 

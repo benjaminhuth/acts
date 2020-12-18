@@ -48,10 +48,10 @@ using namespace Acts;
 using namespace ActsAlignment;
 
 namespace {
-
 using SourceLink = Acts::Test::TestSourceLink;
 using SourceLinkCalibrator = Acts::Test::TestSourceLinkCalibrator;
 using Covariance = BoundSymMatrix;
+
 template <BoundIndices... params>
 using MeasurementType = Measurement<SourceLink, BoundIndices, params...>;
 
@@ -374,6 +374,23 @@ BOOST_AUTO_TEST_CASE(Alignment_zero_field) {
       iSurface++;
     }
   });
+  
+  // Derivative functions for comparison
+  auto ordinary_derivative = [](const Surface *surface, 
+                                const Acts::GeometryContext& gctx, 
+                                const Acts::FreeVector& free_params, 
+                                const Acts::FreeVector& pathDerivative)
+  {
+    return surface->alignmentToBoundDerivative(gctx, free_params, pathDerivative);
+  };
+  
+  auto autodiff_derivative = [](const Surface *surface, 
+                                const Acts::GeometryContext& gctx, 
+                                const Acts::FreeVector& free_params, 
+                                const Acts::FreeVector& pathDerivative)
+  {
+    return surface->alignmentToBoundDerivativeAutodiff(gctx, free_params, pathDerivative);
+  };
 
   // The alignment mask
   const auto alignMask =
@@ -384,11 +401,34 @@ BOOST_AUTO_TEST_CASE(Alignment_zero_field) {
   kfOptions.referenceSurface = &(*inputTraj.startParameters).referenceSurface();
   auto evaluateRes = alignment.evaluateTrackAlignmentState(
       kfOptions.geoContext, inputTraj.sourcelinks, *inputTraj.startParameters,
-      kfOptions, idxedAlignSurfaces, alignMask);
+      kfOptions, idxedAlignSurfaces, alignMask, ordinary_derivative);
   BOOST_CHECK(evaluateRes.ok());
   const auto& alignState = evaluateRes.value();
-  std::cout << "Chi2/dof = " << alignState.chi2 / alignState.alignmentDof
+  const auto chi2_by_dof = alignState.chi2 / alignState.alignmentDof;
+  std::cout << "Chi2/dof = " << chi2_by_dof << std::endl;
+            
+  // Test for autodiff
+  auto evaluateResAutodiff = alignment.evaluateTrackAlignmentState(
+      kfOptions.geoContext, inputTraj.sourcelinks, *inputTraj.startParameters,
+      kfOptions, idxedAlignSurfaces, alignMask, autodiff_derivative);
+  BOOST_CHECK(evaluateResAutodiff.ok());
+  const auto& alignStateAutodiff = evaluateResAutodiff.value();
+  const auto chi2_by_dof_autodiff = alignStateAutodiff.chi2 / alignStateAutodiff.alignmentDof;
+  std::cout << "Autodiff Chi2/dof = " << chi2_by_dof_autodiff
             << std::endl;
+            
+  // Compare autodiff and ordinary results
+  std::cout << "alignmentToResidualDerivative (ordinary) =\n" << alignState.alignmentToResidualDerivative << "\n" << std::endl;
+  std::cout << "alignmentToResidualDerivative (autodiff) =\n" << alignStateAutodiff.alignmentToResidualDerivative << "\n" << std::endl;
+  
+  std::cout << "alignmentToChi2Derivative (ordinary) =\n" << alignState.alignmentToChi2Derivative.transpose() << "\n" << std::endl;
+  std::cout << "alignmentToChi2Derivative (autodiff) =\n" << alignStateAutodiff.alignmentToChi2Derivative.transpose() << "\n" << std::endl;
+  
+  std::cout << "alignmentToChi2SecondDerivative (ordinary) =\n" << alignState.alignmentToChi2SecondDerivative.transpose() << "\n" << std::endl;
+  std::cout << "alignmentToChi2SecondDerivative (autodiff) =\n" << alignStateAutodiff.alignmentToChi2SecondDerivative.transpose() << "\n" << std::endl;
+  
+  // Just exit here, since the matrices seem to contain only nans
+  std::exit(1);
 
   // Check the dimensions
   BOOST_CHECK_EQUAL(alignState.measurementDim, 12);

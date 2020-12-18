@@ -54,3 +54,16 @@ PlaneSurface::localCartesianToBoundLocalDerivative(
       LocalCartesianToBoundLocalMatrix::Identity();
   return loc3DToLocBound;
 }
+
+template<typename T>
+inline Result<ActsVector<T,2>> PlaneSurface::globalToLocalImpl(
+      const ActsVector<T,3> &position,
+      const Eigen::Transform<T, 3, Eigen::Affine> &transform, double tolerance)
+{
+  ActsVector<T,3> loc3Dframe = transform.inverse() * position;
+  
+  if (loc3Dframe.z() * loc3Dframe.z() > tolerance * tolerance) {
+    return Result<ActsVector<T,2>>::failure(SurfaceError::GlobalPositionNotOnSurface);
+  }
+  return Result<ActsVector<T,2>>::success({loc3Dframe.x(), loc3Dframe.y()});
+}

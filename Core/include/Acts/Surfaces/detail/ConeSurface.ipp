@@ -162,3 +162,21 @@ ConeSurface::localCartesianToBoundLocalDerivative(
 
   return loc3DToLocBound;
 }
+
+template<typename T>
+inline Result<ActsVector<T,2>> ConeSurface::globalToLocalImpl(
+      const ActsVector<T,3> &position,
+      const Eigen::Transform<T, 3, Eigen::Affine> &transform,
+      const ConeBounds &bounds, double tolerance)
+{
+  using std::abs;
+  using std::atan2;
+  
+  ActsVector<T,3> loc3Dframe = transform.inverse() * position;
+  T r = loc3Dframe.z() * bounds.tanAlpha();
+  if (abs(VectorHelpers::perp(loc3Dframe) - r) > tolerance) {
+    return Result<ActsVector<T,2>>::failure(SurfaceError::GlobalPositionNotOnSurface);
+  }
+  return Result<ActsVector<T,2>>::success(
+      ActsVector<T,2>(r * atan2(loc3Dframe.y(), loc3Dframe.x()), loc3Dframe.z()));
+}

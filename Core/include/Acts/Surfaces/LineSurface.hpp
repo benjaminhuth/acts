@@ -188,6 +188,12 @@ class LineSurface : public Surface {
       const GeometryContext& gctx, const Vector3D& position,
       const Vector3D& momentum,
       double tolerance = s_onSurfaceTolerance) const final;
+      
+  /// Implementation used for the autodiff + double
+  template<typename T>
+  static Result<ActsVector<T,2>> globalToLocalImpl(
+      const ActsVector<T,3> &position, const ActsVector<T,3> &direction,
+      const Eigen::Transform<T, 3, Eigen::Affine> &transform);
 
   /// @brief Straight line intersection schema
   ///
