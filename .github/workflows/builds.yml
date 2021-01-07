@@ -26,10 +26,12 @@ jobs:
       - name: Configure
         # use manual mkdir+cd. CMake on LCG95 does not like -B ... -S ...
         run: >
+          source /opt/intel/oneapi/setvars.sh &&
           ${SETUP} &&
           mkdir build && cd build &&
           cmake ..
           -GNinja
+          -DCMAKE_CXX_COMPILER=clang++
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_FLAGS=-Werror
           -DCMAKE_INSTALL_PREFIX="${INSTALL_DIR}"
