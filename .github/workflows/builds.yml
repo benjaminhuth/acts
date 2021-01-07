@@ -17,7 +17,9 @@ jobs:
     strategy:
       matrix:
         image:
-          - ubuntu2004_oneapi:v9
+          - centos7-lcg97apython3-gcc9
+          - centos7-lcg98python3-gcc10
+          - ubuntu2004
     env:
       SETUP: true
       SETUP_LCG: source /opt/lcg_view/setup.sh
