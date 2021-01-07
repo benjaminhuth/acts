@@ -33,16 +33,24 @@ jobs:
         run: >
           source /opt/intel/oneapi/setvars.sh
           && cmake --build build --
+      - name: Install 
+        run: >
+          source /opt/intel/oneapi/setvars.sh
+          && cmake --build build -- install
       - name: Downstream configure
         run: >
-          ${SETUP} &&
-          mkdir build-downstream && cd build-downstream &&
+          source /opt/intel/oneapi/setvars.sh
+          && mkdir build-downstream && cd build-downstream &&
           cmake ../Tests/DownstreamProject
           -GNinja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_CXX_FLAGS=-Werror
           -DCMAKE_PREFIX_PATH="${INSTALL_DIR}"
       - name: Downstream build
-        run: ${SETUP} && cmake --build build-downstream --
+        run: >
+          source /opt/intel/oneapi/setvars.sh
+          && cmake --build build-downstream --
       - name: Downstream run
-        run: ${SETUP} && ./build-downstream/bin/ShowActsVersion
+        run: >
+          source /opt/intel/oneapi/setvars.sh
+          && ./build-downstream/bin/ShowActsVersion
