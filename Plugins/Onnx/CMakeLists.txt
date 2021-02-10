@@ -3,6 +3,9 @@ add_library(
   # header files
   include/Acts/Plugins/Onnx/OnnxRuntimeBase.hpp
   include/Acts/Plugins/Onnx/MLTrackClassifier.hpp
+  include/Acts/Plugins/Onnx/MLNavigator.hpp
+  include/Acts/Plugins/Onnx/OnnxModel.hpp
+  include/Acts/Plugins/Onnx/detail/KDTree.hpp
   # source files
   src/OnnxRuntimeBase.cpp
   src/MLTrackClassifier.cpp)
