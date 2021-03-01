@@ -2,8 +2,9 @@
 #include <iostream>
 #include <random>
 #include <chrono>
+#include <numeric>
 
-#include "Acts/Plugins/Onnx/detail/KDTree.hpp"
+#include "Acts/Plugins/Onnx/KDTree.hpp"
 
 using namespace Acts;
 
@@ -13,31 +14,56 @@ constexpr std::size_t K = 10;
 
 int main()
 {
+    // FlexArray Test
+    Acts::detail::FlexibleArray<std::size_t, 10> ar;
+    
+    for(auto i=0ul; i<10; ++i)
+    {
+        if( std::accumulate(ar.begin(), ar.end(), 0ul) != i )
+            throw std::runtime_error("Accumulation failed at " + std::to_string(i) + " of 10");
+        
+        if( ar.size() != i )
+            throw std::runtime_error("Size check failed at " + std::to_string(i) + " of 10");
+        
+        ar.push_back(1ul);
+    }
+    
+        
+    std::cout << "[ OK ]: FlexibleArray test" << std::endl;
+    
+    
+    
+    // KDTree test   
     std::srand(std::random_device{}());
     
-    std::vector< KDTree::Node<D>::Point > points;
+    using MyKDTree = KDTree::Node<D, float, std::size_t>;
+    
+    std::vector< MyKDTree::Point > points;
     const auto tree_size = 20000ul;
     
     for(auto i=0ul; i<tree_size; ++i)
-        points.push_back( KDTree::Node<D>::Point::Random() );
+        points.push_back( MyKDTree::Point::Random() );
     
-    const auto tree = KDTree::Node<D>::build_tree(points);
+    std::vector<std::size_t> idxs(points.size());
+    std::iota(idxs.begin(), idxs.end(), 0ul);
+    
+    const auto tree = MyKDTree::build_tree(points, idxs);
     
     // Test
     const int n_test = 1000;
     
-    std::vector< KDTree::Node<D>::Point > test_targets;
+    std::vector< MyKDTree::Point > test_targets;
     std::vector<double> speedups;
     
     for(int i=0; i<n_test; ++i)
     {
         // Random query point
-        const KDTree::Node<D>::Point target = KDTree::Node<D>::Point::Random();
+        const MyKDTree::Point target = MyKDTree::Point::Random();
         
         // Find neighbor by loop
         const auto t0_loop = std::chrono::high_resolution_clock::now();
         
-        std::vector< KDTree::Node<D>::Scalar > loop_dists;
+        std::vector< MyKDTree::Scalar > loop_dists;
         loop_dists.reserve(points.size());
         
         std::transform(points.begin(), points.end(), std::back_inserter(loop_dists), [&](auto &a){ return (target - a).dot(target - a); });
@@ -51,7 +77,7 @@ int main()
         const auto t1_tree = std::chrono::high_resolution_clock::now();
         
         // Compute deltas
-        std::array<KDTree::Node<D>::Scalar, K> delta;
+        std::array<MyKDTree::Scalar, K> delta;
         for(auto j=0ul; j<K; ++j)
             delta[j] = std::abs(loop_dists[j] - tree_dists[j]);
         

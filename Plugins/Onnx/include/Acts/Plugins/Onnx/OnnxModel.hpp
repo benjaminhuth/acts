@@ -10,6 +10,9 @@
 
 #include "Acts/Definitions/Algebra.hpp"
 
+#include <numeric>
+#include <sstream>
+
 #include <core/session/onnxruntime_cxx_api.h>
 
 namespace Acts {
@@ -81,8 +84,13 @@ class OnnxModel {
     Ort::AllocatorWithDefaultOptions allocator;
 
     if (m_session->GetInputCount() != NumInputs ||
-        m_session->GetOutputCount() != NumOutputs)
-      throw std::invalid_argument("Input or Output dimension mismatch");
+        m_session->GetOutputCount() != NumOutputs) {
+      std::stringstream msg;
+      msg << "dimension mismatch (Inputs: " << NumInputs << " expected and got "
+          << m_session->GetInputCount() << ", Outputs: " << NumOutputs
+          << " expected and got " << m_session->GetOutputCount() << ")";
+      throw std::invalid_argument(msg.str());
+    }
 
     // Handle inputs
     for (size_t i = 0; i < NumInputs; ++i) {

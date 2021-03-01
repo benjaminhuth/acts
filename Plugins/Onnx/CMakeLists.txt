@@ -5,10 +5,14 @@ add_library(
   include/Acts/Plugins/Onnx/MLTrackClassifier.hpp
   include/Acts/Plugins/Onnx/MLNavigator.hpp
   include/Acts/Plugins/Onnx/OnnxModel.hpp
-  include/Acts/Plugins/Onnx/detail/KDTree.hpp
+  include/Acts/Plugins/Onnx/KDTree.hpp
+  include/Acts/Plugins/Onnx/PairwiseScoreModel.hpp
+  include/Acts/Plugins/Onnx/TargetPredModel.hpp
+  include/Acts/Plugins/Onnx/beampipe_split.hpp
   # source files
   src/OnnxRuntimeBase.cpp
-  src/MLTrackClassifier.cpp)
+  src/MLTrackClassifier.cpp
+  src/PairwiseScoreModel.cpp)
 
 target_include_directories(
   ActsPluginOnnx

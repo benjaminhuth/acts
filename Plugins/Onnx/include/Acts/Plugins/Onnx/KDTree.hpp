@@ -1,5 +1,12 @@
-#ifndef KD_TREE_HPP
-#define KD_TREE_HPP
+// This file is part of the Acts project.
+//
+// Copyright (C) 2021 CERN for the benefit of the Acts project
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+#pragma once
 
 #include <algorithm>
 #include <iostream>
@@ -11,14 +18,12 @@
 
 namespace Acts {
 namespace detail {
+
 /// This is a wrapper class around std::array which provides somewhat the
 /// functionality of a std::vector, but with a maximum length. The access
 /// methods do not perform bound checks, thus it must be used with care.
 template <typename T, std::size_t N>
 class FlexibleArray {
-  using it_type = typename std::array<T, N>::iterator;
-  using cit_type = typename std::array<T, N>::const_iterator;
-
   std::array<T, N> m_data;
   std::size_t m_cur_size = 0;
 
@@ -38,12 +43,12 @@ class FlexibleArray {
   auto begin() const { return m_data.cbegin(); }
 
   auto end() { return m_data.begin() + m_cur_size; }
-  auto end() const { return cit_type(m_data.begin() + m_cur_size); }
+  auto end() const { return m_data.cbegin() + m_cur_size; }
 
   auto &front() { return *m_data.begin(); }
-  const auto &front() const { return *m_data.begin(); }
+  const auto &front() const { return *m_data.cbegin(); }
   auto &back() { return *std::prev(m_data.begin() + m_cur_size); }
-  const auto &back() const { return *std::prev(m_data.begin() + m_cur_size); }
+  const auto &back() const { return *std::prev(m_data.cbegin() + m_cur_size); }
 
   void push_back(const T &val) {
     *(m_data.begin() + m_cur_size) = val;
@@ -90,21 +95,24 @@ static auto concat(const FlexibleArray<T, N1> &a,
 
 namespace KDTree {
 
-template <int D, typename scalar_t = float>
+template <int D, typename scalar_t, typename payload_t>
 class Node {
  public:
   using Scalar = scalar_t;
   using NodePtr = std::unique_ptr<Node>;
+
   using Point = Eigen::Matrix<Scalar, D, 1>;
-  using Index = std::size_t;
-  using PointIndexTuple = std::tuple<Point, Index>;
-  using PointIndexTupleIter = typename std::vector<PointIndexTuple>::iterator;
+  using Payload = payload_t;
+
+  using PointPayloadTuple = std::tuple<Point, Payload>;
+  using PointPayloadTupleIter =
+      typename std::vector<PointPayloadTuple>::iterator;
 
  private:
   template <std::size_t N>
   using FlexArray = detail::FlexibleArray<std::pair<const Node *, Scalar>, N>;
 
-  const PointIndexTuple m_val;
+  const PointPayloadTuple m_val;
   const NodePtr m_left;
   const NodePtr m_right;
   Node *parent;
@@ -115,50 +123,47 @@ class Node {
   Node &operator=(const Node &) = delete;
 
   /// Constructor for leaf node
-  Node(const PointIndexTuple &v) : m_val(v) {}
+  Node(const PointPayloadTuple &v) : m_val(v) {}
 
   /// Constructor for node with only one child
-  Node(const PointIndexTuple &v, NodePtr &&l) : m_val(v), m_left(std::move(l)) {
+  Node(const PointPayloadTuple &v, NodePtr &&l)
+      : m_val(v), m_left(std::move(l)) {
     m_left->parent = this;
   }
 
   /// Constructor for node with two childs
-  Node(const PointIndexTuple &v, NodePtr &&l, NodePtr &&r)
+  Node(const PointPayloadTuple &v, NodePtr &&l, NodePtr &&r)
       : m_val(v), m_left(std::move(l)), m_right(std::move(r)) {
     m_left->parent = this;
     m_right->parent = this;
   }
 
-  auto &point() const { return std::get<Point>(m_val); }
+  static auto build_tree(const std::vector<Point> &points,
+                         const std::vector<Payload> &payloads) {
+    std::vector<PointPayloadTuple> transformed(points.size());
 
-  auto index() const { return std::get<Index>(m_val); }
-
-  static auto build_tree(const std::vector<Point> &points) {
-    std::vector<Index> idxs(points.size());
-    std::iota(idxs.begin(), idxs.end(), static_cast<Index>(0));
-
-    std::vector<PointIndexTuple> transformed(points.size());
-
-    std::transform(points.begin(), points.end(), idxs.begin(),
+    std::transform(points.begin(), points.end(), payloads.begin(),
                    transformed.begin(),
-                   [](auto p, auto i) { return std::make_tuple(p, i); });
+                   [](auto p, auto v) { return std::make_tuple(p, v); });
 
     return build_tree_impl({transformed.begin(), transformed.end()}, 0);
   }
 
   template <std::size_t K>
   auto query_k_neighbors(const Point &target) {
-    const auto result = query_neighbors_impl<3>(target, 0);
+    const auto result = query_neighbors_impl<K>(target, 0);
+    
+    std::cout << "Flexarray.size() = " << result.size() << std::endl;
 
-    std::array<const Node *, K> nodes;
+    std::array<Payload, K> payloads;
     std::array<Scalar, K> dists;
 
     for (auto i = 0ul; i < K; ++i) {
-      nodes[i] = result[i].first;
+      payloads[i] = std::get<Payload>(result[i].first->m_val);
       dists[i] = result[i].second;
     }
 
-    return std::make_tuple(nodes, dists);
+    return std::make_tuple(payloads, dists);
   }
 
  private:
@@ -166,7 +171,8 @@ class Node {
   /// TODO in principle designed for std::span in C++20, not for std::pair of
   /// iterators
   static auto build_tree_impl(
-      std::pair<PointIndexTupleIter, PointIndexTupleIter> points, const int d) {
+      std::pair<PointPayloadTupleIter, PointPayloadTupleIter> points,
+      const int d) {
     std::sort(points.first, points.second, [&](const auto &a, const auto &b) {
       return std::get<Point>(a)[d] < std::get<Point>(b)[d];
     });
@@ -175,7 +181,6 @@ class Node {
       return std::make_unique<Node>(*points.first);
     } else if (std::distance(points.first, points.second) == 2u) {
       auto lnode = std::make_unique<Node>(*(points.first + 1));
-
       return std::make_unique<Node>(*points.first, std::move(lnode));
     } else {
       const auto sep = (std::distance(points.first, points.second) - 1u) / 2u;
@@ -207,11 +212,11 @@ class Node {
     auto merge_sorted_arrays = [](const FlexArray<N> &a1,
                                   const FlexArray<N> &a2) {
       FlexArray<N> ret;
-
+            
       auto it1 = a1.begin();
       auto it2 = a2.begin();
 
-      for (auto i = 0ul; i < N || (it1 == a1.end() && it2 == a2.end()); ++i) {
+      for (auto i = 0ul; i < N && !(it1 == a1.end() && it2 == a2.end()); ++i) {
         if (it1 != a1.end() && it2 == a2.end())
           ret.push_back(*it1++);
         else if (it2 != a2.end() && it1 == a1.end())
@@ -281,7 +286,5 @@ class Node {
   }
 };
 
-}
+}  // namespace KDTree
 }  // namespace Acts
-
-#endif
