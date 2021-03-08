@@ -152,8 +152,6 @@ class Node {
   template <std::size_t K>
   auto query_k_neighbors(const Point &target) {
     const auto result = query_neighbors_impl<K>(target, 0);
-    
-    std::cout << "Flexarray.size() = " << result.size() << std::endl;
 
     std::array<Payload, K> payloads;
     std::array<Scalar, K> dists;

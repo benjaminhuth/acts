@@ -35,6 +35,10 @@ auto make_target_predict_model(
     std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
   // Init some values from command line
   const auto model_path = vm["target_pred_model"].as<std::string>();
+  
+  if( !boost::filesystem::exists(model_path) )
+      throw std::runtime_error("Path '" + model_path + "' does not exists");
+  
   const auto bpsplit_z_bounds =
       load_bpsplit_z_bounds(vm["bpsplit_z_path"].as<std::string>());
   const auto total_bpsplit =
@@ -49,7 +53,7 @@ auto make_target_predict_model(
   Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "target_pred_model");
 
   auto model =
-      std::make_shared<Acts::OnnxModel<2, 1>>(env, sessionOptions, model_path);
+      std::make_shared<Acts::TargetPredModel<20>::Model>(env, sessionOptions, model_path);
 
   // KD-tree
   using ThisKDTree = Acts::KDTree::Node<10, float, const Acts::Surface *>;
@@ -70,7 +74,7 @@ auto make_target_predict_model(
       ThisKDTree::build_tree(embeddings, surfaces));
 
   // Target Pred Model
-  return std::make_shared<Acts::TargetPredModel>(
+  return std::make_shared<Acts::TargetPredModel<20>>(
       bpsplit_z_bounds, embedding_map, kdtree, model, tgeo);
 }
 
@@ -79,6 +83,10 @@ auto make_pairwise_score_model(
     std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
   // Init some values from command line
   const auto model_path = vm["pairwise_score_model"].as<std::string>();
+  
+  if( !boost::filesystem::exists(model_path) )
+      throw std::runtime_error("Path '" + model_path + "' does not exists");
+  
   const auto bpsplit_z_bounds =
       load_bpsplit_z_bounds(vm["bpsplit_z_path"].as<std::string>());
   const auto embedding_map = make_realspace_embedding(*tgeo, bpsplit_z_bounds);
@@ -92,7 +100,7 @@ auto make_pairwise_score_model(
   Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "pairwise_score_model");
 
   auto model =
-      std::make_shared<Acts::OnnxModel<3, 1>>(env, sessionOptions, model_path);
+      std::make_shared<Acts::PairwiseScoreModel::Model>(env, sessionOptions, model_path);
 
   // Return whole thing
   return std::make_shared<Acts::PairwiseScoreModel>(

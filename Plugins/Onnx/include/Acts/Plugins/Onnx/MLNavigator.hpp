@@ -33,7 +33,7 @@ namespace Acts {
 /// The Beampipe-Surface is splitted along the z-axis
 class MLNavigator {
   std::shared_ptr<Acts::PairwiseScoreModel> m_mainModel;
-  std::shared_ptr<Acts::TargetPredModel> m_fallbackModel;
+  std::shared_ptr<Acts::TargetPredModel<20>> m_fallbackModel;
   std::shared_ptr<const Acts::TrackingGeometry> m_tgeo;
 
  public:
@@ -42,6 +42,7 @@ class MLNavigator {
     std::vector<const Acts::Surface *> navSurfacesFallback;
     std::vector<const Acts::Surface *>::const_iterator navSurfaceIter;
     const Acts::Surface *currentSurface;
+    const Acts::Surface *lastSurface;
     const Acts::Surface *startSurface;
 
     bool navigationBreak = false;
@@ -56,7 +57,7 @@ class MLNavigator {
 
   /// Constructor of the ML Navigator
   MLNavigator(std::shared_ptr<Acts::PairwiseScoreModel> psm,
-              std::shared_ptr<Acts::TargetPredModel> tpm,
+              std::shared_ptr<Acts::TargetPredModel<20>> tpm,
               std::shared_ptr<const Acts::TrackingGeometry> tgeo)
       : m_mainModel(std::move(psm)),
         m_fallbackModel(std::move(tpm)),
@@ -79,6 +80,7 @@ class MLNavigator {
 
         // TODO This is hacky, but for now assume we start at beamline
         state.navigation.currentSurface = m_tgeo->getBeamline();
+        state.navigation.lastSurface = state.navigation.currentSurface;
         state.navigation.currentVolume = m_tgeo->highestTrackingVolume();
         return;
       }
@@ -95,6 +97,9 @@ class MLNavigator {
         state.navigation.currentSurface = *state.navigation.navSurfaceIter;
         ACTS_VERBOSE("Current surface set to  "
                      << state.navigation.currentSurface->geometryId());
+
+        // Set the last surface (which is never reset to nullptr)
+        state.navigation.currentSurface = *state.navigation.navSurfaceIter;
 
         // Release Stepsize
         ACTS_VERBOSE("Release Stepsize");
@@ -147,11 +152,7 @@ class MLNavigator {
 
         navstate.navSurfaces = m_mainModel->predict_next(
             navstate.currentSurface, state.stepping.pars, logger);
-
-        // Can be done later but for now here is simplest. also don't have to
-        // worry about currentSurface which is nullptr later
-        navstate.navSurfaces = m_fallbackModel->predict_next<20>(
-            navstate.currentSurface, state.stepping.pars, logger);
+        navstate.navSurfaceIter = navstate.navSurfaces.begin();
 
         navstate.inFallbackMode = false;
       }
@@ -205,10 +206,12 @@ class MLNavigator {
         // If not found and not yet in fallback mode, load fallback pool and
         // search again
         if (found == navstate.navSurfaces.end() && !navstate.inFallbackMode) {
-          ACTS_VERBOSE(
+          ACTS_INFO(
               "the main model could not find a surface, use fallback model");
 
-          navstate.navSurfaces = navstate.navSurfacesFallback;
+          navstate.navSurfaces = m_fallbackModel->predict_next(
+              navstate.lastSurface, state.stepping.pars, logger);
+
           navstate.inFallbackMode = true;
 
           found = std::find_if(navstate.navSurfaces.begin(),
@@ -217,6 +220,9 @@ class MLNavigator {
                                             state.stepping, *s, false) ==
                                         Intersection3D::Status::reachable;
                                });
+          
+          if ( found == navstate.navSurfaces.end() )
+              ACTS_INFO("nothing found directly after fallback model prediction");
         }
 
         // If we did not find the surface, stop the navigation

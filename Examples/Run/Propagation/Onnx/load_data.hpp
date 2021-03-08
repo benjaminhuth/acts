@@ -15,6 +15,8 @@
 #include <dfe/dfe_io_dsv.hpp>
 #include <dfe/dfe_namedtuple.hpp>
 
+#include <boost/filesystem.hpp>
+
 ///////////////////////
 // The embedding map //
 ///////////////////////
@@ -22,8 +24,11 @@
 template <int D>
 auto load_embeddings(const std::string &csv_path,
                      const Acts::TrackingGeometry &tgeo,
-                     std::size_t total_bp_split) {
+                     std::size_t total_bp_split) {    
   using EmbeddingVector = Eigen::Matrix<float, D, 1>;
+  
+  if( !boost::filesystem::exists(csv_path) )
+      throw std::runtime_error("Path '" + csv_path + "' does not exists");
 
   std::map<uint64_t, EmbeddingVector> data;
   std::size_t num_not_acts_geoid = 0;
@@ -105,6 +110,9 @@ auto load_graph(const std::string &csv_path, const std::vector<double> &bpsplit,
                 const std::map<uint64_t, EmbeddingVector> &embedding_map,
                 const Acts::TrackingGeometry &tgeo) {
   // Read CSV file
+  if( !boost::filesystem::exists(csv_path) )
+      throw std::runtime_error("Path '" + csv_path + "' does not exists");
+  
   auto reader = dfe::NamedTupleCsvReader<CsvPropagationLoggerRow>(csv_path);
 
   std::vector<
@@ -154,6 +162,9 @@ auto load_graph(const std::string &csv_path, const std::vector<double> &bpsplit,
 ////////////////////////
 
 auto load_bpsplit_z_bounds(const std::string &path) {
+  if( !boost::filesystem::exists(path) )
+      throw std::runtime_error("Path '" + path + "' does not exists");
+  
   std::ifstream file(path);
 
   std::vector<double> bounds;

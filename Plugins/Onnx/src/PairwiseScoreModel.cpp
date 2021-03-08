@@ -45,7 +45,7 @@ PairwiseScoreModel::PairwiseScoreModel(
     const std::map<uint64_t,
                    std::vector<std::pair<const Surface *, EmbeddingVector>>>
         &graph,
-    std::shared_ptr<OnnxModel<3, 1>> model)
+    std::shared_ptr<Model> model)
     : m_bpsplitZBounds(bp_z_bounds),
       m_possible_start_surfaces(possibel_start_surfaces),
       m_idToEmbedding(emb_map),
@@ -81,10 +81,9 @@ std::vector<const Surface *> PairwiseScoreModel::predict_next(
   ACTS_VERBOSE("prediction loop with " << targets.size() << " targets");
 
   for (auto &[target_surf, target_emb] : targets) {
-    auto output = std::tuple<Eigen::Matrix<float, 1, 1>>();
     auto input = std::tuple{start_emb, target_emb, start_params};
 
-    m_model->predict(output, input);
+    const auto output = m_model->predict(input);
 
     predictions.push_back({std::get<0>(output)[0], target_surf});
   }

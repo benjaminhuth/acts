@@ -15,6 +15,7 @@ target_link_libraries(ActsExamplePropagationWithMLNavigation
   ActsExamplesIoRoot
   ActsExamplesDetectorGeneric
   Boost::program_options
+  Boost::filesystem
   dfelibs
 )
 

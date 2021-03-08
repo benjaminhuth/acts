@@ -24,15 +24,18 @@
 namespace Acts {
 
 class PairwiseScoreModel {
+public:
   using EmbeddingVector = Eigen::Vector3f;
+  using Model = OnnxModel< OnnxInputs<3,3,4>, OnnxOutputs<1> >;
 
+private:
   std::vector<double> m_bpsplitZBounds;
   std::set<const Surface *> m_possible_start_surfaces;
   std::map<uint64_t, EmbeddingVector> m_idToEmbedding;
   std::map<uint64_t, std::vector<std::pair<const Surface *, EmbeddingVector>>>
       m_surfaceGraph;
 
-  std::shared_ptr<OnnxModel<3, 1>> m_model;
+  std::shared_ptr<Model> m_model;
 
  public:
   PairwiseScoreModel(
@@ -42,7 +45,7 @@ class PairwiseScoreModel {
       const std::map<uint64_t,
                      std::vector<std::pair<const Surface *, EmbeddingVector>>>
           &graph,
-      std::shared_ptr<OnnxModel<3, 1>> model);
+      std::shared_ptr<Model> model);
 
   std::vector<const Surface *> predict_next(const Surface *current,
                                             const FreeVector &params,
