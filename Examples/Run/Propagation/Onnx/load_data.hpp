@@ -11,6 +11,7 @@
 #include "Acts/Plugins/Onnx/MLNavigator.hpp"
 #include "Acts/Plugins/Onnx/beampipe_split.hpp"
 #include "Acts/Surfaces/Surface.hpp"
+#include "Acts/Utilities/Logger.hpp"
 
 #include <dfe/dfe_io_dsv.hpp>
 #include <dfe/dfe_namedtuple.hpp>
@@ -25,6 +26,9 @@ template <int D>
 auto load_embeddings(const std::string &csv_path,
                      const Acts::TrackingGeometry &tgeo,
                      std::size_t total_bp_split) {    
+  auto load_logger = Acts::getDefaultLogger("LoadData", Acts::Logging::INFO);
+  ACTS_LOCAL_LOGGER(std::move(load_logger));
+    
   using EmbeddingVector = Eigen::Matrix<float, D, 1>;
   
   if( !boost::filesystem::exists(csv_path) )
@@ -55,9 +59,8 @@ auto load_embeddings(const std::string &csv_path,
   throw_assert(total_bp_split == num_not_acts_geoid,
                "Consistency check failed: beampipe split not correct");
 
-  std::cout << "INFO: Successfully loaded " << D << "D-embedding from '"
-            << csv_path << "' (with " << data.size() << " entries)"
-            << std::endl;
+  ACTS_INFO("Successfully loaded " << D << "D-embedding from '"
+            << csv_path << "' (with " << data.size() << " entries)");
 
   return data;
 }
@@ -66,7 +69,10 @@ auto load_embeddings(const std::string &csv_path,
 /// just use this for pairwise_pred. Otherwise, we need to ensure that all
 /// embeddings are unique (because of uniqueness of KNN-search results)
 auto make_realspace_embedding(const Acts::TrackingGeometry &tgeo,
-                              const std::vector<double> &bpsplit_z_bounds) {
+                              const std::vector<double> &bpsplit_z_bounds) {    
+  auto load_logger = Acts::getDefaultLogger("LoadData", Acts::Logging::INFO);
+  ACTS_LOCAL_LOGGER(std::move(load_logger));
+  
   using EmbeddingVector = Eigen::Matrix<float, 3, 1>;
   Acts::GeometryContext gctx;
 
@@ -84,8 +90,7 @@ auto make_realspace_embedding(const Acts::TrackingGeometry &tgeo,
     data[id] = EmbeddingVector{0.f, 0.f, static_cast<float>(pos)};
   }
 
-  std::cout << "INFO: Successfully constructed 3D real-space embedding (with "
-            << data.size() << " entries)" << std::endl;
+  ACTS_INFO("Successfully constructed 3D real-space embedding (with " << data.size() << " entries)");
 
   return data;
 }
@@ -108,7 +113,10 @@ struct CsvPropagationLoggerRow {
 template <typename EmbeddingVector>
 auto load_graph(const std::string &csv_path, const std::vector<double> &bpsplit,
                 const std::map<uint64_t, EmbeddingVector> &embedding_map,
-                const Acts::TrackingGeometry &tgeo) {
+                const Acts::TrackingGeometry &tgeo) {    
+  auto load_logger = Acts::getDefaultLogger("LoadData", Acts::Logging::INFO);
+  ACTS_LOCAL_LOGGER(std::move(load_logger));
+  
   // Read CSV file
   if( !boost::filesystem::exists(csv_path) )
       throw std::runtime_error("Path '" + csv_path + "' does not exists");
@@ -150,9 +158,7 @@ auto load_graph(const std::string &csv_path, const std::vector<double> &bpsplit,
         possible_starts.insert(tgeo.getBeamline());
   }
 
-  std::cout << "INFO: Successfully loaded propagation graph map from '"
-            << csv_path << "' (with " << graph.size() << " entries)"
-            << std::endl;
+  ACTS_INFO("Successfully loaded propagation graph map from '" << csv_path << "' (with " << graph.size() << " entries)");
 
   return std::make_tuple(graph, possible_starts);
 }
@@ -162,6 +168,9 @@ auto load_graph(const std::string &csv_path, const std::vector<double> &bpsplit,
 ////////////////////////
 
 auto load_bpsplit_z_bounds(const std::string &path) {
+  auto load_logger = Acts::getDefaultLogger("LoadData", Acts::Logging::INFO);
+  ACTS_LOCAL_LOGGER(std::move(load_logger));
+  
   if( !boost::filesystem::exists(path) )
       throw std::runtime_error("Path '" + path + "' does not exists");
   
@@ -173,8 +182,7 @@ auto load_bpsplit_z_bounds(const std::string &path) {
   while (std::getline(file, str))
     bounds.push_back(std::stod(str));
 
-  std::cout << "INFO: Successfully loaded z-bounds for Beampipesplit from '"
-            << path << "' (with " << bounds.size() << " entries)" << std::endl;
+  ACTS_INFO("Successfully loaded z-bounds for Beampipesplit from '" << path << "' (with " << bounds.size() << " entries)");
 
   return bounds;
 }

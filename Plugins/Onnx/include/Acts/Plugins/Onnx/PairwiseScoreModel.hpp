@@ -30,7 +30,6 @@ public:
 
 private:
   std::vector<double> m_bpsplitZBounds;
-  std::set<const Surface *> m_possible_start_surfaces;
   std::map<uint64_t, EmbeddingVector> m_idToEmbedding;
   std::map<uint64_t, std::vector<std::pair<const Surface *, EmbeddingVector>>>
       m_surfaceGraph;
@@ -40,7 +39,6 @@ private:
  public:
   PairwiseScoreModel(
       const std::vector<double> &bp_z_bounds,
-      const std::set<const Surface *> possibel_start_surfaces,
       const std::map<uint64_t, EmbeddingVector> &emb_map,
       const std::map<uint64_t,
                      std::vector<std::pair<const Surface *, EmbeddingVector>>>
@@ -50,11 +48,6 @@ private:
   std::vector<const Surface *> predict_next(const Surface *current,
                                             const FreeVector &params,
                                             const LoggerWrapper &logger) const;
-
-  // TODO this should live inside of MLNavigator not here
-  const auto &possible_start_surfaces() const {
-    return m_possible_start_surfaces;
-  }
 };
 
 }  // namespace Acts

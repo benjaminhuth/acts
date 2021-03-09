@@ -75,7 +75,7 @@ private:
 
     const auto [surfaces, dists] =
         (*m_kdtree.get())
-            ->query_k_neighbors<N>(std::get<EmbeddingVector>(output));
+            ->template query_k_neighbors<N>(std::get<EmbeddingVector>(output));
 
     return std::vector<const Surface *>(surfaces.begin(), surfaces.end());
   }

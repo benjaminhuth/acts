@@ -40,14 +40,12 @@ namespace Acts {
 
 PairwiseScoreModel::PairwiseScoreModel(
     const std::vector<double> &bp_z_bounds,
-    const std::set<const Surface *> possibel_start_surfaces,
     const std::map<uint64_t, EmbeddingVector> &emb_map,
     const std::map<uint64_t,
                    std::vector<std::pair<const Surface *, EmbeddingVector>>>
         &graph,
     std::shared_ptr<Model> model)
     : m_bpsplitZBounds(bp_z_bounds),
-      m_possible_start_surfaces(possibel_start_surfaces),
       m_idToEmbedding(emb_map),
       m_surfaceGraph(graph),
       m_model(model) {}
@@ -70,25 +68,23 @@ std::vector<const Surface *> PairwiseScoreModel::predict_next(
                "Could not resolve ID to embedding");
 
   const auto targets = m_surfaceGraph.at(id);
-  const auto start_emb = m_idToEmbedding.at(id);
-  const Eigen::Vector4f start_params =
-      params.segment<4>(Acts::eFreeDir0).cast<float>();
-
-  std::vector<std::pair<float, const Acts::Surface *>> predictions;
-  predictions.reserve(targets.size());
+  
+  std::vector<EmbeddingVector> target_emb_vec(targets.size());
+  std::transform(targets.begin(), targets.end(), target_emb_vec.begin(), [](auto a){ return a.second; });
+  
+  std::vector<EmbeddingVector> start_emb_vec(targets.size(), m_idToEmbedding.at(id));
+  std::vector<Eigen::Vector4f> start_params_vec(targets.size(), params.segment<4>(Acts::eFreeDir0).cast<float>());
 
   // Loop over all possible targets and predict score
   ACTS_VERBOSE("prediction loop with " << targets.size() << " targets");
-
-  for (auto &[target_surf, target_emb] : targets) {
-    auto input = std::tuple{start_emb, target_emb, start_params};
-
-    const auto output = m_model->predict(input);
-
-    predictions.push_back({std::get<0>(output)[0], target_surf});
-  }
-
+  
+  Model::InVectorTuple input{start_emb_vec, target_emb_vec, start_params_vec};
+  const auto output = std::get<0>(m_model->predict(input));
+  
   ACTS_VERBOSE("Finished target prediction loop");
+  
+  std::vector<std::pair<float, const Acts::Surface *>> predictions(targets.size());
+  std::transform(output.begin(), output.end(), targets.begin(), predictions.begin(), [](auto a, auto b){ return std::pair{a[0], b.first}; }); 
 
   // Sort by score and extract pointers, then set state.navSurfaces
   std::sort(predictions.begin(), predictions.end(),

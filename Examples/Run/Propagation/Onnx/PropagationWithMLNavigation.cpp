@@ -30,21 +30,27 @@
 
 #include "load_data.hpp"
 
+namespace po = boost::program_options;
+
 auto make_target_predict_model(
-    const boost::program_options::variables_map &vm,
+    const po::variables_map &vm,
     std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
   // Init some values from command line
   const auto model_path = vm["target_pred_model"].as<std::string>();
-  
-  if( !boost::filesystem::exists(model_path) )
-      throw std::runtime_error("Path '" + model_path + "' does not exists");
-  
+
+  if (!boost::filesystem::exists(model_path))
+    throw std::runtime_error("Path '" + model_path + "' does not exists");
+
+  // Load necessary data
   const auto bpsplit_z_bounds =
       load_bpsplit_z_bounds(vm["bpsplit_z_path"].as<std::string>());
   const auto total_bpsplit =
       (bpsplit_z_bounds.size() - 1) * vm["bpsplit_phi"].as<std::size_t>();
   const auto embedding_map = load_embeddings<10>(
       vm["embedding_data"].as<std::string>(), *tgeo, total_bpsplit);
+  const auto [graph, possible_start_surfaces] =
+      load_graph(vm["graph_data"].as<std::string>(), bpsplit_z_bounds,
+                 embedding_map, *tgeo);
 
   // Onnx Model
   Ort::SessionOptions sessionOptions;
@@ -52,8 +58,8 @@ auto make_target_predict_model(
       GraphOptimizationLevel::ORT_ENABLE_BASIC);
   Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "target_pred_model");
 
-  auto model =
-      std::make_shared<Acts::TargetPredModel<20>::Model>(env, sessionOptions, model_path);
+  auto model = std::make_shared<Acts::TargetPredModel<20>::Model>(
+      env, sessionOptions, model_path);
 
   // KD-tree
   using ThisKDTree = Acts::KDTree::Node<10, float, const Acts::Surface *>;
@@ -74,24 +80,28 @@ auto make_target_predict_model(
       ThisKDTree::build_tree(embeddings, surfaces));
 
   // Target Pred Model
-  return std::make_shared<Acts::TargetPredModel<20>>(
+  auto target_pred_model = std::make_shared<Acts::TargetPredModel<20>>(
       bpsplit_z_bounds, embedding_map, kdtree, model, tgeo);
+
+  return std::tuple{target_pred_model, possible_start_surfaces};
 }
 
 auto make_pairwise_score_model(
-    const boost::program_options::variables_map &vm,
+    const po::variables_map &vm,
     std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
   // Init some values from command line
   const auto model_path = vm["pairwise_score_model"].as<std::string>();
-  
-  if( !boost::filesystem::exists(model_path) )
-      throw std::runtime_error("Path '" + model_path + "' does not exists");
-  
+
+  if (!boost::filesystem::exists(model_path))
+    throw std::runtime_error("Path '" + model_path + "' does not exists");
+
+  // Load neccessary data
   const auto bpsplit_z_bounds =
       load_bpsplit_z_bounds(vm["bpsplit_z_path"].as<std::string>());
   const auto embedding_map = make_realspace_embedding(*tgeo, bpsplit_z_bounds);
-  const auto [graph, possible_start_surfaces] = load_graph(vm["graph_data"].as<std::string>(),
-                                bpsplit_z_bounds, embedding_map, *tgeo);
+  const auto [graph, possible_start_surfaces] =
+      load_graph(vm["graph_data"].as<std::string>(), bpsplit_z_bounds,
+                 embedding_map, *tgeo);
 
   // Onnx Model
   Ort::SessionOptions sessionOptions;
@@ -99,16 +109,20 @@ auto make_pairwise_score_model(
       GraphOptimizationLevel::ORT_ENABLE_BASIC);
   Ort::Env env(ORT_LOGGING_LEVEL_WARNING, "pairwise_score_model");
 
-  auto model =
-      std::make_shared<Acts::PairwiseScoreModel::Model>(env, sessionOptions, model_path);
+  auto model = std::make_shared<Acts::PairwiseScoreModel::Model>(
+      env, sessionOptions, model_path);
 
-  // Return whole thing
-  return std::make_shared<Acts::PairwiseScoreModel>(
-      bpsplit_z_bounds, possible_start_surfaces, embedding_map, graph, model);
+  auto pairwise_score_model = std::make_shared<Acts::PairwiseScoreModel>(
+      bpsplit_z_bounds, embedding_map, graph, model);
+
+  return std::tuple{pairwise_score_model, possible_start_surfaces};
 }
 
 int main(int argc, char **argv) {
   GenericDetector detector;
+
+  auto main_logger = Acts::getDefaultLogger("Main", Acts::Logging::INFO);
+  ACTS_LOCAL_LOGGER(std::move(main_logger));
 
   auto desc = ActsExamples::Options::makeDefaultOptions();
   ActsExamples::Options::addSequencerOptions(desc);
@@ -119,18 +133,17 @@ int main(int argc, char **argv) {
   ActsExamples::Options::addPropagationOptions(desc);
   ActsExamples::Options::addOutputOptions(desc);
 
-  desc.add_options()("pairwise_score_model",
-                     boost::program_options::value<std::string>(),
-                     "path of a ONNX Model")(
-      "target_pred_model", boost::program_options::value<std::string>(),
-      "path of a ONNX Model")(
-      "graph_data", boost::program_options::value<std::string>(),
+  desc.add_options()("navigator_type", po::value<std::string>(),
+                     "'ps' (pairwise score) or 'tp' (target prediction)")(
+      "pairwise_score_model", po::value<std::string>(), "path of a ONNX Model")(
+      "target_pred_model", po::value<std::string>(), "path of a ONNX Model")(
+      "graph_data", po::value<std::string>(),
       "path to the propgagation log from which the graph is built (CSV)")(
-      "embedding_data", boost::program_options::value<std::string>(),
+      "embedding_data", po::value<std::string>(),
       "path to the file which describes the embedding (CSV)")(
-      "bpsplit_z_path", boost::program_options::value<std::string>(),
+      "bpsplit_z_path", po::value<std::string>(),
       "path to the beampipe split file containing z boundaries")(
-      "bpsplit_phi", boost::program_options::value<std::size_t>(),
+      "bpsplit_phi", po::value<std::size_t>(),
       "integer describing the phi split");
 
   // Add specific options for this geometry
@@ -140,6 +153,29 @@ int main(int argc, char **argv) {
     return EXIT_FAILURE;
   }
 
+  // Check some command line parameters
+  auto fail_if_arg_is_missing = [&](const std::string &arg) {
+    if (!vm.count(arg))
+      ACTS_FATAL("command line parameter '" << arg << "' is missing");
+  };
+
+  fail_if_arg_is_missing("navigator_type");
+
+  if (auto n = vm["navigator_type"].as<std::string>(); n != "ps" && n != "tp")
+    ACTS_FATAL("'navigator_type' must be either 'ps' or 'tp'");
+
+  if (auto n = vm["navigator_type"].as<std::string>(); n == "ps") {
+    fail_if_arg_is_missing("pairwise_score_model");
+  } else {
+    fail_if_arg_is_missing("target_pred_model");
+    fail_if_arg_is_missing("embedding_data");
+  }
+
+  fail_if_arg_is_missing("graph_data");
+  fail_if_arg_is_missing("bpsplit_phi");
+  fail_if_arg_is_missing("bpsplit_z_path");
+
+  // Sequencer
   const auto sequencer_config = ActsExamples::Options::readSequencerConfig(vm);
   ActsExamples::Sequencer sequencer(sequencer_config);
 
@@ -158,46 +194,57 @@ int main(int argc, char **argv) {
   auto randomNumberSvc =
       std::make_shared<ActsExamples::RandomNumbers>(randomNumberSvcCfg);
 
-  // ML Navigator
-  auto target_pred_model = make_target_predict_model(vm, tGeometry);
-  std::cout << "INFO: Constructed target prediction model" << std::endl;
-  auto pairwise_score_model = make_pairwise_score_model(vm, tGeometry);
-  std::cout << "INFO: Constructed pairwise score model" << std::endl;
-
-  Acts::MLNavigator navigator(pairwise_score_model, target_pred_model,
-                              tGeometry);
-  
-  std::cout << "INFO: Constructed navigator!" << std::endl;
-
   // Magnetic Field
   auto bFieldVar = ActsExamples::Options::readBField(vm);
 
-  std::visit(
-      [&](auto &bField) {
-        // Resolve the bfield map and create the propgator
-        using field_type =
-            typename std::decay_t<decltype(bField)>::element_type;
-        Acts::SharedBField<field_type> fieldMap(bField);
-        using field_map_type = decltype(fieldMap);
+  // generic lambda to make navigator
+  auto add_navigator_to_sequencer = [&](auto navigator) {
+    std::visit(
+        [&](auto &bField) {
+          // Resolve the bfield map and create the propgator
+          using field_type =
+              typename std::decay_t<decltype(bField)>::element_type;
+          Acts::SharedBField<field_type> fieldMap(bField);
+          using field_map_type = decltype(fieldMap);
 
-        using Stepper = Acts::EigenStepper<field_map_type>;
+          using Stepper = Acts::EigenStepper<field_map_type>;
 
-        Stepper stepper{std::move(fieldMap)};
+          Stepper stepper{std::move(fieldMap)};
 
-        using Propagator = Acts::Propagator<Stepper, Acts::MLNavigator>;
-        Propagator propagator(std::move(stepper), std::move(navigator));
+          using Propagator = Acts::Propagator<Stepper, decltype(navigator)>;
+          Propagator propagator(std::move(stepper), std::move(navigator));
 
-        // Read the propagation config and create the algorithms
-        auto pAlgConfig =
-            ActsExamples::Options::readPropagationConfig(vm, propagator);
-        pAlgConfig.randomNumberSvc = randomNumberSvc;
-        sequencer.addAlgorithm(
-            std::make_shared<ActsExamples::PropagationAlgorithm<Propagator>>(
-                pAlgConfig, logLevel));
-      },
-      bFieldVar);
+          // Read the propagation config and create the algorithms
+          auto pAlgConfig =
+              ActsExamples::Options::readPropagationConfig(vm, propagator);
+          pAlgConfig.randomNumberSvc = randomNumberSvc;
+          sequencer.addAlgorithm(
+              std::make_shared<ActsExamples::PropagationAlgorithm<Propagator>>(
+                  pAlgConfig, logLevel));
+        },
+        bFieldVar);
+  };
 
-  std::string outputDir = vm["output-dir"].template as<std::string>();
+  // ML Navigator
+  if (vm["navigator_type"].as<std::string>() == "tp") {
+    auto [target_pred_model, start_surfaces] = make_target_predict_model(vm, tGeometry);
+    ACTS_INFO("Constructed target prediction model");
+
+    Acts::MLNavigator navigator(target_pred_model, tGeometry, start_surfaces);
+    ACTS_INFO("Constructed navigator!");
+
+    add_navigator_to_sequencer(navigator);
+  } else {
+    auto [pairwise_score_model, start_surfaces] = make_pairwise_score_model(vm, tGeometry);
+    ACTS_INFO("INFO: Constructed pairwise score model");
+
+    Acts::MLNavigator navigator(pairwise_score_model, tGeometry, start_surfaces);
+    ACTS_INFO("INFO: Constructed navigator!");
+
+    add_navigator_to_sequencer(navigator);
+  }
+
+  std::string outputDir = vm["output-dir"].as<std::string>();
   auto psCollection = vm["prop-step-collection"].as<std::string>();
 
   //     if (vm["output-csv"].template as<bool>()) {
