@@ -11,6 +11,7 @@
 #include "ActsExamples/Framework/RandomNumbers.hpp"
 #include "ActsExamples/Framework/Sequencer.hpp"
 #include "ActsExamples/Geometry/CommonGeometry.hpp"
+#include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Root/RootPropagationStepsWriter.hpp"
 #include "ActsExamples/MagneticField/MagneticFieldOptions.hpp"
 #include "ActsExamples/Options/CommonOptions.hpp"
@@ -123,6 +124,16 @@ int propagationExample(int argc, char* argv[],
     pstepWriterObjConfig.outputDir = outputDir;
     sequencer.addWriter(
         std::make_shared<ObjPropagationStepsWriter>(pstepWriterObjConfig));
+  }
+
+  if (vm["output-csv"].template as<bool>()) {
+    using Writer = ActsExamples::CsvPropagationStepsWriter;
+
+    Writer::Config config;
+    config.collection = psCollection;
+    config.outputDir = outputDir;
+
+    sequencer.addWriter(std::make_shared<Writer>(config));
   }
 
   return sequencer.run();
