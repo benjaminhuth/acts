@@ -22,11 +22,10 @@
 #include "ActsExamples/GenericDetector/GenericDetector.hpp"
 #include "ActsExamples/Geometry/CommonGeometry.hpp"
 #include "ActsExamples/Options/CommonOptions.hpp"
-#include "ActsExamples/Plugins/BField/BFieldOptions.hpp"
-#include "ActsExamples/Plugins/BField/ScalableBField.hpp"
+#include "ActsExamples/MagneticField/MagneticFieldOptions.hpp"
 #include "ActsExamples/Propagation/PropagationOptions.hpp"
 #include "ActsExamples/Utilities/Paths.hpp"
-// #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
+#include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 
 #include "load_data.hpp"
 
@@ -128,10 +127,10 @@ int main(int argc, char **argv) {
   ActsExamples::Options::addSequencerOptions(desc);
   ActsExamples::Options::addGeometryOptions(desc);
   ActsExamples::Options::addMaterialOptions(desc);
-  ActsExamples::Options::addBFieldOptions(desc);
+  ActsExamples::Options::addMagneticFieldOptions(desc);
   ActsExamples::Options::addRandomNumbersOptions(desc);
   ActsExamples::Options::addPropagationOptions(desc);
-  ActsExamples::Options::addOutputOptions(desc);
+  ActsExamples::Options::addOutputOptions(desc, ActsExamples::OutputFormat::Csv);
 
   desc.add_options()("navigator_type", po::value<std::string>(),
                      "'ps' (pairwise score) or 'tp' (target prediction)")(
@@ -195,35 +194,27 @@ int main(int argc, char **argv) {
       std::make_shared<ActsExamples::RandomNumbers>(randomNumberSvcCfg);
 
   // Magnetic Field
-  auto bFieldVar = ActsExamples::Options::readBField(vm);
+  auto bFieldVar = ActsExamples::Options::readMagneticField(vm);
+  
+  // Create BField service
+  ActsExamples::Options::setupMagneticFieldServices(vm, sequencer);
+  auto bField = ActsExamples::Options::readMagneticField(vm);
 
-  // generic lambda to make navigator
-  auto add_navigator_to_sequencer = [&](auto navigator) {
-    std::visit(
-        [&](auto &bField) {
-          // Resolve the bfield map and create the propgator
-          using field_type =
-              typename std::decay_t<decltype(bField)>::element_type;
-          Acts::SharedBField<field_type> fieldMap(bField);
-          using field_map_type = decltype(fieldMap);
+  auto setupPropagator = [&](auto&& stepper, auto&& navigator) {
+    using Stepper = std::decay_t<decltype(stepper)>;
+    using Propagator = Acts::Propagator<Stepper, std::decay_t<decltype(navigator)>>;
+    
+    Propagator propagator(std::move(stepper), std::move(navigator));
 
-          using Stepper = Acts::EigenStepper<field_map_type>;
-
-          Stepper stepper{std::move(fieldMap)};
-
-          using Propagator = Acts::Propagator<Stepper, decltype(navigator)>;
-          Propagator propagator(std::move(stepper), std::move(navigator));
-
-          // Read the propagation config and create the algorithms
-          auto pAlgConfig =
-              ActsExamples::Options::readPropagationConfig(vm, propagator);
-          pAlgConfig.randomNumberSvc = randomNumberSvc;
-          sequencer.addAlgorithm(
-              std::make_shared<ActsExamples::PropagationAlgorithm<Propagator>>(
-                  pAlgConfig, logLevel));
-        },
-        bFieldVar);
+    // Read the propagation config and create the algorithms
+    auto pAlgConfig =
+        ActsExamples::Options::readPropagationConfig(vm, propagator);
+    pAlgConfig.randomNumberSvc = randomNumberSvc;
+    sequencer.addAlgorithm(
+        std::make_shared<ActsExamples::PropagationAlgorithm<Propagator>>(
+            pAlgConfig, logLevel));
   };
+
 
   // ML Navigator
   if (vm["navigator_type"].as<std::string>() == "tp") {
@@ -233,7 +224,7 @@ int main(int argc, char **argv) {
     Acts::MLNavigator navigator(target_pred_model, tGeometry, start_surfaces);
     ACTS_INFO("Constructed navigator!");
 
-    add_navigator_to_sequencer(navigator);
+    setupPropagator(Acts::EigenStepper<>{std::move(bField)}, std::move(navigator));
   } else {
     auto [pairwise_score_model, start_surfaces] = make_pairwise_score_model(vm, tGeometry);
     ACTS_INFO("INFO: Constructed pairwise score model");
@@ -241,22 +232,23 @@ int main(int argc, char **argv) {
     Acts::MLNavigator navigator(pairwise_score_model, tGeometry, start_surfaces);
     ACTS_INFO("INFO: Constructed navigator!");
 
-    add_navigator_to_sequencer(navigator);
+    setupPropagator(Acts::EigenStepper<>{std::move(bField)}, std::move(navigator));
   }
 
   std::string outputDir = vm["output-dir"].as<std::string>();
   auto psCollection = vm["prop-step-collection"].as<std::string>();
+  
+  // Csv Writer
+  if (vm["output-csv"].template as<bool>()) {
+    using Writer = ActsExamples::CsvPropagationStepsWriter;
 
-  //     if (vm["output-csv"].template as<bool>()) {
-  //         using Writer = ActsExamples::CsvPropagationStepsWriter;
-  //
-  //         Writer::Config config;
-  //         config.collection = psCollection;
-  //         config.outputDir = outputDir;
-  //
-  //         sequencer.addWriter(std::make_shared<Writer>(config));
-  //     }
+    Writer::Config config;
+    config.collection = psCollection;
+    config.outputDir = outputDir;
 
-  // run sequencer
+    sequencer.addWriter(std::make_shared<Writer>(config));
+  }
+  
+  // Run sequencer
   return sequencer.run();
 }

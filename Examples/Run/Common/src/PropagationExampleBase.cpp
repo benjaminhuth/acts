@@ -41,7 +41,7 @@ int propagationExample(int argc, char* argv[],
   ActsExamples::Options::addRandomNumbersOptions(desc);
   ActsExamples::Options::addPropagationOptions(desc);
   ActsExamples::Options::addOutputOptions(
-      desc, ActsExamples::OutputFormat::Root | ActsExamples::OutputFormat::Obj);
+      desc, ActsExamples::OutputFormat::Root | ActsExamples::OutputFormat::Obj | ActsExamples::OutputFormat::Csv);
 
   // Add specific options for this geometry
   detector.addOptions(desc);
