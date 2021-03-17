@@ -45,7 +45,7 @@ auto load_embeddings(const std::string &csv_path,
   for (std::vector<std::string> row(D + 1); reader.read(row);) {
     EmbeddingVector v;
     for (auto i = 2ul; i < D + 2; ++i)
-      v[i] = std::stof(row[i]);
+      v[i-2] = std::stof(row[i]);
 
     const uint64_t id = std::stoul(row[1]);
     auto surf_ptr = tgeo.findSurface(id);

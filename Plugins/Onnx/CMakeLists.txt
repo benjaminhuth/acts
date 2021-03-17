@@ -11,8 +11,7 @@ add_library(
   include/Acts/Plugins/Onnx/beampipe_split.hpp
   # source files
   src/OnnxRuntimeBase.cpp
-  src/MLTrackClassifier.cpp
-  src/PairwiseScoreModel.cpp)
+  src/MLTrackClassifier.cpp)
 
 target_include_directories(
   ActsPluginOnnx

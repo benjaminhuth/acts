@@ -53,15 +53,24 @@ private:
         m_model(model),
         m_tgeo(tgeo) {}
 
-  std::vector<const Surface *> predict_next(const Surface *current,
-                                            const FreeVector &params,
-                                            const LoggerWrapper &) const {
+  template <typename propagator_state_t, typename stepper_t>
+  std::vector<const Surface *> predict_next(const propagator_state_t &state,
+                                            const stepper_t &) const {
+    const auto &logger = state.options.logger;
+    ACTS_VERBOSE("Entered 'predict_next' function in TargetPredModel");
+
+    // Extract information from state
+    const Surface *current = state.navigation.currentSurface;
+    const FreeVector &params = state.stepping.pars;
+    
     throw_assert(current != nullptr, "current surface must not be nullptr");
     
     const uint64_t id =
         (current->geometryId() != 0
              ? current->geometryId().value()
              : get_beampline_id(params[eFreePos2], m_bpsplitZBounds));
+        
+    ACTS_VERBOSE("ID from geoID " << current->geometryId().value() << " is " << id << " (z-pos is " << params[eFreePos2] << ")");
 
     std::tuple<EmbeddingVector, ParamVector> input;
 
@@ -70,6 +79,8 @@ private:
 
     std::get<EmbeddingVector>(input) = m_idToEmbedding.at(id);
     std::get<ParamVector>(input) = params.segment<4>(eFreeDir0).cast<float>();
+    
+    ACTS_VERBOSE("Resulting embedding: " << std::get<EmbeddingVector>(input).transpose());
 
     const auto output = m_model->predict(input);
 

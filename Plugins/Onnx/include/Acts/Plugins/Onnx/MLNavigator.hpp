@@ -39,8 +39,8 @@ class MLNavigator {
 
  public:
   struct State {
-    std::vector<const Acts::Surface *> navSurfaces;
-    std::vector<const Acts::Surface *>::const_iterator navSurfaceIter;
+    std::vector<Acts::SurfaceIntersection> navSurfaces;
+    std::vector<Acts::SurfaceIntersection>::const_iterator navSurfaceIter;
     const Acts::Surface *currentSurface;
     const Acts::Surface *startSurface;
 
@@ -85,16 +85,15 @@ class MLNavigator {
 
       // Establish the surface status
       auto surfaceStatus = stepper.updateSurfaceStatus(
-          state.stepping, **state.navigation.navSurfaceIter, false);
+          state.stepping, *state.navigation.navSurfaceIter->representation,
+          false);
 
       if (surfaceStatus == Acts::Intersection3D::Status::onSurface) {
         // Set the current surface
-        state.navigation.currentSurface = *state.navigation.navSurfaceIter;
+        state.navigation.currentSurface =
+            state.navigation.navSurfaceIter->representation;
         ACTS_VERBOSE("Current surface set to  "
                      << state.navigation.currentSurface->geometryId());
-
-        // Set the last surface (which is never reset to nullptr)
-        state.navigation.currentSurface = *state.navigation.navSurfaceIter;
 
         // Release Stepsize
         ACTS_VERBOSE("Release Stepsize");
@@ -133,6 +132,18 @@ class MLNavigator {
   void target(propagator_state_t &state, const stepper_t &stepper) const {
     const auto &logger = state.options.logger;
 
+    // TrackML detector aborter
+    auto x = state.stepping.pars[eFreePos0];
+    auto y = state.stepping.pars[eFreePos1];
+    auto z = state.stepping.pars[eFreePos2];
+    auto r = std::sqrt(x*x + y*y);
+    
+    if( std::abs(z) > 3200 || r > 1200 )
+    {
+        state.navigation.navigationBreak = true;
+        state.navigation.currentVolume = nullptr;
+    }
+    
     try {
       ACTS_VERBOSE(">>>>>>>> TARGET <<<<<<<<<");
       auto &navstate = state.navigation;
@@ -144,8 +155,7 @@ class MLNavigator {
         ACTS_VERBOSE(
             "It seems like we are on a surface and must predict new targets");
 
-        navstate.navSurfaces = m_model->predict_next(
-            navstate.currentSurface, state.stepping.pars, logger);
+        navstate.navSurfaces = predict_next(state, stepper);
         navstate.navSurfaceIter = navstate.navSurfaces.begin();
       }
 
@@ -168,7 +178,7 @@ class MLNavigator {
 
       // Establish & update the surface status
       auto surfaceStatus = stepper.updateSurfaceStatus(
-          state.stepping, **navstate.navSurfaceIter, false);
+          state.stepping, *navstate.navSurfaceIter->representation, false);
 
       // Everything OK
       if (surfaceStatus == Acts::Intersection3D::Status::reachable) {
@@ -176,43 +186,80 @@ class MLNavigator {
                      << stepper.outputStepSize(state.stepping));
       }
       // Try another surface
-      else if (surfaceStatus == Acts::Intersection3D::Status::unreachable) {
+      else {
         ACTS_VERBOSE(
             "Surface not reachable, search another one which is "
             "reachable");
 
-        //         // Erase not unreachable surfaces
-        //         navstate.navSurfaces.erase(navstate.navSurfaceIter);
-        //         navstate.navSurfaceIter = navstate.navSurfaces.end();
-
         // Search in the current surface pool
-        auto found = std::find_if(navstate.navSurfaces.begin(),
-                                  navstate.navSurfaces.end(), [&](auto s) {
-                                    return stepper.updateSurfaceStatus(
-                                               state.stepping, *s, false) ==
-                                           Intersection3D::Status::reachable;
-                                  });
+        for (; navstate.navSurfaceIter != navstate.navSurfaces.end();
+             ++navstate.navSurfaceIter) {
+          if (stepper.updateSurfaceStatus(
+                  state.stepping, *navstate.navSurfaceIter->representation,
+                  false) == Intersection3D::Status::reachable)
+            break;
+        }
 
         // If we did not find the surface, stop the navigation
-        if (found == navstate.navSurfaces.end()) {
+        if (navstate.navSurfaceIter == navstate.navSurfaces.end()) {
           ACTS_ERROR("Could not find the surface, stop navigation!");
           navstate.currentVolume = nullptr;
           navstate.navigationBreak = true;
         } else {
-          ACTS_VERBOSE("Found a reachable surface "
-                       << (*navstate.navSurfaceIter)->geometryId());
-          navstate.navSurfaceIter = found;
+          ACTS_VERBOSE(
+              "Found a reachable surface "
+              << navstate.navSurfaceIter->representation->geometryId());
         }
-      }
-      // Something strange happended
-      else {
-        throw std::runtime_error(
-            "surface status is 'missed' or 'on_surface', thats not what we "
-            "want here");
       }
     } catch (std::exception &e) {
       throw std::runtime_error("Error in MLNavigator::target() - "s + e.what());
     }
+  }
+
+  /// @brief Performs prediction and processes the resulting std::vector of
+  /// surfaces
+  /// @return Sorted std::vector of SurfaceIntersections
+  template <typename propagator_state_t, typename stepper_t>
+  auto predict_next(const propagator_state_t &state,
+                    const stepper_t &stepper) const {
+    const auto &logger = state.options.logger;
+    
+    // Do prediction
+    const std::vector<const Surface *> predictions =
+        m_model->predict_next(state, stepper);
+
+    // Important parameters
+    const FreeVector &params = state.stepping.pars;
+    const GeometryContext &gctx = state.geoContext;
+//     const double olimit = stepper.overstepLimit(state.stepping);
+
+    // Make intersection objects
+    std::vector<SurfaceIntersection> sfis(predictions.size());
+    std::transform(
+        predictions.begin(), predictions.end(), sfis.begin(), [&](auto s) {
+          return s->intersect(
+              gctx, params.segment<3>(eFreePos0),
+              state.stepping.navDir * params.segment<3>(eFreeDir0), true);
+        });
+    
+    ACTS_VERBOSE("predict_next: have " << sfis.size() << " candidate intersections");
+
+    sfis.erase(std::remove_if(sfis.begin(), sfis.end(),
+                                [](auto sfi) {
+//                                 auto sfil = sfi.intersection.pathLength;
+                                return !static_cast<bool>(sfi);
+                                }),
+                sfis.end());
+    
+    ACTS_VERBOSE("predict_next: after remove " << sfis.size() << " candidates remain");
+
+    if (state.stepping.navDir == forward) {
+      std::sort(sfis.begin(), sfis.end());
+    } else {
+      std::sort(sfis.begin(), sfis.end(), std::greater<>());
+    }
+
+    return sfis;
   }
 };
 

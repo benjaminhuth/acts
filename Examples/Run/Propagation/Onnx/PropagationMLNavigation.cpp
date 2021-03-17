@@ -26,6 +26,8 @@
 #include "ActsExamples/Propagation/PropagationOptions.hpp"
 #include "ActsExamples/Utilities/Paths.hpp"
 #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
+#include "ActsExamples/Plugins/Obj/ObjPropagationStepsWriter.hpp"
+#include "Acts/Plugins/Onnx/TrialAndErrorSurfaceProvider.hpp"
 
 #include "load_data.hpp"
 
@@ -117,6 +119,27 @@ auto make_pairwise_score_model(
   return std::tuple{pairwise_score_model, possible_start_surfaces};
 }
 
+
+auto make_trial_and_error_model(
+    const po::variables_map &vm,
+    std::shared_ptr<const Acts::TrackingGeometry> tgeo)
+{
+    // This is in this case only needed to provide 'possible_start_surfaces'
+    const auto bpsplit_z_bounds =
+      load_bpsplit_z_bounds(vm["bpsplit_z_path"].as<std::string>());
+    const auto embedding_map = make_realspace_embedding(*tgeo, bpsplit_z_bounds);
+    const auto [graph, possible_start_surfaces] =
+      load_graph(vm["graph_data"].as<std::string>(), bpsplit_z_bounds,
+                 embedding_map, *tgeo);
+      
+    // Construct TrialAndErrorSurfaceProvider with all surfaces
+    std::vector<const Acts::Surface *> all_surfaces;
+    tgeo->visitSurfaces([&](auto s){ all_surfaces.push_back(s); });    
+    auto model = std::make_shared<Acts::TrialAndErrorSurfaceProvider>(all_surfaces);
+    
+    return std::tuple{model, possible_start_surfaces};
+}
+
 int main(int argc, char **argv) {
   GenericDetector detector;
 
@@ -130,10 +153,10 @@ int main(int argc, char **argv) {
   ActsExamples::Options::addMagneticFieldOptions(desc);
   ActsExamples::Options::addRandomNumbersOptions(desc);
   ActsExamples::Options::addPropagationOptions(desc);
-  ActsExamples::Options::addOutputOptions(desc, ActsExamples::OutputFormat::Csv);
+  ActsExamples::Options::addOutputOptions(desc, ActsExamples::OutputFormat::Csv | ActsExamples::OutputFormat::Obj);
 
   desc.add_options()("navigator_type", po::value<std::string>(),
-                     "'ps' (pairwise score) or 'tp' (target prediction)")(
+                     "'ps' (pairwise score) or 'tp' (target prediction) or 'te' (trial and error)")(
       "pairwise_score_model", po::value<std::string>(), "path of a ONNX Model")(
       "target_pred_model", po::value<std::string>(), "path of a ONNX Model")(
       "graph_data", po::value<std::string>(),
@@ -160,7 +183,7 @@ int main(int argc, char **argv) {
 
   fail_if_arg_is_missing("navigator_type");
 
-  if (auto n = vm["navigator_type"].as<std::string>(); n != "ps" && n != "tp")
+  if (auto n = vm["navigator_type"].as<std::string>(); n != "ps" && n != "tp" && n != "te")
     ACTS_FATAL("'navigator_type' must be either 'ps' or 'tp'");
 
   if (auto n = vm["navigator_type"].as<std::string>(); n == "ps") {
@@ -214,27 +237,57 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::PropagationAlgorithm<Propagator>>(
             pAlgConfig, logLevel));
   };
+  
+  // Determine navigator type
+  enum class NavigatorTypes {
+      target_predict,
+      pairwise_score,
+      trial_and_error
+  };
+  
+  const std::map<std::string, NavigatorTypes> arg_to_navtype = {
+      { "tp", NavigatorTypes::target_predict },
+      { "ps", NavigatorTypes::pairwise_score },
+      { "te", NavigatorTypes::trial_and_error }
+  };
+  
+  switch(arg_to_navtype.at(vm["navigator_type"].as<std::string>()))
+  {
+      case NavigatorTypes::target_predict:
+      {
+        auto [target_pred_model, start_surfaces] = make_target_predict_model(vm, tGeometry);
+        ACTS_INFO("Constructed target prediction model");
 
+        Acts::MLNavigator navigator(target_pred_model, tGeometry, start_surfaces);
+        ACTS_INFO("Constructed navigator!");
 
-  // ML Navigator
-  if (vm["navigator_type"].as<std::string>() == "tp") {
-    auto [target_pred_model, start_surfaces] = make_target_predict_model(vm, tGeometry);
-    ACTS_INFO("Constructed target prediction model");
+        setupPropagator(Acts::EigenStepper<>{std::move(bField)}, std::move(navigator));
+      } break;
+      
+      case NavigatorTypes::pairwise_score:
+      {
+        auto [pairwise_score_model, start_surfaces] = make_pairwise_score_model(vm, tGeometry);
+        ACTS_INFO("INFO: Constructed pairwise score model");
 
-    Acts::MLNavigator navigator(target_pred_model, tGeometry, start_surfaces);
-    ACTS_INFO("Constructed navigator!");
+        Acts::MLNavigator navigator(pairwise_score_model, tGeometry, start_surfaces);
+        ACTS_INFO("INFO: Constructed navigator!");
 
-    setupPropagator(Acts::EigenStepper<>{std::move(bField)}, std::move(navigator));
-  } else {
-    auto [pairwise_score_model, start_surfaces] = make_pairwise_score_model(vm, tGeometry);
-    ACTS_INFO("INFO: Constructed pairwise score model");
+        setupPropagator(Acts::EigenStepper<>{std::move(bField)}, std::move(navigator));
+      } break;
+      
+      case NavigatorTypes::trial_and_error:
+      {
+        auto [trial_error_provider, start_surfaces] = make_trial_and_error_model(vm, tGeometry);
+        ACTS_INFO("INFO: Constructed trial and error surface provider");
 
-    Acts::MLNavigator navigator(pairwise_score_model, tGeometry, start_surfaces);
-    ACTS_INFO("INFO: Constructed navigator!");
+        Acts::MLNavigator navigator(trial_error_provider, tGeometry, start_surfaces);
+        ACTS_INFO("INFO: Constructed navigator!");
 
-    setupPropagator(Acts::EigenStepper<>{std::move(bField)}, std::move(navigator));
+        setupPropagator(Acts::EigenStepper<>{std::move(bField)}, std::move(navigator));
+      }
   }
-
+  
+  // Output
   std::string outputDir = vm["output-dir"].as<std::string>();
   auto psCollection = vm["prop-step-collection"].as<std::string>();
   
@@ -247,6 +300,20 @@ int main(int argc, char **argv) {
     config.outputDir = outputDir;
 
     sequencer.addWriter(std::make_shared<Writer>(config));
+  }
+
+  // Obj Writer
+  if (vm["output-obj"].template as<bool>()) {
+    using PropagationSteps = Acts::detail::Step;
+    using ObjPropagationStepsWriter =
+        ActsExamples::ObjPropagationStepsWriter<PropagationSteps>;
+
+    // Write the propagation steps as Obj TTree
+    ObjPropagationStepsWriter::Config pstepWriterObjConfig;
+    pstepWriterObjConfig.collection = psCollection;
+    pstepWriterObjConfig.outputDir = outputDir;
+    sequencer.addWriter(
+        std::make_shared<ObjPropagationStepsWriter>(pstepWriterObjConfig));
   }
   
   // Run sequencer

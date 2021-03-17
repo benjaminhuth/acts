@@ -1,9 +1,9 @@
 add_executable(
-    ActsExamplePropagationWithMLNavigation
-    PropagationWithMLNavigation.cpp
+    ActsExamplePropagationMLNavigation
+    PropagationMLNavigation.cpp
 )
 
-target_link_libraries(ActsExamplePropagationWithMLNavigation
+target_link_libraries(ActsExamplePropagationMLNavigation
   ActsCore
   ActsPluginOnnx
   ActsExamplesFramework
@@ -19,5 +19,5 @@ target_link_libraries(ActsExamplePropagationWithMLNavigation
   dfelibs
 )
 
-install(TARGETS ActsExamplePropagationWithMLNavigation
+install(TARGETS ActsExamplePropagationMLNavigation
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
