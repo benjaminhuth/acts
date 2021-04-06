@@ -15,3 +15,6 @@ add_subdirectory(Propagation)
 add_subdirectory(Reconstruction)
 add_subdirectory(Show)
 add_subdirectory(Vertexing)
+
+# autodiff alignment test
+add_subdirectory(AutodiffAlignment)

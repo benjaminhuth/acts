@@ -1,14 +1,14 @@
-add_executable(ActsAuftodiffAlignmentCaseStudyTest case_study_test.cpp)
-target_link_libraries(ActsAuftodiffAlignmentCaseStudyTest PRIVATE ActsCore ActsExamplesFramework ActsExamplesCommon ActsExamplesAlignment ActsAlignment)
+add_executable(ActsAutodiffAlignmentCaseStudyTest case_study_test.cpp)
+target_link_libraries(ActsAutodiffAlignmentCaseStudyTest PRIVATE ActsCore ActsExamplesFramework ActsExamplesCommon ActsExamplesAlignment ActsAlignment)
 
-install(TARGETS ActsAuftodiffAlignmentCaseStudyTest RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS ActsAutodiffAlignmentCaseStudyTest RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 
 
-add_executable(ActsAuftodiffAlignmentPluginTest plugin_test.cpp)
-target_link_libraries(ActsAuftodiffAlignmentPluginTest PRIVATE ActsCore ActsExamplesFramework ActsExamplesCommon ActsExamplesAlignment ActsAlignment ActsPluginAutodiff)
+add_executable(ActsAutodiffAlignmentPluginTest plugin_test.cpp)
+target_link_libraries(ActsAutodiffAlignmentPluginTest PRIVATE ActsCore ActsExamplesFramework ActsExamplesCommon ActsExamplesAlignment ActsAlignment ActsPluginAutodiff)
 
-install(TARGETS ActsAuftodiffAlignmentPluginTest RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS ActsAutodiffAlignmentPluginTest RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 
 
