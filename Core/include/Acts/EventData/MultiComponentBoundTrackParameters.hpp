@@ -13,6 +13,7 @@
 #include "Acts/Surfaces/Surface.hpp"
 #include "Acts/Utilities/UnitVectors.hpp"
 #include "Acts/Utilities/detail/periodic.hpp"
+#include "Acts/EventData/SingleBoundTrackParameters.hpp"
 
 #include <cassert>
 #include <cmath>
@@ -62,10 +63,24 @@ class MultiComponentBoundTrackParameters {
       const std::vector<std::tuple<double, BoundVector, BoundSymMatrix>>&
           components,
       Scalar q)
-      : m_surface(std::move(surface)), m_chargeInterpreter(std::abs(q)) {
+      : m_surface(surface), m_chargeInterpreter(std::abs(q)) {
     for (const auto& [weight, params, cov] : components) {
       m_components.push_back({weight, SingleBoundTrackParameters<charge_t>(
                                           surface, params, cov, q)});
+    }
+  }
+  
+  /// Construct from multiple components
+  template <typename T = charge_t,
+            std::enable_if_t<std::is_default_constructible_v<T>, int> = 0>
+  MultiComponentBoundTrackParameters(
+      std::shared_ptr<const Surface> surface,
+      const std::vector<std::tuple<double, BoundVector, BoundSymMatrix>>&
+          components)
+      : m_surface(surface) {
+    for (const auto& [weight, params, cov] : components) {
+      m_components.push_back({weight, SingleParameters(
+                                          surface, params, cov)});
     }
   }
 
@@ -84,9 +99,9 @@ class MultiComponentBoundTrackParameters {
   MultiComponentBoundTrackParameters(
       std::shared_ptr<const Surface> surface, const ParametersVector& params,
       Scalar q, std::optional<CovarianceMatrix> cov = std::nullopt)
-      : m_surface(std::move(surface)), m_chargeInterpreter(std::abs(q)) {
+      : m_surface(surface), m_chargeInterpreter(std::abs(q)) {
     m_components.push_back(
-        {1., SingleBoundTrackParameters<charge_t>(surface, params, cov, q)});
+        {1., SingleParameters(surface, params, cov, q)});
   }
 
   /// Construct from a parameters vector on the surface.
@@ -102,9 +117,9 @@ class MultiComponentBoundTrackParameters {
   MultiComponentBoundTrackParameters(
       std::shared_ptr<const Surface> surface, const ParametersVector& params,
       std::optional<CovarianceMatrix> cov = std::nullopt)
-      : m_surface(std::move(surface)) {
+      : m_surface(surface) {
     m_components.push_back(
-        {1., SingleBoundTrackParameters<charge_t>(surface, params, cov)});
+        {1., SingleParameters(surface, params, cov)});
   }
 
   /// Parameters are not default constructible due to the charge type.
@@ -121,7 +136,7 @@ class MultiComponentBoundTrackParameters {
 
   /// Parameters vector.
   const ParametersVector& parameters() const {
-    return m_components.front().parameters();
+    return std::get<SingleParameters>(m_components.front()).parameters();
   }
 
   /// Return the components vector
@@ -129,7 +144,7 @@ class MultiComponentBoundTrackParameters {
 
   /// Optional covariance matrix.
   const std::optional<CovarianceMatrix>& covariance() const {
-    return m_components.front().covariance();
+    return std::get<SingleParameters>(m_components.front()).covariance();
   }
 
   /// Access a single parameter value indentified by its index.
@@ -137,7 +152,7 @@ class MultiComponentBoundTrackParameters {
   /// @tparam kIndex Track parameter index
   template <BoundIndices kIndex>
   Scalar get() const {
-    return m_components.front().template get<kIndex>();
+    return std::get<SingleParameters>(m_components.front()).template get<kIndex>();
   }
 
   /// Space-time position four-vector.
@@ -150,7 +165,7 @@ class MultiComponentBoundTrackParameters {
   /// select the appropriate transformation and might be a computationally
   /// expensive operation.
   Vector4 fourPosition(const GeometryContext& geoCtx) const {
-    return m_components.front().fourPosition(geoCtx);
+    return std::get<SingleParameters>(m_components.front()).fourPosition(geoCtx);
   }
   /// Spatial position three-vector.
   ///
@@ -162,27 +177,27 @@ class MultiComponentBoundTrackParameters {
   /// select the appropriate transformation and might be a computationally
   /// expensive operation.
   Vector3 position(const GeometryContext& geoCtx) const {
-    return m_components.front().position(geoCtx);
+    return std::get<SingleParameters>(m_components.front()).position(geoCtx);
   }
   /// Time coordinate.
-  Scalar time() const { return m_components.front().time(); }
+  Scalar time() const { return std::get<SingleParameters>(m_components.front()).time(); }
 
   /// Unit direction three-vector, i.e. the normalized momentum
   /// three-vector.
-  Vector3 unitDirection() const { return m_components.front().unitDirection(); }
+  Vector3 unitDirection() const { return std::get<SingleParameters>(m_components.front()).unitDirection(); }
   /// Absolute momentum.
   Scalar absoluteMomentum() const {
-    return m_components.front().absoluteMomentum();
+    return std::get<SingleParameters>(m_components.front()).absoluteMomentum();
   }
   /// Transverse momentum.
   Scalar transverseMomentum() const {
-    return m_components.front().transverseMomentum();
+    return std::get<SingleParameters>(m_components.front()).transverseMomentum();
   }
   /// Momentum three-vector.
   Vector3 momentum() const { return absoluteMomentum() * unitDirection(); }
 
   /// Particle electric charge.
-  Scalar charge() const { return m_components.front().charge(); }
+  Scalar charge() const { return std::get<SingleParameters>(m_components.front()).charge(); }
 
   /// Reference surface onto which the parameters are bound.
   const Surface& referenceSurface() const { return *m_surface; }

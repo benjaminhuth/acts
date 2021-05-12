@@ -257,7 +257,7 @@ class EigenStepper {
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
-    detail::updateSingleStepSize<EigenStepper>(state, oIntersection, release);
+    detail::updateSingleStepSize(state.stepSize, oIntersection, release);
   }
 
   /// Set Step size - explicitely with a double
@@ -269,6 +269,12 @@ class EigenStepper {
                    ConstrainedStep::Type stype = ConstrainedStep::actor) const {
     state.previousStepSize = state.stepSize;
     state.stepSize.update(stepSize, stype, true);
+  }
+  
+  /// Get the step size
+  /// TODO add documentation
+  auto getStepSize(const State &state, ConstrainedStep::Type stype) const {
+    return state.stepSize.value(stype);
   }
 
   /// Release the Step size
@@ -375,7 +381,7 @@ class EigenStepper {
   template <typename propagator_state_t>
   Result<double> step(propagator_state_t& state) const;
 
- private:
+ protected:
   /// Magnetic field inside of the detector
   std::shared_ptr<const MagneticFieldProvider> m_bField;
 

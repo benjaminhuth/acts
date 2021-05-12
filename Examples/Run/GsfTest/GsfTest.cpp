@@ -8,14 +8,15 @@
 
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Definitions/Units.hpp"
+#include "Acts/EventData/Charge.hpp"
+#include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
 #include "Acts/Geometry/CuboidVolumeBuilder.hpp"
 #include "Acts/Geometry/TrackingGeometry.hpp"
 #include "Acts/Geometry/TrackingGeometryBuilder.hpp"
 #include "Acts/MagneticField/ConstantBField.hpp"
+#include "Acts/Material/Material.hpp"
 #include "Acts/Propagator/MaterialInteractor.hpp"
-#include "Acts/Propagator/MultiEigenStepper.hpp"
 #include "Acts/Propagator/Navigator.hpp"
-#include "Acts/Propagator/detail/SteppingLogger.hpp"
 #include "Acts/Surfaces/RectangleBounds.hpp"
 #include "Acts/Utilities/Logger.hpp"
 #include "Acts/Visualization/GeometryView3D.hpp"
@@ -24,15 +25,13 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
+#include "MultiEigenStepper.hpp"
+#include "MultiEigenStepperSIMD.hpp"
+#include "MultiSteppingLogger.hpp"
+
 using namespace Acts::UnitLiterals;
 
 using MagneticField = Acts::ConstantBField;
-
-using SingleStepper = Acts::EigenStepper<>;
-using MultiStepper = Acts::MultiEigenStepper<>;
-
-using SinglePropagator = Acts::Propagator<SingleStepper, Acts::Navigator>;
-using MultiPropagator = Acts::Propagator<MultiStepper, Acts::Navigator>;
 
 const Acts::GeometryContext geoCtx;
 const Acts::MagneticFieldContext magCtx;
@@ -40,12 +39,12 @@ const Acts::MagneticFieldContext magCtx;
 auto build_tracking_geometry() {
   // Make some planar Surfaces:
   const Acts::Vector3 start_pos{0., 0., 0.};
-  const Acts::Vector3 normal{0., 0., 1.};
-  const Acts::RotationMatrix3 surface_rotation =
-      Acts::RotationMatrix3::Identity();
+  const Acts::Vector3 normal{1., 0., 0.};
+  const Acts::RotationMatrix3 surface_rotation = Acts::RotationMatrix3(
+      Eigen::AngleAxisd(0.5 * M_PI, Acts::Vector3::UnitY()));
   const auto surface_distance = 100._mm;
   const auto surface_width = 300._mm;
-  const auto surface_thickness = 0._mm;
+  const auto surface_thickness = 1._mm;
   const auto n_surfaces = 5;
   const auto surface_material = std::shared_ptr<const Acts::ISurfaceMaterial>();
   const auto surface_bounds = std::make_shared<Acts::RectangleBounds>(
@@ -85,13 +84,13 @@ auto build_tracking_geometry() {
     volume_config.layerCfg.push_back(layer_cfg);
   }
 
-  volume_config.position = {0., 0., 250._mm};
-  volume_config.length = {300._mm, 300._mm, 500._mm};
+  volume_config.position = {250._mm, 0., 0.};
+  volume_config.length = {500._mm, 300._mm, 300._mm};
 
   Acts::CuboidVolumeBuilder::Config builder_config;
   builder_config.volumeCfg = {volume_config};
-  builder_config.position = {0., 0., 250._mm};
-  builder_config.length = {300._mm, 300._mm, 500._mm};
+  builder_config.position = {250._mm, 0., 0.};
+  builder_config.length = {500._mm, 300._mm, 300._mm};
 
   Acts::CuboidVolumeBuilder builder(builder_config);
 
@@ -158,92 +157,169 @@ void export_tracks_to_obj(
   }
 }
 
-inline std::pair<SinglePropagator, MultiPropagator> make_propagators(
-    double bx, std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
-  auto magField = std::make_shared<MagneticField>(Acts::Vector3(bx, 0.0, 0.0));
+template <typename stepper_t>
+auto make_propagator(double bz,
+                     std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
+  auto magField = std::make_shared<MagneticField>(Acts::Vector3(0.0, 0.0, bz));
   Acts::Navigator navigator(tgeo);
+  navigator.resolvePassive = true;
 
-  return std::pair{SinglePropagator(SingleStepper(magField), navigator),
-                   MultiPropagator(MultiStepper(magField), navigator)};
+  using Propagator = Acts::Propagator<stepper_t, Acts::Navigator>;
+
+  return Propagator(stepper_t(magField), navigator);
+  ;
 }
 
 int main(int argc, char** argv) {
   // Cmd args
-  const std::vector<std::string> args(argv, argv + argc);
-  const std::string bfield_flag = "--bfield-value";
-  const std::string export_flag = "--export-obj";
+  const std::vector<std::string_view> args(argv, argv + argc);
+  const std::string_view bfield_flag = "--bfield-value";
+  const std::string_view stepper_flag = "--stepper";
+  const std::string_view export_flag = "--export-obj";
+  const std::string_view verbose_flag = "-v";
 
-  if (std::find(begin(args), end(args), "--help") != args.end()) {
+  const auto cmd_arg_exists = [&args](const std::string_view& arg) {
+    return std::find(begin(args), end(args), arg) != args.end();
+  };
+
+  if (cmd_arg_exists("--help")) {
     std::cout << "Usage: " << argv[0] << " <options>\n";
-    std::cout << "\t" << bfield_flag << " <val>   bfield value in Tesla\n";
-    std::cout
-        << "\t" << export_flag
-        << "           boolean flag wether to export geometry as *.obj files\n";
+    std::cout << "\t" << bfield_flag << " <val>\n";
+    std::cout << "\t" << stepper_flag << " <single/loop/simd>\n";
+    std::cout << "\t" << export_flag << "\n";
+    std::cout << "\t" << verbose_flag << "\n";
     return 0;
   }
 
-  // Logger
-  const auto single_logger =
-      Acts::getDefaultLogger("GSF Test - Single", Acts::Logging::VERBOSE);
-  const auto multi_logger =
-      Acts::getDefaultLogger("GSF Test - Single", Acts::Logging::VERBOSE);
+  const bool do_obj_export = cmd_arg_exists(export_flag);
+  const auto log_level = cmd_arg_exists(verbose_flag) ? Acts::Logging::VERBOSE
+                                                      : Acts::Logging::INFO;
+
 
   // Bfield
-  double bfield_value = 2._T;
-  if (auto found = std::find(begin(args), end(args), bfield_flag);
-      found != args.end() && std::next(found) != args.end()) {
-    bfield_value = Acts::UnitConstants::T * std::stod(*std::next(found));
-  }
+  const double bfield_value = [&]() {
+    if (auto found = std::find(begin(args), end(args), bfield_flag);
+        found != args.end())
+      return Acts::UnitConstants::T * std::stod(std::string(*std::next(found)));
+    else
+      return 2._T;
+  }();
+
+  // Which stepper?
+  const std::string_view stepper_type = [&]() {
+    if (auto found = std::find(begin(args), end(args), stepper_flag);
+        found != args.end())
+      return *std::next(found);
+    else
+      return std::string_view("single");
+  }();
+  
+  // Logger
+  const auto single_logger = Acts::getDefaultLogger("Single", log_level);
+  const auto multi_logger = Acts::getDefaultLogger("Multi", log_level);
 
   // Make detector geometry
   auto [start_surface, detector] = build_tracking_geometry();
 
-  // Make Propagators
-  auto [single_prop, multi_prop] = make_propagators(bfield_value, detector);
+  // Setup tracks
+  const auto track_data_vector = []() {
+    const double l0{0.}, l1{0.}, theta{0.5 * M_PI}, phi{0.}, p{50._GeV}, q{-1.},
+        t{0.};
+    std::vector<std::tuple<double, Acts::BoundVector, Acts::BoundSymMatrix>>
+        vec;
 
-  // Setup propagation
-  const Acts::BoundSymMatrix cov = Acts::BoundSymMatrix::Identity();
-  const double l0{0.}, l1{0.}, theta{0.}, phi{0.}, p{50._GeV}, q{-1.}, t{0.};
-  Acts::BoundVector pars;
-  pars << l0, l1, phi, theta, q / p, t;
+    Acts::BoundVector pars1;
+    pars1 << l0, l1, phi, theta, q / p, t;
+    vec.push_back({0.5, pars1, Acts::BoundSymMatrix::Identity()});
 
-  Acts::BoundTrackParameters start_pars(start_surface, std::move(pars),
-                                        std::move(cov));
+    Acts::BoundVector pars2;
+    pars2 << l0, l1, phi, theta, q / (2 * p), t;
+    vec.push_back({0.5, pars2, Acts::BoundSymMatrix::Identity()});
+
+    return vec;
+  }();
+
+  Acts::BoundTrackParameters single_pars(
+      start_surface, std::get<Acts::BoundVector>(track_data_vector.front()),
+      std::get<Acts::BoundSymMatrix>(track_data_vector.front()));
+
+  Acts::MultiComponentBoundTrackParameters<Acts::SinglyCharged> multi_pars(
+      start_surface, track_data_vector);
 
   // Action list and abort list
-  using ActionList =
+  using SingleActionList =
       Acts::ActionList<Acts::detail::SteppingLogger, Acts::MaterialInteractor>;
+  using MultiActionList =
+      Acts::ActionList<MultiSteppingLogger, Acts::MaterialInteractor>;
   using AbortList = Acts::AbortList<Acts::EndOfWorldReached>;
-  using PropagatorOptions =
-      Acts::DenseStepperPropagatorOptions<ActionList, AbortList>;
 
-  PropagatorOptions single_options(geoCtx, magCtx,
-                                   Acts::LoggerWrapper(*single_logger));
+  // Propagator options
+  using SinglePropagatorOptions =
+      Acts::DenseStepperPropagatorOptions<SingleActionList, AbortList>;
+  using MultiPropagatorOptions =
+      Acts::DenseStepperPropagatorOptions<MultiActionList, AbortList>;
 
-  PropagatorOptions multi_options(geoCtx, magCtx,
-                                  Acts::LoggerWrapper(*multi_logger));
+  SinglePropagatorOptions single_options(geoCtx, magCtx,
+                                         Acts::LoggerWrapper(*single_logger));
 
-  // Propagation
-  auto single_result = single_prop.propagate(start_pars, single_options);
+  MultiPropagatorOptions multi_options(geoCtx, magCtx,
+                                       Acts::LoggerWrapper(*multi_logger));
 
-  const auto single_stepper_result =
-      single_result.value().get<Acts::detail::SteppingLogger::result_type>();
+  std::cout << "Stepper type: " << stepper_type << std::endl;
 
-  auto multi_result = multi_prop.propagate(start_pars, multi_options);
+  // Run the propagation
+  if (stepper_type == "single") {
+    const auto prop =
+        make_propagator<Acts::EigenStepper<>>(bfield_value, detector);
 
-  const auto multi_stepper_result =
-      multi_result.value().get<Acts::detail::SteppingLogger::result_type>();
+    auto single_result = prop.propagate(single_pars, single_options);
 
-  // Export
-  if (std::find(begin(args), end(args), export_flag) != args.end()) {
+    const auto single_stepper_result =
+        single_result.value().get<Acts::detail::SteppingLogger::result_type>();
+
+    const auto steplog = std::vector<decltype(single_stepper_result.steps)>{
+        single_stepper_result.steps};
+
+    if (do_obj_export)
+      export_tracks_to_obj(steplog, "propagation-single");
+  } else if (stepper_type == "loop") {
+    const auto prop =
+        make_propagator<Acts::MultiEigenStepper<>>(bfield_value, detector);
+
+    auto multi_result = prop.propagate(multi_pars, multi_options);
+
+    const auto multi_step_logs =
+        multi_result.value().get<MultiSteppingLogger::result_type>();
+
+    const auto average_steplog = std::vector<std::vector<Acts::detail::Step>>{
+        multi_step_logs.averaged_steps};
+
+    if (do_obj_export) {
+      export_tracks_to_obj(multi_step_logs.steps, "components-loop-stepper");
+      export_tracks_to_obj(average_steplog, "average-loop-stepper");
+    }
+  } else if (stepper_type == "simd") {
+    const auto prop =
+        make_propagator<Acts::MultiEigenStepperSIMD<2>>(bfield_value, detector);
+
+    auto multi_result = prop.propagate(multi_pars, multi_options);
+
+    const auto multi_step_logs =
+        multi_result.value().get<MultiSteppingLogger::result_type>();
+
+    const auto average_steplog = std::vector<std::vector<Acts::detail::Step>>{
+        multi_step_logs.averaged_steps};
+
+    if (do_obj_export) {
+      export_tracks_to_obj(multi_step_logs.steps, "components-simd-stepper");
+      export_tracks_to_obj(average_steplog, "average-simd-stepper");
+    }
+  } else {
+    std::cerr << "Error: invalid stepper type '" << stepper_type << "'\n";
+    return EXIT_FAILURE;
+  }
+
+  if (do_obj_export) {
     export_detector_to_obj(*detector);
-    export_tracks_to_obj(
-        std::vector<decltype(single_stepper_result.steps)>{
-            single_stepper_result.steps},
-        "propagation_single");
-    export_tracks_to_obj(
-        std::vector<decltype(multi_stepper_result.steps)>{
-            multi_stepper_result.steps},
-        "propagation_single");
   }
 }

@@ -534,7 +534,7 @@ class AtlasStepper {
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
-    detail::updateSingleStepSize<AtlasStepper>(state, oIntersection, release);
+    detail::updateSingleStepSize(state.stepSize, oIntersection, release);
   }
 
   /// Set Step size - explicitely with a double
@@ -546,6 +546,12 @@ class AtlasStepper {
                    ConstrainedStep::Type stype = ConstrainedStep::actor) const {
     state.previousStepSize = state.stepSize;
     state.stepSize.update(stepSize, stype, true);
+  }
+  
+  /// Get the step size
+  /// TODO add documentation
+  auto getStepSize(const State &state, ConstrainedStep::Type stype) const {
+    return state.stepSize.value(stype);
   }
 
   /// Release the Step size

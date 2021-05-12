@@ -1,5 +1,5 @@
 add_executable(GsfTest GsfTest.cpp)
-
-find_package(Qt5 COMPONENTS Core DataVisualization REQUIRED)
+#add_executable(StepperLoopTest StepperLoopTest.cpp)
 
 target_link_libraries(GsfTest ActsCore)
+#target_link_libraries(StepperLoopTest ActsCore)
