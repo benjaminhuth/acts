@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
     }
   } else if (stepper_type == "simd") {
     const auto prop =
-        make_propagator<Acts::MultiEigenStepperSIMD<2>>(bfield_value, detector);
+        make_propagator<Acts::MultiEigenStepperSIMD<2, Acts::WeightedComponentReducer<2>>>(bfield_value, detector);
 
     auto multi_result = prop.propagate(multi_pars, multi_options);
 

@@ -39,9 +39,48 @@ namespace Acts {
 
 using namespace Acts::UnitLiterals;
 
+/// Reducer struct which reduces the multicomponent state to simply by summing
+/// the weighted values
+template <int N>
+struct WeightedComponentReducer {
+  using SimdScalar = Eigen::Array<ActsScalar, N, 1>;
+  using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
+  using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
+
+  static Vector3 toVector3(const SimdFreeVector& f, const SimdScalar& w,
+                           const FreeIndices i) {
+    SimdVector3 multi = f.template segment<3>(i);
+    multi[0] *= w;
+    multi[1] *= w;
+    multi[2] *= w;
+
+    Vector3 ret;
+    ret << multi[0].sum(), multi[1].sum(), multi[2].sum();
+
+    return ret;
+  }
+
+  static Vector3 position(const SimdFreeVector& f, const SimdScalar& w) {
+    return toVector3(f, w, eFreePos0);
+  }
+
+  static Vector3 direction(const SimdFreeVector& f, const SimdScalar& w) {
+    return toVector3(f, w, eFreeDir0).normalized();
+  }
+
+  static ActsScalar momentum(const SimdFreeVector& f, const SimdScalar& w,
+                             const ActsScalar q) {
+    return ((1 / (f[eFreeQOverP] / q)) * w).sum();
+  }
+
+  static ActsScalar time(const SimdFreeVector& f, const SimdScalar& w) {
+    return (f[eFreeTime] * w).sum();
+  }
+};
+
 /// @brief Stepper based on the EigenStepper, but handles Multi-Component Tracks
 /// (e.g., for the GSF)
-template <std::size_t NComponents,
+template <std::size_t NComponents, typename component_reducer_t,
           typename auctioneer_t = detail::VoidAuctioneer>
 class MultiEigenStepperSIMD
     : public EigenStepper<StepperExtensionList<DefaultExtension>,
@@ -72,7 +111,8 @@ class MultiEigenStepperSIMD
       Eigen::Array<ActsScalar, NComponents, 1>>;
   using SingleExtension = detail::TemplatedDefaultExtension<double>;
 
- public:
+  using Reducer = component_reducer_t;
+
   struct State {
     State() = delete;
 
@@ -121,6 +161,8 @@ class MultiEigenStepperSIMD
         pars[eFreeDir1][i] = dir[1];
         pars[eFreeDir2][i] = dir[2];
         pars[eFreeQOverP][i] = bound.parameters()[eBoundQOverP];
+
+        weights[i] = std::get<double>(multipars.components().at(i));
       }
 
       // TODO Smater initialization when moving to std::array...
@@ -134,6 +176,8 @@ class MultiEigenStepperSIMD
 
     SimdFreeVector pars;
     SimdFreeVector derivative;
+
+    SimdScalar weights;
 
     std::array<Intersection3D::Status, NComponents> status;
 
@@ -282,13 +326,7 @@ class MultiEigenStepperSIMD
   ///
   /// @param state [in] The stepping state (thread-local cache)
   Vector3 position(const State& state) const {
-    const auto multi_pos = multiPosition(state);
-
-    Vector3 pos;
-    pos << multi_pos[0].sum(), multi_pos[1].sum(), multi_pos[2].sum();
-    pos /= NComponents;
-
-    return pos;
+    return Reducer::position(state.pars, state.weights);
   }
 
   static SimdVector3 multiPosition(const State& state) {
@@ -306,13 +344,7 @@ class MultiEigenStepperSIMD
   ///
   /// @param state [in] The stepping state (thread-local cache)
   Vector3 direction(const State& state) const {
-    const auto multi_dir = multiDirection(state);
-
-    Vector3 dir;
-    dir << multi_dir[0].sum(), multi_dir[1].sum(), multi_dir[2].sum();
-    dir.normalize();
-
-    return dir;
+    return Reducer::direction(state.pars, state.weights);
   }
 
   static SimdVector3 multiDirection(const State& state) {
@@ -330,7 +362,7 @@ class MultiEigenStepperSIMD
   ///
   /// @param state [in] The stepping state (thread-local cache)
   double momentum(const State& state) const {
-    return multiMomentum(state).sum() / NComponents;
+    return Reducer::momentum(state.pars, state.weights, state.q);
   }
 
   static SimdScalar multiMomentum(const State& state) {
@@ -353,8 +385,7 @@ class MultiEigenStepperSIMD
   ///
   /// @param state [in] The stepping state (thread-local cache)
   double time(const State& state) const {
-    // time is not identical for each component because of relativity, right?
-    return state.pars[eFreeTime].sum() / NComponents;
+    return Reducer::time(state.pars, state.weights);
   }
 
   static SimdScalar multiTime(const State& state) {
@@ -657,7 +688,7 @@ class MultiEigenStepperSIMD
       Vector3 k4 = Vector3::Zero();
       std::array<double, 4> kQoP = {0., 0., 0., 0.};
     } sd;
-    
+
     sd.k1 = k1;
 
     const auto pos = position(state.stepping);
@@ -726,7 +757,7 @@ class MultiEigenStepperSIMD
       }
       nStepTrials++;
     }
-    
+
     return current_estimate;
   }
 
