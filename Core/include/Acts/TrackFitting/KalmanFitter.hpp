@@ -530,8 +530,10 @@ class KalmanFitter {
 
         // Fill the track state
         trackStateProxy.predicted() = std::move(boundParams.parameters());
-        trackStateProxy.predictedCovariance() =
-            std::move(*boundParams.covariance());
+        if (boundParams.covariance().has_value()) {
+          trackStateProxy.predictedCovariance() =
+              std::move(*boundParams.covariance());
+        }
         trackStateProxy.jacobian() = std::move(jacobian);
         trackStateProxy.pathLength() = std::move(pathLength);
 
@@ -546,8 +548,10 @@ class KalmanFitter {
 
         // Get and set the type flags
         auto& typeFlags = trackStateProxy.typeFlags();
-        typeFlags.set(TrackStateFlag::MaterialFlag);
         typeFlags.set(TrackStateFlag::ParameterFlag);
+        if (surface->surfaceMaterial() != nullptr) {
+          typeFlags.set(TrackStateFlag::MaterialFlag);
+        }
 
         // Check if the state is an outlier.
         // If not, run Kalman update, tag it as a
@@ -580,6 +584,7 @@ class KalmanFitter {
               "be an outlier. Stepping state is not updated.")
           // Set the outlier type flag
           typeFlags.set(TrackStateFlag::OutlierFlag);
+          trackStateProxy.data().ifiltered = trackStateProxy.data().ipredicted;
         }
 
         // Update state and stepper with post material effects
@@ -637,8 +642,10 @@ class KalmanFitter {
 
             // Fill the track state
             trackStateProxy.predicted() = std::move(boundParams.parameters());
-            trackStateProxy.predictedCovariance() =
-                std::move(*boundParams.covariance());
+            if (boundParams.covariance().has_value()) {
+              trackStateProxy.predictedCovariance() =
+                  std::move(*boundParams.covariance());
+            }
             trackStateProxy.jacobian() = std::move(jacobian);
             trackStateProxy.pathLength() = std::move(pathLength);
           } else if (surface->surfaceMaterial() != nullptr) {
@@ -652,8 +659,10 @@ class KalmanFitter {
             // Fill the track state
             trackStateProxy.predicted() =
                 std::move(curvilinearParams.parameters());
-            trackStateProxy.predictedCovariance() =
-                std::move(*curvilinearParams.covariance());
+            if (curvilinearParams.covariance().has_value()) {
+              trackStateProxy.predictedCovariance() =
+                  std::move(*curvilinearParams.covariance());
+            }
             trackStateProxy.jacobian() = std::move(jacobian);
             trackStateProxy.pathLength() = std::move(pathLength);
           }
@@ -730,8 +739,10 @@ class KalmanFitter {
 
         // Fill the track state
         trackStateProxy.predicted() = std::move(boundParams.parameters());
-        trackStateProxy.predictedCovariance() =
-            std::move(*boundParams.covariance());
+        if (boundParams.covariance().has_value()) {
+          trackStateProxy.predictedCovariance() =
+              std::move(*boundParams.covariance());
+        }
         trackStateProxy.jacobian() = std::move(jacobian);
         trackStateProxy.pathLength() = std::move(pathLength);
 
