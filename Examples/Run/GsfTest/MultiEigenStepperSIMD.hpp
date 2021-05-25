@@ -33,7 +33,7 @@
 #include <numeric>
 #include <vector>
 
-#include "TemplatedDefaultExtension.hpp"
+#include "NewGenericDefaultExtension.hpp"
 
 namespace Acts {
 
@@ -81,6 +81,7 @@ struct WeightedComponentReducer {
 /// @brief Stepper based on the EigenStepper, but handles Multi-Component Tracks
 /// (e.g., for the GSF)
 template <std::size_t NComponents, typename component_reducer_t,
+          typename extensionlist_t,
           typename auctioneer_t = detail::VoidAuctioneer>
 class MultiEigenStepperSIMD
     : public EigenStepper<StepperExtensionList<DefaultExtension>,
@@ -106,10 +107,8 @@ class MultiEigenStepperSIMD
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
 
-  /// TODO To simplify development, extensionlist is not used yet
-  using Extension = detail::TemplatedDefaultExtension<
-      Eigen::Array<ActsScalar, NComponents, 1>>;
-  using SingleExtension = detail::TemplatedDefaultExtension<double>;
+  /// Used for stepsize estimate right now... not sure how to do this in future
+  using SingleExtension = detail::NewGenericDefaultExtension<double>;
 
   using Reducer = component_reducer_t;
 
@@ -208,7 +207,7 @@ class MultiEigenStepperSIMD
     Jacobian jacobian = Jacobian::Identity();
 
     /// List of algorithmic extensions
-    Extension extension;
+    extensionlist_t extension;
 
     /// For stepsize estimate
     SingleExtension single_extension;
@@ -702,13 +701,13 @@ class MultiEigenStepperSIMD
       // Second Runge-Kutta point
       const Vector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
       sd.B_middle = SingleStepper::m_bField->getField(pos1, fieldCache);
-      if (!extension.k(state, *this, sd.k2, sd.B_middle, sd.kQoP, 1, half_h,
+      if (!extension.k<1>(state, *this, sd.k2, sd.B_middle, sd.kQoP, half_h,
                        sd.k1)) {
         return false;
       }
 
       // Third Runge-Kutta point
-      if (!extension.k(state, *this, sd.k3, sd.B_middle, sd.kQoP, 2, half_h,
+      if (!extension.k<2>(state, *this, sd.k3, sd.B_middle, sd.kQoP, half_h,
                        sd.k2)) {
         return false;
       }
@@ -716,7 +715,7 @@ class MultiEigenStepperSIMD
       // Last Runge-Kutta point
       const Vector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
       sd.B_middle = SingleStepper::m_bField->getField(pos2, fieldCache);
-      if (!extension.k(state, *this, sd.k4, sd.B_last, sd.kQoP, 3, h, sd.k3)) {
+      if (!extension.k<3>(state, *this, sd.k4, sd.B_last, sd.kQoP, h, sd.k3)) {
         return false;
       }
 
@@ -780,8 +779,8 @@ class MultiEigenStepperSIMD
 
     // First Runge-Kutta point
     sd.B_first = getMultiField(state.stepping, pos);
-    if (!state.stepping.extension.k(state, MultiProxyStepper(), sd.k1,
-                                    sd.B_first, sd.kQoP, 0)) {
+    if (!state.stepping.extension.k1(state, MultiProxyStepper(), sd.k1,
+                                    sd.B_first, sd.kQoP)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -821,8 +820,8 @@ class MultiEigenStepperSIMD
     const SimdVector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
     sd.B_middle = getMultiField(state.stepping, pos1);
 
-    if (!state.stepping.extension.k(state, MultiProxyStepper(), sd.k2,
-                                    sd.B_middle, sd.kQoP, 1, half_h, sd.k1)) {
+    if (!state.stepping.extension.k2(state, MultiProxyStepper(), sd.k2,
+                                    sd.B_middle, sd.kQoP, half_h, sd.k1)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -832,8 +831,8 @@ class MultiEigenStepperSIMD
                    "k2 contains nan for component " << i);
 
     // Third Runge-Kutta point
-    if (!state.stepping.extension.k(state, MultiProxyStepper(), sd.k3,
-                                    sd.B_middle, sd.kQoP, 2, half_h, sd.k2)) {
+    if (!state.stepping.extension.k3(state, MultiProxyStepper(), sd.k3,
+                                    sd.B_middle, sd.kQoP, half_h, sd.k2)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -846,8 +845,8 @@ class MultiEigenStepperSIMD
     const SimdVector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
     sd.B_last = getMultiField(state.stepping, pos2);
 
-    if (!state.stepping.extension.k(state, MultiProxyStepper(), sd.k4,
-                                    sd.B_last, sd.kQoP, 3, h, sd.k3)) {
+    if (!state.stepping.extension.k4(state, MultiProxyStepper(), sd.k4,
+                                    sd.B_last, sd.kQoP, h, sd.k3)) {
       return EigenStepperError::StepInvalid;
     }
 

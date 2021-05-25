@@ -8,8 +8,9 @@
 
 #pragma once
 
-#include "Acts/Utilities/EigenSimdHelpers.hpp"
 #include "Acts/Utilities/Helpers.hpp"
+
+#include "EigenSimdHelpers.hpp"
 
 #include <array>
 
@@ -21,7 +22,7 @@ namespace detail {
 /// D of the RKN4 stepping. This is a pure implementation by textbook.
 /// @note This it templated on the scalar type because of the autodiff plugin.
 template <typename scalar_t>
-struct TemplatedDefaultExtension {
+struct NewGenericDefaultExtension {
   using Scalar = scalar_t;
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
@@ -51,44 +52,22 @@ struct TemplatedDefaultExtension {
   /// @param [in] h Step size (= 0. ^ 0.5 * StepSize ^ StepSize)
   /// @param [in] kprev Evaluated k_{i - 1}
   /// @return Boolean flag if the calculation is valid
-  template <typename propagator_state_t, typename stepper_t>
+  template <int I, typename propagator_state_t, typename stepper_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          ThisVector3& knew, const ThisVector3& bField,
-         std::array<Scalar, 4>& kQoP, const int i = 0,
-         const Scalar h = Scalar(0.),
-         const ThisVector3& kprev = ThisVector3()) {
-    
-//     std::cout << "momentum " << stepper.momentum(state.stepping).transpose() << std::endl;
-//     std::cout << "charge " << stepper.charge(state.stepping) << std::endl;
-    
-    const Scalar qop = Scalar(stepper.charge(state.stepping)) / stepper.momentum(state.stepping);
-    
-//     std::cout << "qop " << qop.transpose() << std::endl;
-    
-//     throw_assert( !qop.isNaN().any(), "qop has nan" );
-        
+         std::array<Scalar, 4>& kQoP, const Scalar h = Scalar{0.},
+         const ThisVector3& kprev = ThisVector3{}) {
+    static_assert(I >= 0 && I < 4);
+
+    const Scalar qop = Scalar(stepper.charge(state.stepping)) /
+                       stepper.momentum(state.stepping);
+
     // First step does not rely on previous data
-    if (i == 0) {
-//       const auto cross = SimdHelpers::cross(stepper.direction(state.stepping), bField);
-//       
-//       std::cout << "cross[0] " << cross[0].transpose() << std::endl;
-//       std::cout << "cross[1] " << cross[1].transpose() << std::endl;
-//       std::cout << "cross[2] " << cross[2].transpose() << std::endl;
-//         
-//       throw_assert( !cross[0].isNaN().any(), "cross[0] has nan!" );
-//       throw_assert( !cross[1].isNaN().any(), "cross[1] has nan!" );
-//       throw_assert( !cross[2].isNaN().any(), "cross[2] has nan!" );
-        
+    if constexpr (I == 0) {
       knew =
           qop * SimdHelpers::cross(stepper.direction(state.stepping), bField);
-          
-//       std::cout << "knew[0] " << knew[0].transpose() << std::endl;
-//       
-//       throw_assert( !knew[0].isNaN().any(), "knew[0] has nan!" );
-//       throw_assert( !knew[1].isNaN().any(), "knew[1] has nan!" );
-//       throw_assert( !knew[2].isNaN().any(), "knew[2] has nan!" );
-          
-      kQoP = {Scalar(0.), Scalar(0.), Scalar(0.), Scalar(0.)};
+
+      kQoP = {Scalar{0.}, Scalar{0.}, Scalar{0.}, Scalar{0.}};
     } else {
       knew = qop * SimdHelpers::cross(
                        stepper.direction(state.stepping) + h * kprev, bField);
@@ -145,10 +124,11 @@ struct TemplatedDefaultExtension {
     /// This evaluation is based on dt/ds = 1/v = 1/(beta * c) with the velocity
     /// v, the speed of light c and beta = v/c. This can be re-written as dt/ds
     /// = sqrt(m^2/p^2 + c^{-2}) with the mass m and the momentum p.
-    using std::hypot;
     using SimdHelpers::hypot;
-    const Scalar derivative = hypot(Scalar(1.), Scalar(state.options.mass) /
-                                            stepper.momentum(state.stepping));
+    using std::hypot;
+    const Scalar derivative =
+        hypot(Scalar{1.},
+              Scalar{state.options.mass} / stepper.momentum(state.stepping));
     state.stepping.pars[eFreeTime] += h * derivative;
     if (state.stepping.covTransport) {
       state.stepping.derivative(3) = derivative;

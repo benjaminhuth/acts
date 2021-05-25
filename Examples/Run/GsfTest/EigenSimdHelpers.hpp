@@ -19,6 +19,11 @@ namespace Acts {
 
 namespace SimdHelpers {
 
+template <typename T>
+bool operator<(const Eigen::ArrayBase<T>& a, const typename T::Scalar b) {
+  return (a < b).all();
+}
+
 template <typename A, typename B>
 auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {
   using ScalarA = typename A::Scalar;

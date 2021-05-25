@@ -29,6 +29,10 @@
 #include "MultiEigenStepperSIMD.hpp"
 #include "MultiSteppingLogger.hpp"
 
+#include "NewGenericDefaultExtension.hpp"
+#include "NewGenericDenseEnvironmentExtension.hpp"
+#include "NewStepperExtensionList.hpp"
+
 using namespace Acts::UnitLiterals;
 
 using MagneticField = Acts::ConstantBField;
@@ -299,8 +303,15 @@ int main(int argc, char** argv) {
       export_tracks_to_obj(average_steplog, "average-loop-stepper");
     }
   } else if (stepper_type == "simd") {
+    constexpr int N = 2;
+    using SimdScalar = Eigen::Array<double, N, 1>;
+    using DefaultExt = Acts::detail::NewGenericDefaultExtension<SimdScalar>;
+    using DenseExt = Acts::detail::NewGenericDenseEnvironmentExtension<SimdScalar>;
+    using ExtList = Acts::NewStepperExtensionList<DefaultExt/*, DenseExt*/>;
+    using Reducer = Acts::WeightedComponentReducer<N>;
+    
     const auto prop =
-        make_propagator<Acts::MultiEigenStepperSIMD<2, Acts::WeightedComponentReducer<2>>>(bfield_value, detector);
+        make_propagator<Acts::MultiEigenStepperSIMD<2, Reducer, ExtList>>(bfield_value, detector);
 
     auto multi_result = prop.propagate(multi_pars, multi_options);
 
