@@ -25,19 +25,32 @@ auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {
   using ScalarA = typename A::Scalar;
   using ScalarB = typename B::Scalar;
 
-  static_assert(A::RowsAtCompileTime == 3 && A::ColsAtCompileTime == 1);
+  static_assert(A::RowsAtCompileTime == 3);
   static_assert(B::RowsAtCompileTime == 3 && B::ColsAtCompileTime == 1);
   static_assert(std::is_same_v<ScalarA, ScalarB>);
 
+  // Standard Cross Product
   if constexpr (std::is_same_v<ScalarA, ActsScalar>) {
     return a.cross(b);
-  } else {
+  } 
+  // Manual Cross Product for non default-Scalars
+  else if constexpr( A::ColsAtCompileTime == 1 ) {
     Eigen::Matrix<ScalarA, 3, 1> ret;
 
     ret[0] = a[1] * b[2] - a[2] * b[1];
     ret[1] = a[2] * b[0] - a[0] * b[2];
     ret[2] = a[0] * b[1] - a[1] * b[0];
 
+    return ret;
+  }
+  // Columnwise Cross Product if A is a 3x3 Matrix
+  else if constexpr( A::ColsAtCompileTime == 3 ){
+    Eigen::Matrix<ScalarA, 3, 3> ret;
+    
+    ret.col(0) = cross(a.col(0), b);
+    ret.col(1) = cross(a.col(1), b);
+    ret.col(2) = cross(a.col(2), b);
+    
     return ret;
   }
 }

@@ -38,6 +38,13 @@ struct NewGenericDenseEnvironmentExtension {
   using Scalar = scalar_t;
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
+  
+  /// @brief FreeMatrix replacement for the custom scalar type
+  using ThisFreeMatrix = Eigen::Matrix<Scalar, eFreeSize, eFreeSize>;
+
+  /// @brief ActsMatrix replacement for the custom scalar type
+  template <int R, int C>
+  using ThisMatrix = Eigen::Matrix<Scalar, R, C>;
 
   /// Helper alias which allows to check if a comparison between two types
   /// results in a boolean
@@ -251,7 +258,7 @@ struct NewGenericDenseEnvironmentExtension {
   /// @return Boolean flag if the calculation is valid
   template <typename propagator_state_t, typename stepper_t>
   bool finalize(propagator_state_t& state, const stepper_t& stepper,
-                const double h, FreeMatrix& D) const {
+                const Scalar h, ThisFreeMatrix& D) const {
     return finalize(state, stepper, h) && transportMatrix(state, stepper, h, D);
   }
 
@@ -266,7 +273,7 @@ struct NewGenericDenseEnvironmentExtension {
   /// @return Boolean flag if evaluation is valid
   template <typename propagator_state_t, typename stepper_t>
   bool transportMatrix(propagator_state_t& state, const stepper_t& stepper,
-                       const double h, FreeMatrix& D) const {
+                       const Scalar h, ThisFreeMatrix& D) const {
     /// The calculations are based on ATL-SOFT-PUB-2009-002. The update of the
     /// Jacobian matrix is requires only the calculation of eq. 17 and 18.
     /// Since the terms of eq. 18 are currently 0, this matrix is not needed
@@ -290,45 +297,45 @@ struct NewGenericDenseEnvironmentExtension {
     auto& sd = state.stepping.stepData;
     auto dir = stepper.direction(state.stepping);
 
-    D = FreeMatrix::Identity();
-    const double half_h = h * 0.5;
+    D = ThisFreeMatrix::Identity();
+    const Scalar half_h = h * 0.5;
 
     // This sets the reference to the sub matrices
     // dFdx is already initialised as (3x3) zero
-    auto dFdT = D.block<3, 3>(0, 4);
-    auto dFdL = D.block<3, 1>(0, 7);
+    auto dFdT = D.template block<3, 3>(0, 4);
+    auto dFdL = D.template block<3, 1>(0, 7);
     // dGdx is already initialised as (3x3) identity
-    auto dGdT = D.block<3, 3>(4, 4);
-    auto dGdL = D.block<3, 1>(4, 7);
+    auto dGdT = D.template block<3, 3>(4, 4);
+    auto dGdL = D.template block<3, 1>(4, 7);
 
-    ActsMatrix<3, 3> dk1dT = ActsMatrix<3, 3>::Zero();
-    ActsMatrix<3, 3> dk2dT = ActsMatrix<3, 3>::Identity();
-    ActsMatrix<3, 3> dk3dT = ActsMatrix<3, 3>::Identity();
-    ActsMatrix<3, 3> dk4dT = ActsMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk1dT = ThisMatrix<3, 3>::Zero();
+    ThisMatrix<3, 3> dk2dT = ThisMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk3dT = ThisMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk4dT = ThisMatrix<3, 3>::Identity();
 
-    Vector3 dk1dL = Vector3::Zero();
-    Vector3 dk2dL = Vector3::Zero();
-    Vector3 dk3dL = Vector3::Zero();
-    Vector3 dk4dL = Vector3::Zero();
+    ThisVector3 dk1dL = ThisVector3::Zero();
+    ThisVector3 dk2dL = ThisVector3::Zero();
+    ThisVector3 dk3dL = ThisVector3::Zero();
+    ThisVector3 dk4dL = ThisVector3::Zero();
 
     /// Propagation of derivatives of dLambda''dlambda at each sub-step
-    std::array<double, 4> jdL;
+    std::array<Scalar, 4> jdL;
 
     // Evaluation of the rightmost column without the last term.
     jdL[0] = dLdl[0];
-    dk1dL = dir.cross(sd.B_first);
+    dk1dL = SimdHelpers::cross(dir, sd.B_first);
 
     jdL[1] = dLdl[1] * (1. + half_h * jdL[0]);
-    dk2dL = (1. + half_h * jdL[0]) * (dir + half_h * sd.k1).cross(sd.B_middle) +
-            qop[1] * half_h * dk1dL.cross(sd.B_middle);
+    dk2dL = (1. + half_h * jdL[0]) * SimdHelpers::cross(dir + half_h * sd.k1, sd.B_middle) +
+            qop[1] * half_h * SimdHelpers::cross(dk1dL,sd.B_middle);
 
     jdL[2] = dLdl[2] * (1. + half_h * jdL[1]);
-    dk3dL = (1. + half_h * jdL[1]) * (dir + half_h * sd.k2).cross(sd.B_middle) +
-            qop[2] * half_h * dk2dL.cross(sd.B_middle);
+    dk3dL = (1. + half_h * jdL[1]) * SimdHelpers::cross(dir + half_h * sd.k2, sd.B_middle) +
+            qop[2] * half_h * SimdHelpers::cross(dk2dL, sd.B_middle);
 
     jdL[3] = dLdl[3] * (1. + h * jdL[2]);
-    dk4dL = (1. + h * jdL[2]) * (dir + h * sd.k3).cross(sd.B_last) +
-            qop[3] * h * dk3dL.cross(sd.B_last);
+    dk4dL = (1. + h * jdL[2]) * SimdHelpers::cross(dir + h * sd.k3, sd.B_last) +
+            qop[3] * h * SimdHelpers::cross(dk3dL, sd.B_last);
 
     dk1dT(0, 1) = sd.B_first.z();
     dk1dT(0, 2) = -sd.B_first.y();
@@ -337,28 +344,33 @@ struct NewGenericDenseEnvironmentExtension {
     dk1dT(2, 0) = sd.B_first.y();
     dk1dT(2, 1) = -sd.B_first.x();
     dk1dT *= qop[0];
+    
+    using VectorHelpers::cross;
+    using SimdHelpers::cross;
 
     dk2dT += half_h * dk1dT;
-    dk2dT = qop[1] * VectorHelpers::cross(dk2dT, sd.B_middle);
+    dk2dT = qop[1] * cross(dk2dT, sd.B_middle);
 
     dk3dT += half_h * dk2dT;
-    dk3dT = qop[2] * VectorHelpers::cross(dk3dT, sd.B_middle);
+    dk3dT = qop[2] * cross(dk3dT, sd.B_middle);
 
     dk4dT += h * dk3dT;
-    dk4dT = qop[3] * VectorHelpers::cross(dk4dT, sd.B_last);
+    dk4dT = qop[3] * cross(dk4dT, sd.B_last);
+    
+    const Scalar sixth_h = h / Scalar{6.};
 
     dFdT.setIdentity();
-    dFdT += h / 6. * (dk1dT + dk2dT + dk3dT);
+    dFdT += sixth_h * (dk1dT + dk2dT + dk3dT);
     dFdT *= h;
 
-    dFdL = h * h / 6. * (dk1dL + dk2dL + dk3dL);
+    dFdL = h * sixth_h * (dk1dL + dk2dL + dk3dL);
 
-    dGdT += h / 6. * (dk1dT + 2. * (dk2dT + dk3dT) + dk4dT);
+    dGdT += sixth_h * (dk1dT + Scalar{2.} * (dk2dT + dk3dT) + dk4dT);
 
-    dGdL = h / 6. * (dk1dL + 2. * (dk2dL + dk3dL) + dk4dL);
+    dGdL = sixth_h * (dk1dL + Scalar{2.} * (dk2dL + dk3dL) + dk4dL);
 
     // Evaluation of the dLambda''/dlambda term
-    D(7, 7) += (h / 6.) * (jdL[0] + 2. * (jdL[1] + jdL[2]) + jdL[3]);
+    D(7, 7) += sixth_h * (jdL[0] + Scalar{2.} * (jdL[1] + jdL[2]) + jdL[3]);
 
     // The following comment lines refer to the application of the time being
     // treated as a position. Since t and qop are treated independently for now,
@@ -368,10 +380,13 @@ struct NewGenericDenseEnvironmentExtension {
     //~ (3. * g + qop[0] * dgdqop(energy[0], state.options.mass,
     //~ state.options.absPdgCode,
     //~ state.options.meanEnergyLoss));
+    
+    using std::hypot;
+    using SimdHelpers::hypot;
 
-    double dtp1dl = qop[0] * state.options.mass * state.options.mass /
-                    std::hypot(1, qop[0] * state.options.mass);
-    double qopNew = qop[0] + half_h * Lambdappi[0];
+    Scalar dtp1dl = qop[0] * state.options.mass * state.options.mass /
+                    hypot(Scalar{1}, qop[0] * state.options.mass);
+    Scalar qopNew = qop[0] + half_h * Lambdappi[0];
 
     //~ double dtpp2dl = -state.options.mass * state.options.mass * qopNew *
     //~ qopNew *
@@ -380,8 +395,8 @@ struct NewGenericDenseEnvironmentExtension {
     //~ state.options.absPdgCode,
     //~ state.options.meanEnergyLoss));
 
-    double dtp2dl = qopNew * state.options.mass * state.options.mass /
-                    std::hypot(1, qopNew * state.options.mass);
+    Scalar dtp2dl = qopNew * state.options.mass * state.options.mass /
+                    hypot(Scalar{1}, qopNew * state.options.mass);
     qopNew = qop[0] + half_h * Lambdappi[1];
 
     //~ double dtpp3dl = -state.options.mass * state.options.mass * qopNew *
@@ -391,17 +406,17 @@ struct NewGenericDenseEnvironmentExtension {
     //~ state.options.absPdgCode,
     //~ state.options.meanEnergyLoss));
 
-    double dtp3dl = qopNew * state.options.mass * state.options.mass /
-                    std::hypot(1, qopNew * state.options.mass);
+    Scalar dtp3dl = qopNew * state.options.mass * state.options.mass /
+                    hypot(Scalar{1.}, qopNew * state.options.mass);
     qopNew = qop[0] + half_h * Lambdappi[2];
-    double dtp4dl = qopNew * state.options.mass * state.options.mass /
-                    std::hypot(1, qopNew * state.options.mass);
+    Scalar dtp4dl = qopNew * state.options.mass * state.options.mass /
+                    hypot(Scalar{1.}, qopNew * state.options.mass);
 
     //~ D(3, 7) = h * state.options.mass * state.options.mass * qop[0] /
     //~ std::hypot(1., state.options.mass * qop[0])
     //~ + h * h / 6. * (dtpp1dl + dtpp2dl + dtpp3dl);
 
-    D(3, 7) = (h / 6.) * (dtp1dl + 2. * (dtp2dl + dtp3dl) + dtp4dl);
+    D(3, 7) = sixth_h * (dtp1dl + Scalar{2.} * (dtp2dl + dtp3dl) + dtp4dl);
     return true;
   }
 

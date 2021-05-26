@@ -10,9 +10,9 @@
 
 #include "Acts/Utilities/Helpers.hpp"
 
-#include "EigenSimdHelpers.hpp"
-
 #include <array>
+
+#include "EigenSimdHelpers.hpp"
 
 namespace Acts {
 
@@ -26,6 +26,13 @@ struct NewGenericDefaultExtension {
   using Scalar = scalar_t;
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
+  
+  /// @brief FreeMatrix replacement for the custom scalar type
+  using ThisFreeMatrix = Eigen::Matrix<Scalar, eFreeSize, eFreeSize>;
+
+  /// @brief ActsMatrix replacement for the custom scalar type
+  template <int R, int C>
+  using ThisMatrix = Eigen::Matrix<Scalar, R, C>;
 
   /// @brief Control function if the step evaluation would be valid
   ///
@@ -105,7 +112,7 @@ struct NewGenericDefaultExtension {
   /// @return Boolean flag if the calculation is valid
   template <typename propagator_state_t, typename stepper_t>
   bool finalize(propagator_state_t& state, const stepper_t& stepper,
-                const double h, FreeMatrix& D) const {
+                const Scalar h, ThisFreeMatrix& D) const {
     propagateTime(state, stepper, h);
     return transportMatrix(state, stepper, h, D);
   }
@@ -127,8 +134,7 @@ struct NewGenericDefaultExtension {
     using SimdHelpers::hypot;
     using std::hypot;
     const Scalar derivative =
-        hypot(Scalar{1.},
-              Scalar{state.options.mass} / stepper.momentum(state.stepping));
+        hypot(Scalar{1.}, state.options.mass / stepper.momentum(state.stepping));
     state.stepping.pars[eFreeTime] += h * derivative;
     if (state.stepping.covTransport) {
       state.stepping.derivative(3) = derivative;
@@ -146,7 +152,7 @@ struct NewGenericDefaultExtension {
   /// @return Boolean flag if evaluation is valid
   template <typename propagator_state_t, typename stepper_t>
   bool transportMatrix(propagator_state_t& state, const stepper_t& stepper,
-                       const double h, FreeMatrix& D) const {
+                       const Scalar h, ThisFreeMatrix& D) const {
     /// The calculations are based on ATL-SOFT-PUB-2009-002. The update of the
     /// Jacobian matrix is requires only the calculation of eq. 17 and 18.
     /// Since the terms of eq. 18 are currently 0, this matrix is not needed
@@ -171,35 +177,35 @@ struct NewGenericDefaultExtension {
     auto qop =
         stepper.charge(state.stepping) / stepper.momentum(state.stepping);
 
-    D = FreeMatrix::Identity();
+    D = ThisFreeMatrix::Identity();
 
-    double half_h = h * 0.5;
+    const Scalar half_h = h * 0.5;
     // This sets the reference to the sub matrices
     // dFdx is already initialised as (3x3) idendity
-    auto dFdT = D.block<3, 3>(0, 4);
-    auto dFdL = D.block<3, 1>(0, 7);
+    auto dFdT = D.template block<3, 3>(0, 4);
+    auto dFdL = D.template block<3, 1>(0, 7);
     // dGdx is already initialised as (3x3) zero
-    auto dGdT = D.block<3, 3>(4, 4);
-    auto dGdL = D.block<3, 1>(4, 7);
+    auto dGdT = D.template block<3, 3>(4, 4);
+    auto dGdL = D.template block<3, 1>(4, 7);
 
-    ActsMatrix<3, 3> dk1dT = ActsMatrix<3, 3>::Zero();
-    ActsMatrix<3, 3> dk2dT = ActsMatrix<3, 3>::Identity();
-    ActsMatrix<3, 3> dk3dT = ActsMatrix<3, 3>::Identity();
-    ActsMatrix<3, 3> dk4dT = ActsMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk1dT = ThisMatrix<3, 3>::Zero();
+    ThisMatrix<3, 3> dk2dT = ThisMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk3dT = ThisMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk4dT = ThisMatrix<3, 3>::Identity();
 
-    Vector3 dk1dL = Vector3::Zero();
-    Vector3 dk2dL = Vector3::Zero();
-    Vector3 dk3dL = Vector3::Zero();
-    Vector3 dk4dL = Vector3::Zero();
+    ThisVector3 dk1dL = ThisVector3::Zero();
+    ThisVector3 dk2dL = ThisVector3::Zero();
+    ThisVector3 dk3dL = ThisVector3::Zero();
+    ThisVector3 dk4dL = ThisVector3::Zero();
 
     // For the case without energy loss
-    dk1dL = dir.cross(sd.B_first);
-    dk2dL = (dir + half_h * sd.k1).cross(sd.B_middle) +
-            qop * half_h * dk1dL.cross(sd.B_middle);
-    dk3dL = (dir + half_h * sd.k2).cross(sd.B_middle) +
-            qop * half_h * dk2dL.cross(sd.B_middle);
-    dk4dL =
-        (dir + h * sd.k3).cross(sd.B_last) + qop * h * dk3dL.cross(sd.B_last);
+    dk1dL = SimdHelpers::cross(dir, sd.B_first);
+    dk2dL = SimdHelpers::cross(dir + half_h * sd.k1, sd.B_middle) +
+            qop * half_h * SimdHelpers::cross(dk1dL, sd.B_middle);
+    dk3dL = SimdHelpers::cross(dir + half_h * sd.k2, sd.B_middle) +
+            qop * half_h * SimdHelpers::cross(dk2dL, sd.B_middle);
+    dk4dL = SimdHelpers::cross(dir + h * sd.k3, sd.B_last) +
+            qop * h * SimdHelpers::cross(dk3dL, sd.B_last);
 
     dk1dT(0, 1) = sd.B_first.z();
     dk1dT(0, 2) = -sd.B_first.y();
@@ -209,30 +215,38 @@ struct NewGenericDefaultExtension {
     dk1dT(2, 1) = -sd.B_first.x();
     dk1dT *= qop;
 
+    using SimdHelpers::cross;
+    using VectorHelpers::cross;
+
     dk2dT += half_h * dk1dT;
-    dk2dT = qop * VectorHelpers::cross(dk2dT, sd.B_middle);
+    dk2dT = qop * cross(dk2dT, sd.B_middle);
 
     dk3dT += half_h * dk2dT;
-    dk3dT = qop * VectorHelpers::cross(dk3dT, sd.B_middle);
+    dk3dT = qop * cross(dk3dT, sd.B_middle);
 
     dk4dT += h * dk3dT;
-    dk4dT = qop * VectorHelpers::cross(dk4dT, sd.B_last);
+    dk4dT = qop * cross(dk4dT, sd.B_last);
+    
+    const Scalar sixth_h = h / Scalar{6.};
 
     dFdT.setIdentity();
-    dFdT += h / 6. * (dk1dT + dk2dT + dk3dT);
+    dFdT += sixth_h * (dk1dT + dk2dT + dk3dT);
     dFdT *= h;
 
-    dFdL = (h * h) / 6. * (dk1dL + dk2dL + dk3dL);
+    dFdL = h * sixth_h * (dk1dL + dk2dL + dk3dL);
 
-    dGdT += h / 6. * (dk1dT + 2. * (dk2dT + dk3dT) + dk4dT);
+    dGdT += sixth_h * (dk1dT + Scalar{2.} * (dk2dT + dk3dT) + dk4dT);
 
-    dGdL = h / 6. * (dk1dL + 2. * (dk2dL + dk3dL) + dk4dL);
+    dGdL = sixth_h * (dk1dL + Scalar{2.} * (dk2dL + dk3dL) + dk4dL);
 
-    D(3, 7) =
-        h * state.options.mass * state.options.mass *
-        stepper.charge(state.stepping) /
-        (stepper.momentum(state.stepping) *
-         std::hypot(1., state.options.mass / stepper.momentum(state.stepping)));
+    using SimdHelpers::hypot;
+    using std::hypot;
+
+    D(3, 7) = h * state.options.mass * state.options.mass *
+              stepper.charge(state.stepping) /
+              (stepper.momentum(state.stepping) *
+               hypot(Scalar{1.}, state.options.mass /
+                                     stepper.momentum(state.stepping)));
     return true;
   }
 };

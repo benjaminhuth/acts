@@ -106,6 +106,7 @@ class MultiEigenStepperSIMD
   using SimdScalar = Eigen::Array<ActsScalar, NComponents, 1>;
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
+  using SimdFreeMatrix = Eigen::Matrix<SimdScalar, eFreeSize, eFreeSize>;
 
   /// Used for stepsize estimate right now... not sure how to do this in future
   using SingleExtension = detail::NewGenericDefaultExtension<double>;
@@ -201,7 +202,7 @@ class MultiEigenStepperSIMD
     BoundToFreeMatrix jacToGlobal = BoundToFreeMatrix::Zero();
 
     /// Pure transport jacobian part from runge kutta integration
-    FreeMatrix jacTransport = FreeMatrix::Identity();
+    SimdFreeMatrix jacTransport = SimdFreeMatrix::Identity();
 
     // jacobian
     Jacobian jacobian = Jacobian::Identity();
@@ -574,13 +575,19 @@ class MultiEigenStepperSIMD
     // Compute all states
     for (auto i = 0ul; i < NComponents; ++i) {
       FreeVector pars, derivative;
+      FreeMatrix jacTransport;
 
       for (auto j = 0ul; j < eFreeSize; ++j) {
         pars[j] = state.pars[j][i];
       }
 
+      for (auto j = 0ul; j < eFreeSize; ++j)
+        for (auto k = 0ul; k < eFreeSize; ++k) {
+          jacTransport(j, k) = state.jacTransport(j, k)[i];
+        }
+
       states[i] = detail::curvilinearState(
-          state.cov, state.jacobian, state.jacTransport, derivative,
+          state.cov, state.jacobian, jacTransport, derivative,
           state.jacToGlobal, pars, state.covTransport && transportCov,
           state.pathAccumulated);
     }
@@ -824,7 +831,7 @@ class MultiEigenStepperSIMD
     const SimdVector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
     sd.B_middle = getMultiField(state.stepping, pos1);
 
-    if (!state.stepping.extension.k2(state, MultiProxyStepper(), sd.k2,
+    if (!state.stepping.extension.k2(state, MultiProxyStepper{}, sd.k2,
                                      sd.B_middle, sd.kQoP, half_h, sd.k1)) {
       return EigenStepperError::StepInvalid;
     }
@@ -835,7 +842,7 @@ class MultiEigenStepperSIMD
                    "k2 contains nan for component " << i);
 
     // Third Runge-Kutta point
-    if (!state.stepping.extension.k3(state, MultiProxyStepper(), sd.k3,
+    if (!state.stepping.extension.k3(state, MultiProxyStepper{}, sd.k3,
                                      sd.B_middle, sd.kQoP, half_h, sd.k2)) {
       return EigenStepperError::StepInvalid;
     }
@@ -849,7 +856,7 @@ class MultiEigenStepperSIMD
     const SimdVector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
     sd.B_last = getMultiField(state.stepping, pos2);
 
-    if (!state.stepping.extension.k4(state, MultiProxyStepper(), sd.k4,
+    if (!state.stepping.extension.k4(state, MultiProxyStepper{}, sd.k4,
                                      sd.B_last, sd.kQoP, h, sd.k3)) {
       return EigenStepperError::StepInvalid;
     }
@@ -859,9 +866,21 @@ class MultiEigenStepperSIMD
       throw_assert(!sd.k4[i].isNaN().any(),
                    "k4 contains nan for component " << i);
 
-    // Finalize
-    if (!state.stepping.extension.finalize(state, MultiProxyStepper(), h)) {
-      return EigenStepperError::StepInvalid;
+    // When doing error propagation, update the associated Jacobian matrix
+    if (state.stepping.covTransport) {
+      // The step transport matrix in global coordinates
+      SimdFreeMatrix D;
+      if (!state.stepping.extension.finalize(state, MultiProxyStepper{}, h,
+                                             D)) {
+        return EigenStepperError::StepInvalid;
+      }
+
+      // for moment, only update the transport part
+      state.stepping.jacTransport = D * state.stepping.jacTransport;
+    } else {
+      if (!state.stepping.extension.finalize(state, MultiProxyStepper{}, h)) {
+        return EigenStepperError::StepInvalid;
+      }
     }
 
     // Update the track parameters according to the equations of motion
