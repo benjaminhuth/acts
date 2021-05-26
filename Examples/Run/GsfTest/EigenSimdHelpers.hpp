@@ -9,6 +9,7 @@
 #pragma once
 
 #include "Acts/Definitions/Algebra.hpp"
+#include "Acts/Material/Interactions.hpp"
 
 /// This file contains functions overloads or wrappers, which allow common
 /// mathematical operations for normal Eigen types (based on ActsScalar which is
@@ -18,11 +19,6 @@
 namespace Acts {
 
 namespace SimdHelpers {
-
-template <typename T>
-bool operator<(const Eigen::ArrayBase<T>& a, const typename T::Scalar b) {
-  return (a < b).all();
-}
 
 template <typename A, typename B>
 auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {
@@ -51,6 +47,54 @@ auto hypot(const Eigen::ArrayBase<A>& a, const Eigen::ArrayBase<B>& b) {
   // Compute TODO better use loop and std::hypot for comonents? because of
   // std::hypot's internal checking?
   return sqrt(a * a + b * b);
+}
+
+template <typename T, int N>
+auto computeEnergyLossMode(const MaterialSlab& slab, int pdg, float m,
+                           const Eigen::Array<T, N, 1>& qOverP,
+                           float q = UnitConstants::e) {
+  Eigen::Array<T, N, 1> ret;
+
+  for (int i = 0; i < qOverP.size(); ++i)
+    ret[0] = computeEnergyLossMode(slab, pdg, m, qOverP[i], q);
+
+  return ret;
+}
+
+template <typename T, int N>
+auto computeEnergyLossMean(const MaterialSlab& slab, int pdg, float m,
+                           const Eigen::Array<T, N, 1>& qOverP,
+                           float q = UnitConstants::e) {
+  Eigen::Array<T, N, 1> ret;
+
+  for (int i = 0; i < qOverP.size(); ++i)
+    ret[0] = computeEnergyLossMean(slab, pdg, m, qOverP[i], q);
+
+  return ret;
+}
+
+template <typename T, int N>
+auto deriveEnergyLossMeanQOverP(const MaterialSlab& slab, int pdg, float m,
+                                const Eigen::Array<T, N, 1>& qOverP,
+                                float q = UnitConstants::e) {
+  Eigen::Array<T, N, 1> ret;
+
+  for (int i = 0; i < qOverP.size(); ++i)
+    ret[0] = deriveEnergyLossMeanQOverP(slab, pdg, m, qOverP[i], q);
+
+  return ret;
+}
+
+template <typename T, int N>
+auto deriveEnergyLossModeQOverP(const MaterialSlab& slab, int pdg, float m,
+                                const Eigen::Array<T, N, 1>& qOverP,
+                                float q = UnitConstants::e) {
+  Eigen::Array<T, N, 1> ret;
+
+  for (int i = 0; i < qOverP.size(); ++i)
+    ret[0] = deriveEnergyLossModeQOverP(slab, pdg, m, qOverP[i], q);
+
+  return ret;
 }
 
 }  // namespace SimdHelpers

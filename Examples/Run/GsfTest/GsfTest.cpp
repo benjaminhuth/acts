@@ -307,7 +307,7 @@ int main(int argc, char** argv) {
     using SimdScalar = Eigen::Array<double, N, 1>;
     using DefaultExt = Acts::detail::NewGenericDefaultExtension<SimdScalar>;
     using DenseExt = Acts::detail::NewGenericDenseEnvironmentExtension<SimdScalar>;
-    using ExtList = Acts::NewStepperExtensionList<DefaultExt/*, DenseExt*/>;
+    using ExtList = Acts::NewStepperExtensionList<DefaultExt, DenseExt>;
     using Reducer = Acts::WeightedComponentReducer<N>;
     
     const auto prop =

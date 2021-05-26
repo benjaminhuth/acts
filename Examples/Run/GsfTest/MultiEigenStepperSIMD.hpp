@@ -240,6 +240,10 @@ class MultiEigenStepperSIMD
     auto momentum(const State& state) const {
       return MultiEigenStepperSIMD::multiMomentum(state);
     }
+    auto reducedPosition(const State& state) const {
+      return MultiEigenStepperSIMD::Reducer::position(state.pars,
+                                                      state.weights);
+    }
   };
 
   /// Proxy stepper which acts of a specific component
@@ -702,13 +706,13 @@ class MultiEigenStepperSIMD
       const Vector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
       sd.B_middle = SingleStepper::m_bField->getField(pos1, fieldCache);
       if (!extension.k<1>(state, *this, sd.k2, sd.B_middle, sd.kQoP, half_h,
-                       sd.k1)) {
+                          sd.k1)) {
         return false;
       }
 
       // Third Runge-Kutta point
       if (!extension.k<2>(state, *this, sd.k3, sd.B_middle, sd.kQoP, half_h,
-                       sd.k2)) {
+                          sd.k2)) {
         return false;
       }
 
@@ -780,7 +784,7 @@ class MultiEigenStepperSIMD
     // First Runge-Kutta point
     sd.B_first = getMultiField(state.stepping, pos);
     if (!state.stepping.extension.k1(state, MultiProxyStepper(), sd.k1,
-                                    sd.B_first, sd.kQoP)) {
+                                     sd.B_first, sd.kQoP)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -821,7 +825,7 @@ class MultiEigenStepperSIMD
     sd.B_middle = getMultiField(state.stepping, pos1);
 
     if (!state.stepping.extension.k2(state, MultiProxyStepper(), sd.k2,
-                                    sd.B_middle, sd.kQoP, half_h, sd.k1)) {
+                                     sd.B_middle, sd.kQoP, half_h, sd.k1)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -832,7 +836,7 @@ class MultiEigenStepperSIMD
 
     // Third Runge-Kutta point
     if (!state.stepping.extension.k3(state, MultiProxyStepper(), sd.k3,
-                                    sd.B_middle, sd.kQoP, half_h, sd.k2)) {
+                                     sd.B_middle, sd.kQoP, half_h, sd.k2)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -846,7 +850,7 @@ class MultiEigenStepperSIMD
     sd.B_last = getMultiField(state.stepping, pos2);
 
     if (!state.stepping.extension.k4(state, MultiProxyStepper(), sd.k4,
-                                    sd.B_last, sd.kQoP, h, sd.k3)) {
+                                     sd.B_last, sd.kQoP, h, sd.k3)) {
       return EigenStepperError::StepInvalid;
     }
 

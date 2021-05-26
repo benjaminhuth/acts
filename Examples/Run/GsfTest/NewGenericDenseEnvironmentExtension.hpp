@@ -16,6 +16,7 @@
 #include "Acts/Material/Interactions.hpp"
 #include "Acts/Propagator/Propagator.hpp"
 #include "Acts/Utilities/Helpers.hpp"
+#include "Acts/Utilities/TypeTraits.hpp"
 
 #include <array>
 #include <functional>
@@ -23,20 +24,7 @@
 #include "EigenSimdHelpers.hpp"
 
 namespace Acts {
-    
-template<typename T, int N>
-auto computeEnergyLossMean(const MaterialSlab& slab, int pdg, float m,
-                           const Eigen::Array<T, N, 1> &qOverP, float q = UnitConstants::e)
-{
-    Eigen::Array<T, N, 1> ret;
-    
-    for(int i=0; i<qOverP.size(); ++i)
-        ret[0] = computeEnergyLossMean(slab, pdg, m, qOverP[i], q);
-    
-    return ret;
-}
-    
-    
+
 namespace detail {
 
 /// @brief Evaluater of the k_i's and elements of the transport matrix
@@ -50,6 +38,17 @@ struct NewGenericDenseEnvironmentExtension {
   using Scalar = scalar_t;
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
+
+  /// Helper alias which allows to check if a comparison between two types
+  /// results in a boolean
+  template <typename U, typename V>
+  using less_gives_bool_t =
+      decltype(true && (std::declval<U>() < std::declval<V>()));
+
+  static constexpr bool less_gives_bool =
+      Concepts::exists<less_gives_bool_t, Scalar, ActsScalar>;
+
+  static constexpr bool scalar_is_eigen_array = not less_gives_bool;
 
   /// Momentum at a certain point
   Scalar currentMomentum{0.};
@@ -87,9 +86,17 @@ struct NewGenericDenseEnvironmentExtension {
   template <typename propagator_state_t, typename stepper_t>
   int bid(const propagator_state_t& state, const stepper_t& stepper) const {
     // Check for valid particle properties
-    if (stepper.charge(state.stepping) == 0. || state.options.mass == 0. ||
-        stepper.momentum(state.stepping) < state.options.momentumCutOff) {
-      return 0;
+    if constexpr (less_gives_bool) {
+      if (stepper.charge(state.stepping) == 0. || state.options.mass == 0. ||
+          stepper.momentum(state.stepping) < state.options.momentumCutOff) {
+        return 0;
+      }
+    } else {
+      if (stepper.charge(state.stepping) == 0. || state.options.mass == 0. ||
+          (stepper.momentum(state.stepping) < state.options.momentumCutOff)
+              .all()) {
+        return 0;
+      }
     }
 
     // Check existence of a volume with material
@@ -115,46 +122,63 @@ struct NewGenericDenseEnvironmentExtension {
   /// @return Boolean flag if the calculation is valid
   template <int I, typename propagator_state_t, typename stepper_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
-         ThisVector3& knew, const ThisVector3& bField, std::array<Scalar, 4>& kQoP, const Scalar h = 0.,
+         ThisVector3& knew, const ThisVector3& bField,
+         std::array<Scalar, 4>& kQoP, const Scalar h = 0.,
          const ThisVector3& kprev = ThisVector3()) {
     // i = 0 is used for setup and evaluation of k
-    if constexpr(I == 0) {
+    if constexpr (I == 0) {
       // Set up container for energy loss
       auto volumeMaterial = state.navigation.currentVolume->volumeMaterial();
-      ThisVector3 position = stepper.position(state.stepping);
-      material = (volumeMaterial->material(position.template cast<double>()));
+
+      if constexpr (not scalar_is_eigen_array) {
+        const auto position = stepper.position(state.stepping);
+        material = (volumeMaterial->material(position.template cast<double>()));
+      } else {
+        const auto position = stepper.reducedPosition(state.stepping);
+        material = (volumeMaterial->material(position));
+      }
+
       initialMomentum = stepper.momentum(state.stepping);
       currentMomentum = initialMomentum;
       qop[0] = stepper.charge(state.stepping) / initialMomentum;
       initializeEnergyLoss(state);
       // Evaluate k
-      knew = qop[0] * stepper.direction(state.stepping).cross(bField);
+      knew = qop[0] *
+             SimdHelpers::cross(stepper.direction(state.stepping), bField);
       // Evaluate k for the time propagation
       Lambdappi[0] =
           -qop[0] * qop[0] * qop[0] * g * energy[0] /
           (stepper.charge(state.stepping) * stepper.charge(state.stepping));
       //~ tKi[0] = std::hypot(1, state.options.mass / initialMomentum);
+      using SimdHelpers::hypot;
       using std::hypot;
-    using SimdHelpers::hypot;
       tKi[0] = hypot(Scalar{1.}, Scalar{state.options.mass} * qop[0]);
       kQoP[0] = Lambdappi[0];
     } else {
       // Update parameters and check for momentum condition
       updateEnergyLoss<I>(state.options.mass, h, state.stepping, stepper);
-      if (currentMomentum < state.options.momentumCutOff) {
-        return false;
+
+      if constexpr (less_gives_bool) {
+        if (currentMomentum < state.options.momentumCutOff) {
+          return false;
+        }
+      } else {
+        if ((currentMomentum < state.options.momentumCutOff).all()) {
+          return false;
+        }
       }
       // Evaluate k
-      knew = qop[I] *
-             (stepper.direction(state.stepping) + h * kprev).cross(bField);
+      knew =
+          qop[I] * SimdHelpers::cross(
+                       stepper.direction(state.stepping) + h * kprev, bField);
       // Evaluate k_i for the time propagation
       auto qopNew = qop[I] + h * Lambdappi[I - 1];
       Lambdappi[I] =
           -qopNew * qopNew * qopNew * g * energy[I] /
           (stepper.charge(state.stepping) * stepper.charge(state.stepping) *
            UnitConstants::C * UnitConstants::C);
+      using SimdHelpers::hypot;
       using std::hypot;
-    using SimdHelpers::hypot;
       tKi[I] = hypot(Scalar{1.}, Scalar{state.options.mass} * qopNew);
       kQoP[I] = Lambdappi[I];
     }
@@ -180,9 +204,14 @@ struct NewGenericDenseEnvironmentExtension {
         (h / 6.) * (dPds[0] + 2. * (dPds[1] + dPds[2]) + dPds[3]);
 
     // Break propagation if momentum becomes below cut-off
-    using namespace SimdHelpers;
-    if ( newMomentum < state.options.momentumCutOff ) {
-      return false;
+    if constexpr (less_gives_bool) {
+      if (newMomentum < state.options.momentumCutOff) {
+        return false;
+      }
+    } else {
+      if ((newMomentum < state.options.momentumCutOff).all()) {
+        return false;
+      }
     }
 
     // Add derivative dlambda/ds = Lambda''
@@ -196,9 +225,10 @@ struct NewGenericDenseEnvironmentExtension {
     state.stepping.pars[eFreeQOverP] =
         stepper.charge(state.stepping) / newMomentum;
     // Add derivative dt/ds = 1/(beta * c) = sqrt(m^2 * p^{-2} + c^{-2})
-    using std::hypot;
     using SimdHelpers::hypot;
-    state.stepping.derivative(3) = hypot(Scalar{1.}, Scalar{state.options.mass} / Scalar{newMomentum});
+    using std::hypot;
+    state.stepping.derivative(3) =
+        hypot(Scalar{1.}, Scalar{state.options.mass} / Scalar{newMomentum});
     // Update time
     state.stepping.pars[eFreeTime] +=
         (h / 6.) * (tKi[0] + 2. * (tKi[1] + tKi[2]) + tKi[3]);
@@ -382,22 +412,24 @@ struct NewGenericDenseEnvironmentExtension {
   /// @param [in] state Deliverer of configurations
   template <typename propagator_state_t>
   void initializeEnergyLoss(const propagator_state_t& state) {
-    using std::hypot;
     using SimdHelpers::hypot;
+    using std::hypot;
     energy[0] = hypot(initialMomentum, Scalar{state.options.mass});
     // use unit length as thickness to compute the energy loss per unit length
     Acts::MaterialSlab slab(material, 1);
     // Use the same energy loss throughout the step.
     if (state.options.meanEnergyLoss) {
+      using SimdHelpers::computeEnergyLossMean;
       g = -computeEnergyLossMean(slab, state.options.absPdgCode,
                                  state.options.mass,
-                                 static_cast<double>(qop[0]));
+                                 qop[0]);  // Breaks autodiff for now
     } else {
       // TODO using the unit path length is not quite right since the most
       //      probably energy loss is not independent from the path length.
+      using SimdHelpers::computeEnergyLossMode;
       g = -computeEnergyLossMode(slab, state.options.absPdgCode,
                                  state.options.mass,
-                                 static_cast<double>(qop[0]));
+                                 qop[0]);  // Breaks autodiff for now
     }
     // Change of the momentum per path length
     // dPds = dPdE * dEds
@@ -407,14 +439,16 @@ struct NewGenericDenseEnvironmentExtension {
       // inverse momentum
       if (state.options.includeGgradient) {
         if (state.options.meanEnergyLoss) {
+          using SimdHelpers::deriveEnergyLossMeanQOverP;
           dgdqopValue = deriveEnergyLossMeanQOverP(
               slab, state.options.absPdgCode, state.options.mass,
-              static_cast<double>(qop[0]));
+              qop[0]);  // Breaks autodiff
         } else {
           // TODO path length dependence; see above
+          using SimdHelpers::deriveEnergyLossModeQOverP;
           dgdqopValue = deriveEnergyLossModeQOverP(
               slab, state.options.absPdgCode, state.options.mass,
-              static_cast<double>(qop[0]));
+              qop[0]);  // Breaks autodiff
         }
       }
       // Calculate term for later error propagation
@@ -434,8 +468,9 @@ struct NewGenericDenseEnvironmentExtension {
   /// @param [in] state State of the stepper
   /// @param [in] i Index of the sub-step (1-3)
   template <int I, typename stepper_state_t, typename stepper_t>
-  void updateEnergyLoss(const double mass, const double h,
-                        const stepper_state_t& state, const stepper_t& stepper) {
+  void updateEnergyLoss(const double mass, const Scalar h,
+                        const stepper_state_t& state,
+                        const stepper_t& stepper) {
     // Update parameters related to a changed momentum
     currentMomentum = initialMomentum + h * dPds[I - 1];
     using std::sqrt;
