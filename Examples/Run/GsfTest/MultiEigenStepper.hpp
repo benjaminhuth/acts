@@ -106,7 +106,7 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
     bool covTransport = false;
     Covariance cov = Covariance::Zero();
     NavigationDirection navDir;
-    double pathAccumulated;
+    double pathAccumulated = 0.;
   };
 
   /// Get the number of components
@@ -256,6 +256,8 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
+    //     std::cout << "BEFORE: " << outputStepSize(state) << std::endl;
+
     for (auto& component : state.components) {
       const auto intersection = oIntersection.representation->intersect(
           component.state.geoContext, SingleStepper::position(component.state),
@@ -263,6 +265,8 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
 
       SingleStepper::updateStepSize(component.state, intersection, release);
     }
+
+    //     std::cout << "BEFORE: " << outputStepSize(state) << std::endl;
   }
 
   /// Set Step size - explicitely with a double
@@ -477,11 +481,15 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
     // how to handle this finally
     if (ok_results.empty())
       return results.front().error();
-    else
-      return (*std::max_element(
-                  begin(ok_results), end(ok_results),
-                  [](auto a, auto b) { return a->value() < b->value(); }))
-          ->value();
+    else {
+      const auto avg_step =
+          std::accumulate(
+              begin(ok_results), end(ok_results), 0.,
+              [](auto sum, auto res) { return sum + res->value(); }) /
+          static_cast<double>(ok_results.size());
+      state.stepping.pathAccumulated += avg_step;
+      return avg_step;
+    }
   }
 };
 

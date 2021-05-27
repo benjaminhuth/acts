@@ -132,6 +132,8 @@ struct NewGenericDenseEnvironmentExtension {
          ThisVector3& knew, const ThisVector3& bField,
          std::array<Scalar, 4>& kQoP, const Scalar h = 0.,
          const ThisVector3& kprev = ThisVector3()) {
+    static_assert(I >= 0 && I < 4);
+    
     // i = 0 is used for setup and evaluation of k
     if constexpr (I == 0) {
       // Set up container for energy loss
@@ -145,17 +147,16 @@ struct NewGenericDenseEnvironmentExtension {
         material = (volumeMaterial->material(position));
       }
 
+      const Scalar q{stepper.charge(state.stepping)};
       initialMomentum = stepper.momentum(state.stepping);
       currentMomentum = initialMomentum;
-      qop[0] = stepper.charge(state.stepping) / initialMomentum;
+      qop[0] = q / initialMomentum;
       initializeEnergyLoss(state);
       // Evaluate k
       knew = qop[0] *
              SimdHelpers::cross(stepper.direction(state.stepping), bField);
       // Evaluate k for the time propagation
-      Lambdappi[0] =
-          -qop[0] * qop[0] * qop[0] * g * energy[0] /
-          (stepper.charge(state.stepping) * stepper.charge(state.stepping));
+      Lambdappi[0] = -qop[0] * qop[0] * qop[0] * g * energy[0] / (q * q);
       //~ tKi[0] = std::hypot(1, state.options.mass / initialMomentum);
       using SimdHelpers::hypot;
       using std::hypot;

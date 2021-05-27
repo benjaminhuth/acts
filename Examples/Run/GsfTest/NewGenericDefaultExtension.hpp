@@ -26,7 +26,7 @@ struct NewGenericDefaultExtension {
   using Scalar = scalar_t;
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
-  
+
   /// @brief FreeMatrix replacement for the custom scalar type
   using ThisFreeMatrix = Eigen::Matrix<Scalar, eFreeSize, eFreeSize>;
 
@@ -66,7 +66,7 @@ struct NewGenericDefaultExtension {
          const ThisVector3& kprev = ThisVector3{}) {
     static_assert(I >= 0 && I < 4);
 
-    const Scalar qop = Scalar(stepper.charge(state.stepping)) /
+    const Scalar qop = Scalar{stepper.charge(state.stepping)} /
                        stepper.momentum(state.stepping);
 
     // First step does not rely on previous data
@@ -79,6 +79,7 @@ struct NewGenericDefaultExtension {
       knew = qop * SimdHelpers::cross(
                        stepper.direction(state.stepping) + h * kprev, bField);
     }
+    
     return true;
   }
 
@@ -133,8 +134,8 @@ struct NewGenericDefaultExtension {
     /// = sqrt(m^2/p^2 + c^{-2}) with the mass m and the momentum p.
     using SimdHelpers::hypot;
     using std::hypot;
-    const Scalar derivative =
-        hypot(Scalar{1.}, state.options.mass / stepper.momentum(state.stepping));
+    const Scalar derivative = hypot(
+        Scalar{1.}, state.options.mass / stepper.momentum(state.stepping));
     state.stepping.pars[eFreeTime] += h * derivative;
     if (state.stepping.covTransport) {
       state.stepping.derivative(3) = derivative;
@@ -226,7 +227,7 @@ struct NewGenericDefaultExtension {
 
     dk4dT += h * dk3dT;
     dk4dT = qop * cross(dk4dT, sd.B_last);
-    
+
     const Scalar sixth_h = h / Scalar{6.};
 
     dFdT.setIdentity();
@@ -245,8 +246,8 @@ struct NewGenericDefaultExtension {
     D(3, 7) = h * state.options.mass * state.options.mass *
               stepper.charge(state.stepping) /
               (stepper.momentum(state.stepping) *
-               hypot(Scalar{1.}, state.options.mass /
-                                     stepper.momentum(state.stepping)));
+               hypot(Scalar{1.},
+                     state.options.mass / stepper.momentum(state.stepping)));
     return true;
   }
 };

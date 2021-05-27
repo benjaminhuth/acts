@@ -22,13 +22,14 @@
 #include "Acts/Visualization/GeometryView3D.hpp"
 #include "Acts/Visualization/ObjVisualization3D.hpp"
 
+#include <chrono>
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
 #include "MultiEigenStepper.hpp"
 #include "MultiEigenStepperSIMD.hpp"
 #include "MultiSteppingLogger.hpp"
-
 #include "NewGenericDefaultExtension.hpp"
 #include "NewGenericDenseEnvironmentExtension.hpp"
 #include "NewStepperExtensionList.hpp"
@@ -189,7 +190,7 @@ int main(int argc, char** argv) {
   if (cmd_arg_exists("--help")) {
     std::cout << "Usage: " << argv[0] << " <options>\n";
     std::cout << "\t" << bfield_flag << " <val>\n";
-    std::cout << "\t" << stepper_flag << " <single/loop/simd>\n";
+    std::cout << "\t" << stepper_flag << " <single/loop/simd/all>\n";
     std::cout << "\t" << export_flag << "\n";
     std::cout << "\t" << verbose_flag << "\n";
     return 0;
@@ -198,7 +199,6 @@ int main(int argc, char** argv) {
   const bool do_obj_export = cmd_arg_exists(export_flag);
   const auto log_level = cmd_arg_exists(verbose_flag) ? Acts::Logging::VERBOSE
                                                       : Acts::Logging::INFO;
-
 
   // Bfield
   const double bfield_value = [&]() {
@@ -217,7 +217,7 @@ int main(int argc, char** argv) {
     else
       return std::string_view("single");
   }();
-  
+
   // Logger
   const auto single_logger = Acts::getDefaultLogger("Single", log_level);
   const auto multi_logger = Acts::getDefaultLogger("Multi", log_level);
@@ -226,26 +226,22 @@ int main(int argc, char** argv) {
   auto [start_surface, detector] = build_tracking_geometry();
 
   // Setup tracks
+  constexpr int N = 5;
+
   const auto track_data_vector = []() {
     const double l0{0.}, l1{0.}, theta{0.5 * M_PI}, phi{0.}, p{50._GeV}, q{-1.},
         t{0.};
     std::vector<std::tuple<double, Acts::BoundVector, Acts::BoundSymMatrix>>
         vec;
 
-    Acts::BoundVector pars1;
-    pars1 << l0, l1, phi, theta, q / p, t;
-    vec.push_back({0.5, pars1, Acts::BoundSymMatrix::Identity()});
-
-    Acts::BoundVector pars2;
-    pars2 << l0, l1, phi, theta, q / (2 * p), t;
-    vec.push_back({0.5, pars2, Acts::BoundSymMatrix::Identity()});
+    for (int i = 0; i < N; ++i) {
+      Acts::BoundVector pars;
+      pars << l0, l1, phi, theta, q / ((i + 1) * p), t;
+      vec.push_back({1. / N, pars, Acts::BoundSymMatrix::Identity()});
+    }
 
     return vec;
   }();
-
-  Acts::BoundTrackParameters single_pars(
-      start_surface, std::get<Acts::BoundVector>(track_data_vector.front()),
-      std::get<Acts::BoundSymMatrix>(track_data_vector.front()));
 
   Acts::MultiComponentBoundTrackParameters<Acts::SinglyCharged> multi_pars(
       start_surface, track_data_vector);
@@ -271,27 +267,72 @@ int main(int argc, char** argv) {
 
   std::cout << "Stepper type: " << stepper_type << std::endl;
 
-  // Run the propagation
-  if (stepper_type == "single") {
+  //////////////////////////
+  // SINGLE Stepper
+  //////////////////////////
+  if (stepper_type == "single" || stepper_type == "all") {
     const auto prop =
         make_propagator<Acts::EigenStepper<>>(bfield_value, detector);
 
-    auto single_result = prop.propagate(single_pars, single_options);
+    using SingleResult =
+        decltype(prop.propagate(std::declval<Acts::BoundTrackParameters>(),
+                                std::declval<SinglePropagatorOptions>()));
 
-    const auto single_stepper_result =
-        single_result.value().get<Acts::detail::SteppingLogger::result_type>();
+    // Prepare parameters
+    std::vector<SingleResult> results;
+    results.reserve(N);
 
-    const auto steplog = std::vector<decltype(single_stepper_result.steps)>{
-        single_stepper_result.steps};
+    std::vector<Acts::BoundTrackParameters> pars;
 
-    if (do_obj_export)
-      export_tracks_to_obj(steplog, "propagation-single");
-  } else if (stepper_type == "loop") {
+    for (int i = 0; i < N; ++i) {
+      pars.push_back(Acts::BoundTrackParameters(
+          start_surface, std::get<Acts::BoundVector>(track_data_vector[i]),
+          std::get<Acts::BoundSymMatrix>(track_data_vector[i])));
+    }
+
+    // Run propagation an measure time
+    const auto t0 = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < N; ++i) {
+      results.push_back(prop.propagate(pars[i], single_options));
+    }
+
+    const auto t1 = std::chrono::high_resolution_clock::now();
+
+    std::cout << "Time for 'single': "
+              << std::chrono::duration<double, std::milli>(t1 - t0).count()
+              << " ms\n";
+
+    // Process results
+    for (int i = 0; i < N; ++i) {
+      const auto single_stepper_result =
+          results[i].value().get<Acts::detail::SteppingLogger::result_type>();
+
+      const auto steplog = std::vector<decltype(single_stepper_result.steps)>{
+          single_stepper_result.steps};
+
+      if (do_obj_export)
+        export_tracks_to_obj(steplog, "single-stepper-" + std::to_string(i));
+    }
+  }
+
+  //////////////////////////
+  // LOOP Stepper
+  //////////////////////////
+  if (stepper_type == "loop" || stepper_type == "all") {
     const auto prop =
         make_propagator<Acts::MultiEigenStepper<>>(bfield_value, detector);
 
+    // Run propagation an measure time
+    const auto t0 = std::chrono::high_resolution_clock::now();
     auto multi_result = prop.propagate(multi_pars, multi_options);
+    const auto t1 = std::chrono::high_resolution_clock::now();
 
+    std::cout << "Time for 'loop': "
+              << std::chrono::duration<double, std::milli>(t1 - t0).count()
+              << " ms\n";
+
+    // Process results
     const auto multi_step_logs =
         multi_result.value().get<MultiSteppingLogger::result_type>();
 
@@ -302,19 +343,33 @@ int main(int argc, char** argv) {
       export_tracks_to_obj(multi_step_logs.steps, "components-loop-stepper");
       export_tracks_to_obj(average_steplog, "average-loop-stepper");
     }
-  } else if (stepper_type == "simd") {
-    constexpr int N = 2;
+  }
+  
+  //////////////////////////
+  // SIMD Stepper
+  //////////////////////////
+  if (stepper_type == "simd" || stepper_type == "all") {
     using SimdScalar = Eigen::Array<double, N, 1>;
     using DefaultExt = Acts::detail::NewGenericDefaultExtension<SimdScalar>;
-    using DenseExt = Acts::detail::NewGenericDenseEnvironmentExtension<SimdScalar>;
+    using DenseExt =
+        Acts::detail::NewGenericDenseEnvironmentExtension<SimdScalar>;
     using ExtList = Acts::NewStepperExtensionList<DefaultExt, DenseExt>;
     using Reducer = Acts::WeightedComponentReducer<N>;
-    
+
     const auto prop =
-        make_propagator<Acts::MultiEigenStepperSIMD<2, Reducer, ExtList>>(bfield_value, detector);
+        make_propagator<Acts::MultiEigenStepperSIMD<N, Reducer, ExtList>>(
+            bfield_value, detector);
 
+    // Run propagation an measure time
+    const auto t0 = std::chrono::high_resolution_clock::now();
     auto multi_result = prop.propagate(multi_pars, multi_options);
+    const auto t1 = std::chrono::high_resolution_clock::now();
 
+    std::cout << "Time for 'simd': "
+              << std::chrono::duration<double, std::milli>(t1 - t0).count()
+              << " ms\n";
+
+    // Process results
     const auto multi_step_logs =
         multi_result.value().get<MultiSteppingLogger::result_type>();
 
@@ -325,7 +380,13 @@ int main(int argc, char** argv) {
       export_tracks_to_obj(multi_step_logs.steps, "components-simd-stepper");
       export_tracks_to_obj(average_steplog, "average-simd-stepper");
     }
-  } else {
+  } 
+  
+  
+  //////////////////////////
+  // Wrong stepper arg
+  //////////////////////////
+  if( stepper_type != "all" && stepper_type != "single" && stepper_type != "loop" && stepper_type != "simd" ) {
     std::cerr << "Error: invalid stepper type '" << stepper_type << "'\n";
     return EXIT_FAILURE;
   }

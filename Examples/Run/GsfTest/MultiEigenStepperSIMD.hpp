@@ -193,7 +193,7 @@ class MultiEigenStepperSIMD
     Covariance cov =
         Covariance::Zero();  // TODO This member is a problem, right?
     NavigationDirection navDir;
-    double pathAccumulated;
+    double pathAccumulated = 0.;
 
     // Bfield cache
     MagneticFieldProvider::Cache fieldCache;
@@ -779,18 +779,14 @@ class MultiEigenStepperSIMD
   Result<double> step(propagator_state_t& state) const {
     auto& sd = state.stepping.stepData;
 
-    // check for nan
-    for (auto i = 0ul; i < eFreeSize; ++i)
-      throw_assert(
-          !state.stepping.pars[i].isNaN().any(),
-          "AT THE START: track parameters contain nan for component " << i);
-
     const auto pos = multiPosition(state.stepping);
     const auto dir = multiDirection(state.stepping);
 
     // First Runge-Kutta point
     sd.B_first = getMultiField(state.stepping, pos);
-    if (!state.stepping.extension.k1(state, MultiProxyStepper(), sd.k1,
+    if (!state.stepping.extension.validExtensionForStep(state,
+                                                        MultiProxyStepper{}) ||
+        !state.stepping.extension.k1(state, MultiProxyStepper{}, sd.k1,
                                      sd.B_first, sd.kQoP)) {
       return EigenStepperError::StepInvalid;
     }
@@ -925,7 +921,10 @@ class MultiEigenStepperSIMD
           "AT THE END track parameters contain nan for component " << i);
 
     // TODO is this what we want?
-    return h.sum() / NComponents;
+    const auto avg_step = h.sum() / NComponents;
+
+    state.stepping.pathAccumulated += avg_step;
+    return avg_step;
   }
 };
 
