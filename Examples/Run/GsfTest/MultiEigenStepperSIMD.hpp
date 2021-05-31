@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "NewGenericDefaultExtension.hpp"
+#include "SimdHelpers.hpp"
 
 namespace Acts {
 
@@ -43,7 +44,7 @@ using namespace Acts::UnitLiterals;
 /// the weighted values
 template <int N>
 struct WeightedComponentReducer {
-  using SimdScalar = Eigen::Array<ActsScalar, N, 1>;
+  using SimdScalar = SimdType<N>;
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
 
@@ -55,7 +56,8 @@ struct WeightedComponentReducer {
     multi[2] *= w;
 
     Vector3 ret;
-    ret << multi[0].sum(), multi[1].sum(), multi[2].sum();
+    ret << SimdHelpers::sum(multi[0]), SimdHelpers::sum(multi[1]),
+        SimdHelpers::sum(multi[2]);
 
     return ret;
   }
@@ -70,29 +72,35 @@ struct WeightedComponentReducer {
 
   static ActsScalar momentum(const SimdFreeVector& f, const SimdScalar& w,
                              const ActsScalar q) {
-    return ((1 / (f[eFreeQOverP] / q)) * w).sum();
+    return SimdHelpers::sum((1 / (f[eFreeQOverP] / q)) * w);
   }
 
   static ActsScalar time(const SimdFreeVector& f, const SimdScalar& w) {
-    return (f[eFreeTime] * w).sum();
+    return SimdHelpers::sum(f[eFreeTime] * w);
   }
 };
 
 /// @brief Stepper based on the EigenStepper, but handles Multi-Component Tracks
 /// (e.g., for the GSF)
-template <std::size_t NComponents, typename component_reducer_t,
+/// TODO there where some NANs in kQoP in stepsize estimate with
+/// DenseEnvironmentExtension
+template <int NComponents, typename component_reducer_t,
           typename extensionlist_t,
           typename auctioneer_t = detail::VoidAuctioneer>
 class MultiEigenStepperSIMD
-    : public EigenStepper<StepperExtensionList<DefaultExtension>,
-                          auctioneer_t> {
+    : public EigenStepper<
+          StepperExtensionList<DefaultExtension, DenseEnvironmentExtension>,
+          auctioneer_t> {
  public:
   /// @brief Scoped enum which describes, if a track component is still not on a
   /// surface, on a surface or has missed the surface
 
   /// @brief Typedef to the Single-Component Eigen Stepper
-  using SingleStepper =
-      EigenStepper<StepperExtensionList<DefaultExtension>, auctioneer_t>;
+  using SingleStepper = EigenStepper<
+      StepperExtensionList<DefaultExtension, DenseEnvironmentExtension>,
+      auctioneer_t>;
+
+  using SingleExtension = decltype(SingleStepper::State::extension);
 
   /// @brief Typedef to the State of the single component Stepper
   using SingleState = typename SingleStepper::State;
@@ -103,13 +111,12 @@ class MultiEigenStepperSIMD
   using Jacobian = typename SingleStepper::Jacobian;
 
   /// SIMD typedefs
-  using SimdScalar = Eigen::Array<ActsScalar, NComponents, 1>;
+  using SimdScalar = SimdType<NComponents>;
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
   using SimdFreeMatrix = Eigen::Matrix<SimdScalar, eFreeSize, eFreeSize>;
 
   /// Used for stepsize estimate right now... not sure how to do this in future
-  using SingleExtension = detail::NewGenericDefaultExtension<double>;
 
   using Reducer = component_reducer_t;
 
@@ -683,9 +690,10 @@ class MultiEigenStepperSIMD
                                     const Vector3& k1,
                                     MagneticFieldProvider::Cache& fieldCache,
                                     SingleExtension& extension,
-                                    const double step_size) const {
+                                    const SingleProxyStepper& stepper,
+                                    const ConstrainedStep step_size) const {
     double error_estimate = 0.;
-    double current_estimate = step_size;
+    auto current_estimate = step_size;
 
     // If not initialized, we get undefined behaviour
     struct {
@@ -704,7 +712,7 @@ class MultiEigenStepperSIMD
     const auto pos = position(state.stepping);
     const auto dir = direction(state.stepping);
 
-    const auto tryRungeKuttaStep = [&](double h) -> bool {
+    const auto tryRungeKuttaStep = [&](const ConstrainedStep& h) -> bool {
       // State the square and half of the step size
       const double h2 = h * h;
       const double half_h = h * 0.5;
@@ -712,29 +720,43 @@ class MultiEigenStepperSIMD
       // Second Runge-Kutta point
       const Vector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
       sd.B_middle = SingleStepper::m_bField->getField(pos1, fieldCache);
-      if (!extension.k<1>(state, *this, sd.k2, sd.B_middle, sd.kQoP, half_h,
-                          sd.k1)) {
+      if (!extension.k2(state, stepper, sd.k2, sd.B_middle, sd.kQoP, half_h,
+                        sd.k1)) {
         return false;
       }
 
       // Third Runge-Kutta point
-      if (!extension.k<2>(state, *this, sd.k3, sd.B_middle, sd.kQoP, half_h,
-                          sd.k2)) {
+      if (!extension.k3(state, stepper, sd.k3, sd.B_middle, sd.kQoP, half_h,
+                        sd.k2)) {
         return false;
       }
 
       // Last Runge-Kutta point
       const Vector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
-      sd.B_middle = SingleStepper::m_bField->getField(pos2, fieldCache);
-      if (!extension.k<3>(state, *this, sd.k4, sd.B_last, sd.kQoP, h, sd.k3)) {
+      sd.B_last = SingleStepper::m_bField->getField(pos2, fieldCache);
+      if (!extension.k4(state, stepper, sd.k4, sd.B_last, sd.kQoP, h, sd.k3)) {
         return false;
       }
+
+      //       std::cout << "k1 = " << sd.k1.transpose() << '\n';
+      //       std::cout << "k2 = " << sd.k2.transpose() << '\n';
+      //       std::cout << "k3 = " << sd.k3.transpose() << '\n';
+      //       std::cout << "k4 = " << sd.k4.transpose() << '\n';
+      //       std::cout << "kQoP = " << sd.kQoP[0] << ", " << sd.kQoP[1] << ",
+      //       "
+      //                 << sd.kQoP[2] << ", " << sd.kQoP[3] << '\n';
+
+      // TODO ugly workaround because we somehow get NAN here
+      sd.kQoP[2] = 0.0;
+      sd.kQoP[3] = 0.0;
 
       // Compute and check the local integration error estimate
       error_estimate = std::max(
           h2 * ((sd.k1 - sd.k2 - sd.k3 + sd.k4).template lpNorm<1>() +
                 std::abs(sd.kQoP[0] - sd.kQoP[1] - sd.kQoP[2] + sd.kQoP[3])),
           1e-20);
+
+      //       std::cout << "error_estimate = " << error_estimate << '\n';
 
       return (error_estimate <= state.options.tolerance);
     };
@@ -796,30 +818,43 @@ class MultiEigenStepperSIMD
       throw_assert(!sd.k1[i].isNaN().any(),
                    "k1 contains nan for component " << i);
 
-    // Now do stepsize estimate
-    const double min_h = *std::min_element(begin(state.stepping.stepSizes),
-                                           end(state.stepping.stepSizes));
-    Vector3 avg_k1{sd.k1[0].sum(), sd.k1[1].sum(), sd.k1[2].sum()};
-    avg_k1 /= NComponents;
-    auto estimated_h =
-        estimate_step_size(state, avg_k1, state.stepping.fieldCache,
-                           state.stepping.single_extension, min_h);
+    // Now do stepsize estimate, use the minimum momentum component for this
+    auto estimated_h = [&]() {
+      Eigen::Index r, c;
+      multiMomentum(state.stepping).minCoeff(&r, &c);
+
+      const Vector3 k1{sd.k1[0][r], sd.k1[1][r], sd.k1[2][r]};
+      const ConstrainedStep h = state.stepping.stepSizes[r];
+
+      return estimate_step_size(
+          state, k1, state.stepping.fieldCache, state.stepping.single_extension,
+          SingleProxyStepper{static_cast<std::size_t>(r)}, h);
+    }();
 
     if (!estimated_h.ok())
       return estimated_h.error();
 
     // Constant stepsize at the moment
     const SimdScalar h = [&]() {
-      SimdScalar s = SimdScalar::Zero();
+      const double h = *estimated_h;
+      SimdScalar s = SimdScalar{h};
 
       for (auto i = 0ul; i < NComponents; ++i) {
         // h = 0 if surface not reachable, effectively suppress any progress
-        if (state.stepping.status[i] == Intersection3D::Status::reachable)
-          s[i] = estimated_h.value();
+        if (state.stepping.status[i] != Intersection3D::Status::reachable) {
+          s[i] = 0;
+        }
       }
 
       return s;
     }();
+
+    // TODO weird workaround so we do not get stuck at the end
+    // Why does the navigator allow this? Check the method!
+    if (h.sum() == 0.0) {
+      state.navigation.targetReached = true;
+    }
+
     const SimdScalar h2 = h * h;
     const SimdScalar half_h = h * SimdScalar(0.5);
 

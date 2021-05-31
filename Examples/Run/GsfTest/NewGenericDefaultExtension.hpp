@@ -12,7 +12,7 @@
 
 #include <array>
 
-#include "EigenSimdHelpers.hpp"
+#include "SimdHelpers.hpp"
 
 namespace Acts {
 

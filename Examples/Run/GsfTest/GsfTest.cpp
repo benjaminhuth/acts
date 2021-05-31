@@ -33,6 +33,7 @@
 #include "NewGenericDefaultExtension.hpp"
 #include "NewGenericDenseEnvironmentExtension.hpp"
 #include "NewStepperExtensionList.hpp"
+#include "SimdHelpers.hpp"
 
 using namespace Acts::UnitLiterals;
 
@@ -209,6 +210,9 @@ int main(int argc, char** argv) {
       return 2._T;
   }();
 
+  std::cout << "B-Field strenth: " << bfield_value / Acts::UnitConstants::T
+            << "T\n";
+
   // Which stepper?
   const std::string_view stepper_type = [&]() {
     if (auto found = std::find(begin(args), end(args), stepper_flag);
@@ -226,7 +230,12 @@ int main(int argc, char** argv) {
   auto [start_surface, detector] = build_tracking_geometry();
 
   // Setup tracks
-  constexpr int N = 5;
+#ifdef NTRACKS
+  constexpr int N = NTRACKS;
+#else
+  constexpr int N = 4;
+#endif
+  std::cout << "Using " << N << " parallel tracks\n";
 
   const auto track_data_vector = []() {
     const double l0{0.}, l1{0.}, theta{0.5 * M_PI}, phi{0.}, p{50._GeV}, q{-1.},
@@ -236,7 +245,7 @@ int main(int argc, char** argv) {
 
     for (int i = 0; i < N; ++i) {
       Acts::BoundVector pars;
-      pars << l0, l1, phi, theta, q / ((i + 1) * p), t;
+      pars << l0, l1, phi, theta, q / (/*(i + 1) * */ p), t;
       vec.push_back({1. / N, pars, Acts::BoundSymMatrix::Identity()});
     }
 
@@ -265,7 +274,9 @@ int main(int argc, char** argv) {
   MultiPropagatorOptions multi_options(geoCtx, magCtx,
                                        Acts::LoggerWrapper(*multi_logger));
 
-  std::cout << "Stepper type: " << stepper_type << std::endl;
+  std::cout << "Stepper type: " << stepper_type << "\n";
+
+  constexpr int Iter = 1000;
 
   //////////////////////////
   // SINGLE Stepper
@@ -293,14 +304,28 @@ int main(int argc, char** argv) {
     // Run propagation an measure time
     const auto t0 = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < N; ++i) {
-      results.push_back(prop.propagate(pars[i], single_options));
+    for (int n = 0; n < Iter; ++n) {
+      results.clear();
+      for (int i = 0; i < N; ++i) {
+        results.push_back(prop.propagate(pars[i], single_options));
+      }
     }
 
     const auto t1 = std::chrono::high_resolution_clock::now();
 
-    std::cout << "Time for 'single': "
-              << std::chrono::duration<double, std::milli>(t1 - t0).count()
+    const auto min_step_res = std::min_element(
+        begin(results), end(results),
+        [](auto& a, auto& b) { return (*a).steps < (*b).steps; });
+    const auto max_step_res = std::max_element(
+        begin(results), end(results),
+        [](auto& a, auto& b) { return (*a).steps < (*b).steps; });
+
+    std::cout << "\nSINGLE STEPPER\n";
+    std::cout << "\tsteps [min, max]: " << min_step_res->value().steps << ", "
+              << max_step_res->value().steps << "\n";
+    std::cout << "\ttime : "
+              << std::chrono::duration<double, std::milli>(t1 - t0).count() /
+                     Iter
               << " ms\n";
 
     // Process results
@@ -323,13 +348,21 @@ int main(int argc, char** argv) {
     const auto prop =
         make_propagator<Acts::MultiEigenStepper<>>(bfield_value, detector);
 
-    // Run propagation an measure time
-    const auto t0 = std::chrono::high_resolution_clock::now();
+    // One dummy run to create object
     auto multi_result = prop.propagate(multi_pars, multi_options);
+
+    // Run propagation and measure time
+    const auto t0 = std::chrono::high_resolution_clock::now();
+    for (int n = 0; n < Iter; ++n) {
+      multi_result = prop.propagate(multi_pars, multi_options);
+    }
     const auto t1 = std::chrono::high_resolution_clock::now();
 
-    std::cout << "Time for 'loop': "
-              << std::chrono::duration<double, std::milli>(t1 - t0).count()
+    std::cout << "\nLOOP STEPPER\n";
+    std::cout << "\tsteps: " << multi_result.value().steps << "\n";
+    std::cout << "\ttime:  "
+              << std::chrono::duration<double, std::milli>(t1 - t0).count() /
+                     Iter
               << " ms\n";
 
     // Process results
@@ -344,12 +377,12 @@ int main(int argc, char** argv) {
       export_tracks_to_obj(average_steplog, "average-loop-stepper");
     }
   }
-  
+
   //////////////////////////
   // SIMD Stepper
   //////////////////////////
   if (stepper_type == "simd" || stepper_type == "all") {
-    using SimdScalar = Eigen::Array<double, N, 1>;
+    using SimdScalar = Acts::SimdType<N>;
     using DefaultExt = Acts::detail::NewGenericDefaultExtension<SimdScalar>;
     using DenseExt =
         Acts::detail::NewGenericDenseEnvironmentExtension<SimdScalar>;
@@ -360,13 +393,21 @@ int main(int argc, char** argv) {
         make_propagator<Acts::MultiEigenStepperSIMD<N, Reducer, ExtList>>(
             bfield_value, detector);
 
-    // Run propagation an measure time
-    const auto t0 = std::chrono::high_resolution_clock::now();
+    // One dummy run to get object
     auto multi_result = prop.propagate(multi_pars, multi_options);
+
+    // Run propagation and measure time
+    const auto t0 = std::chrono::high_resolution_clock::now();
+    for (int n = 0; n < Iter; ++n) {
+      multi_result = prop.propagate(multi_pars, multi_options);
+    }
     const auto t1 = std::chrono::high_resolution_clock::now();
 
-    std::cout << "Time for 'simd': "
-              << std::chrono::duration<double, std::milli>(t1 - t0).count()
+    std::cout << "\nSIMD STEPPER\n";
+    std::cout << "\tsteps: " << multi_result.value().steps << "\n";
+    std::cout << "\ttime:  "
+              << std::chrono::duration<double, std::milli>(t1 - t0).count() /
+                     Iter
               << " ms\n";
 
     // Process results
@@ -380,13 +421,13 @@ int main(int argc, char** argv) {
       export_tracks_to_obj(multi_step_logs.steps, "components-simd-stepper");
       export_tracks_to_obj(average_steplog, "average-simd-stepper");
     }
-  } 
-  
-  
+  }
+
   //////////////////////////
   // Wrong stepper arg
   //////////////////////////
-  if( stepper_type != "all" && stepper_type != "single" && stepper_type != "loop" && stepper_type != "simd" ) {
+  if (stepper_type != "all" && stepper_type != "single" &&
+      stepper_type != "loop" && stepper_type != "simd") {
     std::cerr << "Error: invalid stepper type '" << stepper_type << "'\n";
     return EXIT_FAILURE;
   }

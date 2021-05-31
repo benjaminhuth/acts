@@ -21,7 +21,7 @@
 #include <array>
 #include <functional>
 
-#include "EigenSimdHelpers.hpp"
+#include "SimdHelpers.hpp"
 
 namespace Acts {
 

@@ -477,8 +477,11 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
     for (auto& res : results)
       ok_results.push_back(&res);
 
-    // This is obviously not optimal, but maybe a first approach. TODO discuss
-    // how to handle this finally
+//     std::cout << "h array = ";
+//     for(auto r : ok_results)
+//         std::cout << r->value() << " ";
+//     std::cout << '\n';
+    
     if (ok_results.empty())
       return results.front().error();
     else {

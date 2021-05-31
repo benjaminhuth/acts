@@ -11,14 +11,48 @@
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Material/Interactions.hpp"
 
+#include <xsimd/xsimd.hpp>
+
+#define SIMD_EIGEN
+
 /// This file contains functions overloads or wrappers, which allow common
 /// mathematical operations for normal Eigen types (based on ActsScalar which is
 /// probably double) and as well for nested Eigen types (e.g., Eigen::Matrix<
 /// Eigen::Array4d, N, 1 >).
 
 namespace Acts {
+    
+////////////////////////////////////
+////// DEFINE THE SIMD TYPE ////////
+////////////////////////////////////
+    
+#ifdef SIMD_EIGEN
+template<int N>
+using SimdType = Eigen::Array<ActsScalar, N, 1>;
+#endif
+    
+#ifdef SIMD_XSIMD
+template<int N>
+using SimdType = xsimd::batch<ActsScalar, N>;
+#endif
 
 namespace SimdHelpers {
+
+#ifdef SIMD_XSIMD
+template<int N>
+auto sum(const SimdType<N> &a)
+{
+    return xsimd::hadd(a);
+}
+#endif
+
+#ifdef SIMD_EIGEN
+template<typename T>
+auto sum(const Eigen::ArrayBase<T> &a)
+{
+    return a.sum();
+}
+#endif
 
 template <typename A, typename B>
 auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {
@@ -62,49 +96,49 @@ auto hypot(const Eigen::ArrayBase<A>& a, const Eigen::ArrayBase<B>& b) {
   return sqrt(a * a + b * b);
 }
 
-template <typename T, int N>
+template <int N>
 auto computeEnergyLossMode(const MaterialSlab& slab, int pdg, float m,
-                           const Eigen::Array<T, N, 1>& qOverP,
+                           const SimdType<N>& qOverP,
                            float q = UnitConstants::e) {
-  Eigen::Array<T, N, 1> ret;
+  SimdType<N> ret;
 
-  for (int i = 0; i < qOverP.size(); ++i)
+  for (int i = 0; i < N; ++i)
     ret[0] = computeEnergyLossMode(slab, pdg, m, qOverP[i], q);
 
   return ret;
 }
 
-template <typename T, int N>
+template <int N>
 auto computeEnergyLossMean(const MaterialSlab& slab, int pdg, float m,
-                           const Eigen::Array<T, N, 1>& qOverP,
+                           const SimdType<N>& qOverP,
                            float q = UnitConstants::e) {
-  Eigen::Array<T, N, 1> ret;
+  SimdType<N> ret;
 
-  for (int i = 0; i < qOverP.size(); ++i)
+  for (int i = 0; i < N; ++i)
     ret[0] = computeEnergyLossMean(slab, pdg, m, qOverP[i], q);
 
   return ret;
 }
 
-template <typename T, int N>
+template <int N>
 auto deriveEnergyLossMeanQOverP(const MaterialSlab& slab, int pdg, float m,
-                                const Eigen::Array<T, N, 1>& qOverP,
+                                const SimdType<N>& qOverP,
                                 float q = UnitConstants::e) {
-  Eigen::Array<T, N, 1> ret;
+  SimdType<N> ret;
 
-  for (int i = 0; i < qOverP.size(); ++i)
+  for (int i = 0; i < N; ++i)
     ret[0] = deriveEnergyLossMeanQOverP(slab, pdg, m, qOverP[i], q);
 
   return ret;
 }
 
-template <typename T, int N>
+template <int N>
 auto deriveEnergyLossModeQOverP(const MaterialSlab& slab, int pdg, float m,
-                                const Eigen::Array<T, N, 1>& qOverP,
+                                const SimdType<N>& qOverP,
                                 float q = UnitConstants::e) {
-  Eigen::Array<T, N, 1> ret;
+  SimdType<N> ret;
 
-  for (int i = 0; i < qOverP.size(); ++i)
+  for (int i = 0; i < N; ++i)
     ret[0] = deriveEnergyLossModeQOverP(slab, pdg, m, qOverP[i], q);
 
   return ret;
