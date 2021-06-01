@@ -33,52 +33,14 @@
 #include <numeric>
 #include <vector>
 
+#include "MultiEigenStepperCommon.hpp"
 #include "NewGenericDefaultExtension.hpp"
 #include "SimdHelpers.hpp"
 
 namespace Acts {
 
-using namespace Acts::UnitLiterals;
-
 /// Reducer struct which reduces the multicomponent state to simply by summing
 /// the weighted values
-template <int N>
-struct WeightedComponentReducer {
-  using SimdScalar = SimdType<N>;
-  using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
-  using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
-
-  static Vector3 toVector3(const SimdFreeVector& f, const SimdScalar& w,
-                           const FreeIndices i) {
-    SimdVector3 multi = f.template segment<3>(i);
-    multi[0] *= w;
-    multi[1] *= w;
-    multi[2] *= w;
-
-    Vector3 ret;
-    ret << SimdHelpers::sum(multi[0]), SimdHelpers::sum(multi[1]),
-        SimdHelpers::sum(multi[2]);
-
-    return ret;
-  }
-
-  static Vector3 position(const SimdFreeVector& f, const SimdScalar& w) {
-    return toVector3(f, w, eFreePos0);
-  }
-
-  static Vector3 direction(const SimdFreeVector& f, const SimdScalar& w) {
-    return toVector3(f, w, eFreeDir0).normalized();
-  }
-
-  static ActsScalar momentum(const SimdFreeVector& f, const SimdScalar& w,
-                             const ActsScalar q) {
-    return SimdHelpers::sum((1 / (f[eFreeQOverP] / q)) * w);
-  }
-
-  static ActsScalar time(const SimdFreeVector& f, const SimdScalar& w) {
-    return SimdHelpers::sum(f[eFreeTime] * w);
-  }
-};
 
 /// @brief Stepper based on the EigenStepper, but handles Multi-Component Tracks
 /// (e.g., for the GSF)
@@ -115,8 +77,6 @@ class MultiEigenStepperSIMD
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
   using SimdFreeMatrix = Eigen::Matrix<SimdScalar, eFreeSize, eFreeSize>;
-
-  /// Used for stepsize estimate right now... not sure how to do this in future
 
   using Reducer = component_reducer_t;
 

@@ -27,7 +27,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include "MultiEigenStepper.hpp"
+#include "MultiEigenStepperLoop.hpp"
 #include "MultiEigenStepperSIMD.hpp"
 #include "MultiSteppingLogger.hpp"
 #include "NewGenericDefaultExtension.hpp"
@@ -354,8 +354,9 @@ int main(int argc, char** argv) {
   // LOOP Stepper
   //////////////////////////
   if (stepper_type == "loop" || stepper_type == "all") {
+    using Reducer = Acts::WeightedComponentReducer;
     const auto prop =
-        make_propagator<Acts::MultiEigenStepper<>>(bfield_value, detector);
+        make_propagator<Acts::MultiEigenStepperLoop<Reducer>>(bfield_value, detector);
 
     // One dummy run to create object
     auto multi_result = prop.propagate(multi_pars, multi_options);
@@ -396,7 +397,7 @@ int main(int argc, char** argv) {
     using DenseExt =
         Acts::detail::NewGenericDenseEnvironmentExtension<SimdScalar>;
     using ExtList = Acts::NewStepperExtensionList<DefaultExt, DenseExt>;
-    using Reducer = Acts::WeightedComponentReducer<N>;
+    using Reducer = Acts::WeightedComponentReducer;
 
     const auto prop =
         make_propagator<Acts::MultiEigenStepperSIMD<N, Reducer, ExtList>>(

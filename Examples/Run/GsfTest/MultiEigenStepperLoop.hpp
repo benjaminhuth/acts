@@ -40,9 +40,11 @@ using namespace Acts::UnitLiterals;
 
 /// @brief Stepper based on the EigenStepper, but handles Multi-Component Tracks
 /// (e.g., for the GSF)
-template <typename extensionlist_t = StepperExtensionList<DefaultExtension>,
+template <typename component_reducer_t,
+          typename extensionlist_t = StepperExtensionList<DefaultExtension>,
           typename auctioneer_t = detail::VoidAuctioneer>
-class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
+class MultiEigenStepperLoop
+    : public EigenStepper<extensionlist_t, auctioneer_t> {
  public:
   /// @brief Scoped enum which describes, if a track component is still not on a
   /// surface, on a surface or has missed the surface
@@ -57,6 +59,8 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   using CurvilinearState = typename SingleStepper::CurvilinearState;
   using Covariance = typename SingleStepper::Covariance;
   using Jacobian = typename SingleStepper::Jacobian;
+  
+  using Reducer = component_reducer_t;
 
   struct State {
     State() = delete;
@@ -126,7 +130,7 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   }
 
   /// Constructor
-  MultiEigenStepper(std::shared_ptr<const MagneticFieldProvider> bField)
+  MultiEigenStepperLoop(std::shared_ptr<const MagneticFieldProvider> bField)
       : EigenStepper<extensionlist_t, auctioneer_t>(bField) {}
 
   /// Get the field for the stepping, it checks first if the access is still
@@ -144,11 +148,7 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   ///
   /// @param state [in] The stepping state (thread-local cache)
   Vector3 position(const State& state) const {
-    return std::accumulate(
-        begin(state.components), end(state.components), Vector3::Zero().eval(),
-        [this](const auto& sum, const auto& cmp) -> Vector3 {
-          return sum + cmp.weight * SingleStepper::position(cmp.state);
-        });
+    return Reducer::position(state.components);
   }
 
   auto position(std::size_t i, const State& state) const {
@@ -159,13 +159,7 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   ///
   /// @param state [in] The stepping state (thread-local cache)
   Vector3 direction(const State& state) const {
-    return std::accumulate(
-               begin(state.components), end(state.components),
-               Vector3::Zero().eval(),
-               [this](const auto& sum, const auto& cmp) -> Vector3 {
-                 return sum + cmp.weight * SingleStepper::direction(cmp.state);
-               })
-        .normalized();
+    return Reducer::direction(state.components);
   }
 
   auto direction(std::size_t i, const State& state) const {
@@ -176,11 +170,8 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   ///
   /// @param state [in] The stepping state (thread-local cache)
   double momentum(const State& state) const {
-    return std::accumulate(
-        state.components.begin(), state.components.end(), 0.0,
-        [this](const double& sum, const auto& cmp) {
-          return sum + cmp.weight * SingleStepper::momentum(cmp.state);
-        });
+    const auto q = state.components.front().state.q;
+    return Reducer::momentum(state.components, q);
   }
 
   auto momentum(std::size_t i, const State& state) const {
@@ -198,12 +189,7 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   ///
   /// @param state [in] The stepping state (thread-local cache)
   double time(const State& state) const {
-    // time is not identical for each component because of relativity, right?
-    return std::accumulate(
-        state.components.begin(), state.components.end(), 0.0,
-        [this](const double& sum, const auto& cmp) -> double {
-          return sum + cmp.weight * SingleStepper::time(cmp.state);
-        });
+    return Reducer::time(state.components);
   }
 
   auto time(std::size_t i, const State& state) const {
@@ -220,6 +206,9 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
+//     std::cout << "BEFORE updateSurfaceStatus(...): " << outputStepSize(state)
+//               << std::endl;
+
     std::array<int, 4> counts = {0, 0, 0, 0};
 
     for (auto& component : state.components) {
@@ -227,6 +216,15 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
           SingleStepper::updateSurfaceStatus(component.state, surface, bcheck);
       ++counts[static_cast<std::size_t>(component.status)];
     }
+
+//     std::cout << "COMPONENTS STATUS: ";
+//     for (auto& component : state.components) {
+//       std::cout << static_cast<std::size_t>(component.status) << ", ";
+//     }
+//     std::cout << std::endl;
+// 
+//     std::cout << "AFTER updateSurfaceStatus(...): " << outputStepSize(state)
+//               << std::endl;
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -256,7 +254,8 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
-    //     std::cout << "BEFORE: " << outputStepSize(state) << std::endl;
+//     std::cout << "BEFORE updateStepSize(...): " << outputStepSize(state)
+//               << std::endl;
 
     for (auto& component : state.components) {
       const auto intersection = oIntersection.representation->intersect(
@@ -266,7 +265,8 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
       SingleStepper::updateStepSize(component.state, intersection, release);
     }
 
-    //     std::cout << "BEFORE: " << outputStepSize(state) << std::endl;
+//     std::cout << "AFTER updateStepSize(...): " << outputStepSize(state)
+//               << std::endl;
   }
 
   /// Set Step size - explicitely with a double
@@ -477,11 +477,11 @@ class MultiEigenStepper : public EigenStepper<extensionlist_t, auctioneer_t> {
     for (auto& res : results)
       ok_results.push_back(&res);
 
-//     std::cout << "h array = ";
-//     for(auto r : ok_results)
-//         std::cout << r->value() << " ";
-//     std::cout << '\n';
-    
+    //     std::cout << "h array = ";
+    //     for(auto r : ok_results)
+    //         std::cout << r->value() << " ";
+    //     std::cout << '\n';
+
     if (ok_results.empty())
       return results.front().error();
     else {
