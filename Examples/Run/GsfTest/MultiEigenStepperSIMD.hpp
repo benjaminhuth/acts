@@ -217,9 +217,6 @@ class MultiEigenStepperSIMD
     /// List of algorithmic extensions
     extensionlist_t extension;
 
-    /// For stepsize estimate
-    SingleExtension single_extension;
-
     /// Auctioneer for choosing the extension
     auctioneer_t auctioneer;
 
@@ -417,30 +414,25 @@ class MultiEigenStepperSIMD
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
-    std::array<int, 4> counts = {0, 0, 0, 0};
+    // std::cout << "BEFORE updateSurfaceStatus(...): " << outputStepSize(state)
+    // << std::endl;
 
-    //     std::string report = "Components status: ";
+    std::array<int, 4> counts = {0, 0, 0, 0};
 
     for (auto i = 0ul; i < NComponents; ++i) {
       state.status[i] = detail::updateSingleSurfaceStatus<SingleProxyStepper>(
           SingleProxyStepper{i, overstepLimit(state)}, state, surface, bcheck);
       ++counts[static_cast<std::size_t>(state.status[i])];
-
-      //       using Status = Intersection3D::Status;
-      //       switch (state.status[i]) {
-      //         case Status::onSurface:
-      //           report += "onSurface | ";
-      //           break;
-      //         case Status::reachable:
-      //           report += "reachable | ";
-      //           break;
-      //         case Status::unreachable:
-      //           report += "unreachable/missed | ";
-      //           break;
-      //       }
     }
 
-    //     std::cout << report << std::endl;
+    // std::cout << "COMPONENTS STATUS: ";
+    // for (auto i = 0ul; i < NComponents; ++i) {
+    //     std::cout << static_cast<std::size_t>(state.status[i]) << ", ";
+    // }
+    // std::cout << std::endl;
+
+    // std::cout << "AFTER updateSurfaceStatus(...): " << outputStepSize(state)
+    // << std::endl;
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -470,6 +462,9 @@ class MultiEigenStepperSIMD
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
+    // std::cout << "BEFORE updateStepSize(...): " << outputStepSize(state) <<
+    // std::endl;
+
     for (auto i = 0ul; i < NComponents; ++i) {
       const auto intersection = oIntersection.representation->intersect(
           state.geoContext, position(i, state),
@@ -477,6 +472,9 @@ class MultiEigenStepperSIMD
 
       detail::updateSingleStepSize(state.stepSizes[i], intersection, release);
     }
+
+    // std::cout << "AFTER updateStepSize(...): " << outputStepSize(state) <<
+    // std::endl;
   }
 
   /// Set Step size - explicitely with a double
@@ -689,13 +687,18 @@ class MultiEigenStepperSIMD
   Result<double> estimate_step_size(const propagator_state_t& state,
                                     const Vector3& k1,
                                     MagneticFieldProvider::Cache& fieldCache,
-                                    SingleExtension& extension,
                                     const SingleProxyStepper& stepper,
                                     const ConstrainedStep step_size) const {
     double error_estimate = 0.;
     auto current_estimate = step_size;
 
-    // If not initialized, we get undefined behaviour
+    // Create SingleExtension locally here
+    SingleExtension extension;
+
+    // Don't forget to bid, so that everything works
+    extension.validExtensionForStep(state, stepper);
+
+    // If not initialized to zero, we get undefined behaviour
     struct {
       Vector3 B_first = Vector3::Zero();
       Vector3 B_middle = Vector3::Zero();
@@ -709,8 +712,8 @@ class MultiEigenStepperSIMD
 
     sd.k1 = k1;
 
-    const auto pos = position(state.stepping);
-    const auto dir = direction(state.stepping);
+    const auto pos = stepper.position(state.stepping);
+    const auto dir = stepper.direction(state.stepping);
 
     const auto tryRungeKuttaStep = [&](const ConstrainedStep& h) -> bool {
       // State the square and half of the step size
@@ -738,25 +741,22 @@ class MultiEigenStepperSIMD
         return false;
       }
 
-      //       std::cout << "k1 = " << sd.k1.transpose() << '\n';
-      //       std::cout << "k2 = " << sd.k2.transpose() << '\n';
-      //       std::cout << "k3 = " << sd.k3.transpose() << '\n';
-      //       std::cout << "k4 = " << sd.k4.transpose() << '\n';
-      //       std::cout << "kQoP = " << sd.kQoP[0] << ", " << sd.kQoP[1] << ",
-      //       "
-      //                 << sd.kQoP[2] << ", " << sd.kQoP[3] << '\n';
+      // std::cout << "  k1 = " << sd.k1.transpose() << std::endl;
+      // std::cout << "  k2 = " << sd.k2.transpose() << std::endl;
+      // std::cout << "  k3 = " << sd.k3.transpose() << std::endl;
+      // std::cout << "  k4 = " << sd.k4.transpose() << std::endl;
+      // std::cout << "  kQoP = " << sd.kQoP[0] << ", " << sd.kQoP[1] << ", "
+      //         << sd.kQoP[2] << ", " << sd.kQoP[3] << std::endl;
 
       // TODO ugly workaround because we somehow get NAN here
-      sd.kQoP[2] = 0.0;
-      sd.kQoP[3] = 0.0;
+      //       sd.kQoP[2] = 0.0;
+      //       sd.kQoP[3] = 0.0;
 
       // Compute and check the local integration error estimate
       error_estimate = std::max(
           h2 * ((sd.k1 - sd.k2 - sd.k3 + sd.k4).template lpNorm<1>() +
                 std::abs(sd.kQoP[0] - sd.kQoP[1] - sd.kQoP[2] + sd.kQoP[3])),
           1e-20);
-
-      //       std::cout << "error_estimate = " << error_estimate << '\n';
 
       return (error_estimate <= state.options.tolerance);
     };
@@ -800,16 +800,16 @@ class MultiEigenStepperSIMD
   template <typename propagator_state_t>
   Result<double> step(propagator_state_t& state) const {
     auto& sd = state.stepping.stepData;
+    auto& stepping = state.stepping;
 
-    const auto pos = multiPosition(state.stepping);
-    const auto dir = multiDirection(state.stepping);
+    const auto pos = multiPosition(stepping);
+    const auto dir = multiDirection(stepping);
 
     // First Runge-Kutta point
-    sd.B_first = getMultiField(state.stepping, pos);
-    if (!state.stepping.extension.validExtensionForStep(state,
-                                                        MultiProxyStepper{}) ||
-        !state.stepping.extension.k1(state, MultiProxyStepper{}, sd.k1,
-                                     sd.B_first, sd.kQoP)) {
+    sd.B_first = getMultiField(stepping, pos);
+    if (!stepping.extension.validExtensionForStep(state, MultiProxyStepper{}) ||
+        !stepping.extension.k1(state, MultiProxyStepper{}, sd.k1, sd.B_first,
+                               sd.kQoP)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -821,14 +821,14 @@ class MultiEigenStepperSIMD
     // Now do stepsize estimate, use the minimum momentum component for this
     auto estimated_h = [&]() {
       Eigen::Index r, c;
-      multiMomentum(state.stepping).minCoeff(&r, &c);
+      multiMomentum(stepping).minCoeff(&r, &c);
 
       const Vector3 k1{sd.k1[0][r], sd.k1[1][r], sd.k1[2][r]};
-      const ConstrainedStep h = state.stepping.stepSizes[r];
+      const ConstrainedStep h = stepping.stepSizes[r];
 
-      return estimate_step_size(
-          state, k1, state.stepping.fieldCache, state.stepping.single_extension,
-          SingleProxyStepper{static_cast<std::size_t>(r)}, h);
+      return estimate_step_size(state, k1, stepping.fieldCache,
+                                SingleProxyStepper{static_cast<std::size_t>(r)},
+                                h);
     }();
 
     if (!estimated_h.ok())
@@ -836,23 +836,23 @@ class MultiEigenStepperSIMD
 
     // Constant stepsize at the moment
     const SimdScalar h = [&]() {
-      const double h = *estimated_h;
-      SimdScalar s = SimdScalar{h};
+      const ActsScalar h = *estimated_h;
+      SimdScalar s = SimdScalar::Zero();
 
       for (auto i = 0ul; i < NComponents; ++i) {
         // h = 0 if surface not reachable, effectively suppress any progress
-        if (state.stepping.status[i] != Intersection3D::Status::reachable) {
-          s[i] = 0;
+        if (stepping.status[i] == Intersection3D::Status::reachable) {
+          // make sure we get the correct minimal stepsize
+          s[i] = std::min(h, static_cast<ActsScalar>(stepping.stepSizes[i]));
         }
       }
 
       return s;
     }();
 
-    // TODO weird workaround so we do not get stuck at the end
-    // Why does the navigator allow this? Check the method!
+    // If everything is zero, nothing to do (TODO should this happen?)
     if (h.sum() == 0.0) {
-      state.navigation.targetReached = true;
+      return 0.0;
     }
 
     const SimdScalar h2 = h * h;
@@ -860,10 +860,10 @@ class MultiEigenStepperSIMD
 
     // Second Runge-Kutta point
     const SimdVector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
-    sd.B_middle = getMultiField(state.stepping, pos1);
+    sd.B_middle = getMultiField(stepping, pos1);
 
-    if (!state.stepping.extension.k2(state, MultiProxyStepper{}, sd.k2,
-                                     sd.B_middle, sd.kQoP, half_h, sd.k1)) {
+    if (!stepping.extension.k2(state, MultiProxyStepper{}, sd.k2, sd.B_middle,
+                               sd.kQoP, half_h, sd.k1)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -873,8 +873,8 @@ class MultiEigenStepperSIMD
                    "k2 contains nan for component " << i);
 
     // Third Runge-Kutta point
-    if (!state.stepping.extension.k3(state, MultiProxyStepper{}, sd.k3,
-                                     sd.B_middle, sd.kQoP, half_h, sd.k2)) {
+    if (!stepping.extension.k3(state, MultiProxyStepper{}, sd.k3, sd.B_middle,
+                               sd.kQoP, half_h, sd.k2)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -885,10 +885,10 @@ class MultiEigenStepperSIMD
 
     // Last Runge-Kutta point
     const SimdVector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
-    sd.B_last = getMultiField(state.stepping, pos2);
+    sd.B_last = getMultiField(stepping, pos2);
 
-    if (!state.stepping.extension.k4(state, MultiProxyStepper{}, sd.k4,
-                                     sd.B_last, sd.kQoP, h, sd.k3)) {
+    if (!stepping.extension.k4(state, MultiProxyStepper{}, sd.k4, sd.B_last,
+                               sd.kQoP, h, sd.k3)) {
       return EigenStepperError::StepInvalid;
     }
 
@@ -898,53 +898,52 @@ class MultiEigenStepperSIMD
                    "k4 contains nan for component " << i);
 
     // When doing error propagation, update the associated Jacobian matrix
-    if (state.stepping.covTransport) {
+    if (stepping.covTransport) {
       // The step transport matrix in global coordinates
       SimdFreeMatrix D;
-      if (!state.stepping.extension.finalize(state, MultiProxyStepper{}, h,
-                                             D)) {
+      if (!stepping.extension.finalize(state, MultiProxyStepper{}, h, D)) {
         return EigenStepperError::StepInvalid;
       }
 
       // for moment, only update the transport part
-      state.stepping.jacTransport = D * state.stepping.jacTransport;
+      stepping.jacTransport = D * stepping.jacTransport;
     } else {
-      if (!state.stepping.extension.finalize(state, MultiProxyStepper{}, h)) {
+      if (!stepping.extension.finalize(state, MultiProxyStepper{}, h)) {
         return EigenStepperError::StepInvalid;
       }
     }
 
     // Update the track parameters according to the equations of motion
-    state.stepping.pars.template segment<3>(eFreePos0) +=
+    stepping.pars.template segment<3>(eFreePos0) +=
         h * dir + h2 / SimdScalar(6.) * (sd.k1 + sd.k2 + sd.k3);
-    state.stepping.pars.template segment<3>(eFreeDir0) +=
+    stepping.pars.template segment<3>(eFreeDir0) +=
         h / SimdScalar(6.) * (sd.k1 + SimdScalar(2.) * (sd.k2 + sd.k3) + sd.k4);
 
     // Normalize "by hand", default method does not work for nested types
-    //     const auto new_dir = state.stepping.pars.template
+    //     const auto new_dir = stepping.pars.template
     //     segment<3>(eFreeDir0); const auto squared_dir = new_dir.array() *
     //     new_dir.array(); const SimdScalar len = sqrt(squared_dir.sum());
     //     std::cout << "len = " << len.transpose() << std::endl;
-    //     state.stepping.pars.template segment<3>(eFreeDir0) /= len;
+    //     stepping.pars.template segment<3>(eFreeDir0) /= len;
 
     for (auto i = 0ul; i < NComponents; ++i) {
       Vector3 d;
-      d << state.stepping.pars[eFreeDir0][i], state.stepping.pars[eFreeDir1][i],
-          state.stepping.pars[eFreeDir2][i];
+      d << stepping.pars[eFreeDir0][i], stepping.pars[eFreeDir1][i],
+          stepping.pars[eFreeDir2][i];
 
       d.normalize();
       //         std::cout << "d[" << i << "] = " << d.transpose() << std::endl;
 
-      state.stepping.pars[eFreeDir0][i] = d[0];
-      state.stepping.pars[eFreeDir1][i] = d[1];
-      state.stepping.pars[eFreeDir2][i] = d[2];
+      stepping.pars[eFreeDir0][i] = d[0];
+      stepping.pars[eFreeDir1][i] = d[1];
+      stepping.pars[eFreeDir2][i] = d[2];
     }
 
     //     std::cout << "\nSTEP RESULT:\n";
     //     for(auto i=0ul; i<NComponents; ++i)
     //     {
     //         for(auto j=0ul; j<eFreeSize; ++j)
-    //             std::cout << state.stepping.pars[j][i] << "\t";
+    //             std::cout << stepping.pars[j][i] << "\t";
     //         std::cout << std::endl;
     //     }
     //     std::cout << "-------------------------\n";
@@ -952,13 +951,12 @@ class MultiEigenStepperSIMD
     // check for nan
     for (auto i = 0ul; i < eFreeSize; ++i)
       throw_assert(
-          !state.stepping.pars[i].isNaN().any(),
+          !stepping.pars[i].isNaN().any(),
           "AT THE END track parameters contain nan for component " << i);
 
-    // TODO is this what we want?
     const auto avg_step = h.sum() / NComponents;
 
-    state.stepping.pathAccumulated += avg_step;
+    stepping.pathAccumulated += avg_step;
     return avg_step;
   }
 };

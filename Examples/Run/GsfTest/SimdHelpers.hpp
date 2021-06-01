@@ -11,9 +11,11 @@
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Material/Interactions.hpp"
 
-#include <xsimd/xsimd.hpp>
-
 #define SIMD_EIGEN
+
+#ifdef SIMD_XSIMD
+#include <xsimd/xsimd.hpp>
+#endif
 
 /// This file contains functions overloads or wrappers, which allow common
 /// mathematical operations for normal Eigen types (based on ActsScalar which is

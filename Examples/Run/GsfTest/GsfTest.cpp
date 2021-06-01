@@ -229,23 +229,34 @@ int main(int argc, char** argv) {
   // Make detector geometry
   auto [start_surface, detector] = build_tracking_geometry();
 
-  // Setup tracks
+  // Determine number of tracks and iterations
+#ifdef NITER
+  constexpr int Iter = NITER;
+#else
+  constexpr int Iter = 1000;
+#endif
+
 #ifdef NTRACKS
   constexpr int N = NTRACKS;
 #else
   constexpr int N = 4;
 #endif
-  std::cout << "Using " << N << " parallel tracks\n";
 
+  std::cout << "Using " << N << " parallel tracks (" << Iter
+            << " iterations)\n";
+
+  // Setup tracks
   const auto track_data_vector = []() {
     const double l0{0.}, l1{0.}, theta{0.5 * M_PI}, phi{0.}, p{50._GeV}, q{-1.},
         t{0.};
     std::vector<std::tuple<double, Acts::BoundVector, Acts::BoundSymMatrix>>
         vec;
 
+    const double factor = 0.1;
+
     for (int i = 0; i < N; ++i) {
       Acts::BoundVector pars;
-      pars << l0, l1, phi, theta, q / (/*(i + 1) * */ p), t;
+      pars << l0, l1, phi, theta, q / ((factor * i + 1) * p), t;
       vec.push_back({1. / N, pars, Acts::BoundSymMatrix::Identity()});
     }
 
@@ -275,8 +286,6 @@ int main(int argc, char** argv) {
                                        Acts::LoggerWrapper(*multi_logger));
 
   std::cout << "Stepper type: " << stepper_type << "\n";
-
-  constexpr int Iter = 1000;
 
   //////////////////////////
   // SINGLE Stepper
