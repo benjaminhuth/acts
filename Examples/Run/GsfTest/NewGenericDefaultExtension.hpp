@@ -59,18 +59,17 @@ struct NewGenericDefaultExtension {
   /// @param [in] h Step size (= 0. ^ 0.5 * StepSize ^ StepSize)
   /// @param [in] kprev Evaluated k_{i - 1}
   /// @return Boolean flag if the calculation is valid
-  template <int I, typename propagator_state_t, typename stepper_t>
+  template <typename propagator_state_t, typename stepper_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          ThisVector3& knew, const ThisVector3& bField,
-         std::array<Scalar, 4>& kQoP, const Scalar h = Scalar{0.},
+         std::array<Scalar, 4>& kQoP, const int i = 0, const Scalar h = Scalar{0.},
          const ThisVector3& kprev = ThisVector3{}) {
-    static_assert(I >= 0 && I < 4);
 
     const Scalar qop = Scalar{stepper.charge(state.stepping)} /
                        stepper.momentum(state.stepping);
 
     // First step does not rely on previous data
-    if constexpr (I == 0) {
+    if (i == 0) {
       knew =
           qop * SimdHelpers::cross(stepper.direction(state.stepping), bField);
 

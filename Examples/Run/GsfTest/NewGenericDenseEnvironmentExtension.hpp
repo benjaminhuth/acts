@@ -127,15 +127,14 @@ struct NewGenericDenseEnvironmentExtension {
   /// @param [in] h Step size (= 0. ^ 0.5 * StepSize ^ StepSize)
   /// @param [in] kprev Evaluated k_{i - 1}
   /// @return Boolean flag if the calculation is valid
-  template <int I, typename propagator_state_t, typename stepper_t>
+  template <typename propagator_state_t, typename stepper_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          ThisVector3& knew, const ThisVector3& bField,
-         std::array<Scalar, 4>& kQoP, const Scalar h = 0.,
+         std::array<Scalar, 4>& kQoP, const int i = 0, const Scalar h = 0.,
          const ThisVector3& kprev = ThisVector3()) {
-    static_assert(I >= 0 && I < 4);
     
     // i = 0 is used for setup and evaluation of k
-    if constexpr (I == 0) {
+    if (i == 0) {
       // Set up container for energy loss
       auto volumeMaterial = state.navigation.currentVolume->volumeMaterial();
 
@@ -164,7 +163,7 @@ struct NewGenericDenseEnvironmentExtension {
       kQoP[0] = Lambdappi[0];
     } else {
       // Update parameters and check for momentum condition
-      updateEnergyLoss<I>(state.options.mass, h, state.stepping, stepper);
+      updateEnergyLoss(state.options.mass, h, state.stepping, stepper, i);
 
       if constexpr (less_gives_bool) {
         if (currentMomentum < state.options.momentumCutOff) {
@@ -177,18 +176,18 @@ struct NewGenericDenseEnvironmentExtension {
       }
       // Evaluate k
       knew =
-          qop[I] * SimdHelpers::cross(
+          qop[i] * SimdHelpers::cross(
                        stepper.direction(state.stepping) + h * kprev, bField);
       // Evaluate k_i for the time propagation
-      auto qopNew = qop[I] + h * Lambdappi[I - 1];
-      Lambdappi[I] =
-          -qopNew * qopNew * qopNew * g * energy[I] /
+      auto qopNew = qop[i] + h * Lambdappi[i - 1];
+      Lambdappi[i] =
+          -qopNew * qopNew * qopNew * g * energy[i] /
           (stepper.charge(state.stepping) * stepper.charge(state.stepping) *
            UnitConstants::C * UnitConstants::C);
       using SimdHelpers::hypot;
       using std::hypot;
-      tKi[I] = hypot(Scalar{1.}, Scalar{state.options.mass} * qopNew);
-      kQoP[I] = Lambdappi[I];
+      tKi[i] = hypot(Scalar{1.}, Scalar{state.options.mass} * qopNew);
+      kQoP[i] = Lambdappi[i];
     }
     return true;
   }
@@ -483,22 +482,22 @@ struct NewGenericDenseEnvironmentExtension {
   /// @param [in] h Stepped distance of the sub-step (1-3)
   /// @param [in] state State of the stepper
   /// @param [in] i Index of the sub-step (1-3)
-  template <int I, typename stepper_state_t, typename stepper_t>
+  template <typename stepper_state_t, typename stepper_t>
   void updateEnergyLoss(const double mass, const Scalar h,
                         const stepper_state_t& state,
-                        const stepper_t& stepper) {
+                        const stepper_t& stepper, const int i) {
     // Update parameters related to a changed momentum
-    currentMomentum = initialMomentum + h * dPds[I - 1];
+    currentMomentum = initialMomentum + h * dPds[i - 1];
     using std::sqrt;
-    energy[I] = sqrt(currentMomentum * currentMomentum + mass * mass);
-    dPds[I] = g * energy[I] / currentMomentum;
-    qop[I] = stepper.charge(state) / currentMomentum;
+    energy[i] = sqrt(currentMomentum * currentMomentum + mass * mass);
+    dPds[i] = g * energy[i] / currentMomentum;
+    qop[i] = stepper.charge(state) / currentMomentum;
     // Calculate term for later error propagation
     if (state.covTransport) {
-      dLdl[I] = (-qop[I] * qop[I] * g * energy[I] *
+      dLdl[i] = (-qop[i] * qop[i] * g * energy[i] *
                      (3. - (currentMomentum * currentMomentum) /
-                               (energy[I] * energy[I])) -
-                 qop[I] * qop[I] * qop[I] * energy[I] * dgdqopValue);
+                               (energy[i] * energy[i])) -
+                 qop[i] * qop[i] * qop[i] * energy[i] * dgdqopValue);
     }
   }
 };

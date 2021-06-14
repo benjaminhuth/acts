@@ -39,46 +39,141 @@
 
 namespace Acts {
 
-/// Reducer struct which reduces the multicomponent state to simply by summing
-/// the weighted values
+namespace detail {
+
+// TODO maybe implement an `SimdObjectIterable` which provides an SIMD object
+// iterator... Or this can be done with Eigen::Map types, see below
+template <int N, int R, int C>
+auto extractFromSimdObject(const Eigen::Matrix<SimdType<N>, R, C>& m) {
+  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
+  std::array<Eigen::Matrix<typename SimdType<N>::Scalar, R, C>, N> ret;
+
+  for (int c = 0; c < C; ++c)
+    for (int r = 0; r < R; ++r)
+      for (int n = 0; n < N; ++n)
+        ret[n](r, c) = m(r, c)[n];
+
+  return ret;
+}
+
+template <std::size_t N, int R, int C>
+auto combineInSimdObject(
+    const std::array<Eigen::Matrix<typename SimdType<N>::Scalar, R, C>, N>& a) {
+  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
+  Eigen::Matrix<SimdType<N>, R, C> ret;
+
+  for (int c = 0; c < C; ++c)
+    for (int r = 0; r < R; ++r)
+      for (auto n = 0ul; n < N; ++n)
+        ret(r, c)[n] = a[n](r, c);
+
+  return ret;
+}
+
+}  // namespace detail
+
+/// @brief Reducer struct for the SIMD MultiEigenStepper which reduces the
+/// multicomponent state to simply by summing the weighted values
+struct WeightedComponentReducerSIMD {
+  template <int N>
+  using SimdFreeMatrix = Eigen::Matrix<SimdType<N>, eFreeSize, eFreeSize>;
+
+  template <int N>
+  using SimdVector3 = Eigen::Matrix<SimdType<N>, 3, 1>;
+
+  template <int N>
+  using SimdFreeVector = Eigen::Matrix<SimdType<N>, eFreeSize, 1>;
+
+  template <typename T, int N>
+  static auto reduceWeightedSum(const Eigen::MatrixBase<T>& m,
+                                const SimdType<N>& w) {
+    constexpr int R = T::RowsAtCompileTime;
+    constexpr int C = T::ColsAtCompileTime;
+
+    static_assert(std::is_same_v<typename T::Scalar, SimdType<N>>);
+
+    Eigen::Matrix<typename SimdType<N>::Scalar, R, C> ret;
+
+    for (int c = 0; c < C; ++c)
+      for (int r = 0; r < R; ++r)
+        ret(r, c) = SimdHelpers::sum(m(r, c) * w);
+
+    return ret;
+  }
+
+  template <typename stepper_state_t>
+  static Vector3 position(const stepper_state_t& s) {
+    return reduceWeightedSum(s.pars.template segment<3>(eFreePos0), s.weights);
+  }
+
+  template <typename stepper_state_t>
+  static Vector3 direction(const stepper_state_t& s) {
+    return reduceWeightedSum(s.pars.template segment<3>(eFreeDir0), s.weights)
+        .normalized();
+  }
+
+  template <typename stepper_state_t>
+  static ActsScalar momentum(const stepper_state_t& s) {
+    return SimdHelpers::sum((1 / (s.pars[eFreeQOverP] / s.q)) * s.weights);
+  }
+
+  template <typename stepper_state_t>
+  static ActsScalar time(const stepper_state_t& s) {
+    return SimdHelpers::sum(s.pars[eFreeTime] * s.weights);
+  }
+
+  template <typename stepper_state_t>
+  static FreeVector pars(const stepper_state_t& s) {
+    return reduceWeightedSum(s.pars, s.weights);
+  }
+
+  template <typename stepper_state_t>
+  static FreeMatrix cov(const stepper_state_t& s) {
+    return reduceWeightedSum(s.pars, s.weights);
+  }
+};
 
 /// @brief Stepper based on the EigenStepper, but handles Multi-Component Tracks
 /// (e.g., for the GSF)
-/// TODO there where some NANs in kQoP in stepsize estimate with
-/// DenseEnvironmentExtension
-template <int NComponents, typename component_reducer_t,
-          typename extensionlist_t,
+/// TODO inherit from EigenStepper<extensionlist_t, ...> when they are fully
+/// compatible
+template <int NComponents, typename extensionlist_t,
+          typename component_reducer_t = WeightedComponentReducerSIMD,
           typename auctioneer_t = detail::VoidAuctioneer>
 class MultiEigenStepperSIMD
     : public EigenStepper<
           StepperExtensionList<DefaultExtension, DenseEnvironmentExtension>,
           auctioneer_t> {
  public:
-  /// @brief Scoped enum which describes, if a track component is still not on a
-  /// surface, on a surface or has missed the surface
-
-  /// @brief Typedef to the Single-Component Eigen Stepper
+  /// @brief Typedef to the Single-Component Eigen Stepper TODO this should work
+  /// with the NewExtensions in the end
   using SingleStepper = EigenStepper<
       StepperExtensionList<DefaultExtension, DenseEnvironmentExtension>,
       auctioneer_t>;
 
+  /// @brief Typedef to the extensionlist of the underlying EigenStepper
   using SingleExtension = decltype(SingleStepper::State::extension);
 
   /// @brief Typedef to the State of the single component Stepper
   using SingleState = typename SingleStepper::State;
 
-  using BoundState = typename SingleStepper::BoundState;
-  using CurvilinearState = typename SingleStepper::CurvilinearState;
-  using Covariance = typename SingleStepper::Covariance;
-  using Jacobian = typename SingleStepper::Jacobian;
+  /// @brief Use the definitions from the Single-stepper
+  using typename SingleStepper::BoundState;
+  using typename SingleStepper::Covariance;
+  using typename SingleStepper::CurvilinearState;
+  using typename SingleStepper::Jacobian;
 
-  /// SIMD typedefs
+  /// @brief The reducer type
+  using Reducer = component_reducer_t;
+
+  /// @brief How many components can this stepper manage?
+  static constexpr int maxComponents = NComponents;
+
+  /// @brief SIMD typedefs
   using SimdScalar = SimdType<NComponents>;
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
   using SimdFreeMatrix = Eigen::Matrix<SimdScalar, eFreeSize, eFreeSize>;
-
-  using Reducer = component_reducer_t;
 
   struct State {
     State() = delete;
@@ -108,15 +203,20 @@ class MultiEigenStepperSIMD
           geoContext(gctx) {
       throw_assert(!multipars.components().empty(),
                    "Empty MultiComponent state");
-      throw_assert(multipars.components().size() == NComponents,
+      throw_assert(multipars.components().size() <= NComponents,
                    "Missmatching component number: template="
                        << NComponents
                        << ", multipars=" << multipars.components().size());
 
-      // Layout transformation
-      for (auto i = 0ul; i < NComponents; ++i) {
+      for (auto i = 0ul; i < multipars.components().size(); ++i) {
+        // set bit in active mask
+        active[i] = true;
+
+        // extract the single representation of the component
         const auto bound = std::get<SingleBoundTrackParameters<charge_t>>(
             multipars.components().at(i));
+
+        // pars
         const auto pos = bound.position(gctx);
         const auto dir = bound.unitDirection();
 
@@ -129,7 +229,18 @@ class MultiEigenStepperSIMD
         pars[eFreeDir2][i] = dir[2];
         pars[eFreeQOverP][i] = bound.parameters()[eBoundQOverP];
 
+        // weight
         weights[i] = std::get<double>(multipars.components().at(i));
+
+        // handle covariance
+        if (bound.covariance()) {
+          const auto& surface = bound.referenceSurface();
+
+          covTransport = true;
+          covs[i] = BoundSymMatrix(*bound.covariance());
+          jacToGlobals[i] =
+              surface.boundToFreeJacobian(gctx, bound.parameters());
+        }
       }
 
       // TODO Smater initialization when moving to std::array...
@@ -139,40 +250,34 @@ class MultiEigenStepperSIMD
       }
     }
 
-    double q = 1.;
+    /// Mask which component is active
+    std::bitset<NComponents> active;
 
+    /// SIMD objects parameters
+    SimdScalar weights;
+    SimdScalar pathLengthSinceLastSurface = SimdScalar::Zero();
     SimdFreeVector pars;
     SimdFreeVector derivative;
+    SimdFreeMatrix jacTransport = SimdFreeMatrix::Identity();
 
-    SimdScalar weights;
-
+    /// Scalar objects in arrays TODO should they also be SIMD?
     std::array<Intersection3D::Status, NComponents> status;
+    std::array<Covariance, NComponents> covs;
+    std::array<Jacobian, NComponents> jacobians;
+    std::array<BoundToFreeMatrix, NComponents> jacToGlobals;
 
-    /// no std::array, because ConstrainedStep is not default constructable.
-    /// TODO solve this later
+    // no std::array, because ConstrainedStep is not default constructable.
+    // TODO solve this later
     std::vector<ConstrainedStep> stepSizes;
 
-    /// TODO missing: boolean mask, weights
-
-    /// Required through stepper concept
-    /// TODO how can they be interpreted for a Multistepper
+    /// Scalar parameters
+    double q = 1.;
     bool covTransport = false;
-    Covariance cov =
-        Covariance::Zero();  // TODO This member is a problem, right?
     NavigationDirection navDir;
     double pathAccumulated = 0.;
 
     // Bfield cache
     MagneticFieldProvider::Cache fieldCache;
-
-    /// Jacobian from local to the global frame
-    BoundToFreeMatrix jacToGlobal = BoundToFreeMatrix::Zero();
-
-    /// Pure transport jacobian part from runge kutta integration
-    SimdFreeMatrix jacTransport = SimdFreeMatrix::Identity();
-
-    // jacobian
-    Jacobian jacobian = Jacobian::Identity();
 
     /// List of algorithmic extensions
     extensionlist_t extension;
@@ -206,8 +311,7 @@ class MultiEigenStepperSIMD
       return MultiEigenStepperSIMD::multiMomentum(state);
     }
     auto reducedPosition(const State& state) const {
-      return MultiEigenStepperSIMD::Reducer::position(state.pars,
-                                                      state.weights);
+      return MultiEigenStepperSIMD::Reducer::position(state);
     }
   };
 
@@ -245,7 +349,41 @@ class MultiEigenStepperSIMD
   };
 
   /// Get the number of components
-  std::size_t numberComponents(const State&) const { return NComponents; }
+  std::size_t numberComponents(const State& state) const {
+    return state.active.count();
+  }
+
+  auto extractComponents(State& state, const Surface& surface,
+                         bool transportCov) const {
+    std::vector<detail::CommonComponentRep> ret;
+    ret.reserve(NComponents);
+
+    // TODO Could use Eigen::Map types here instead of extracting and combining?
+    // But then detail::boundState(...) must be templated...
+    auto jacTransports = detail::extractFromSimdObject(state.jacTransport);
+    const auto pars = detail::extractFromSimdObject(state.pars);
+    auto derivatives = detail::extractFromSimdObject(state.derivative);
+
+    for (int i = 0; i < NComponents; ++i) {
+      if (!state.active[i])
+        continue;
+
+      ret.push_back(
+          {detail::boundState(state.geoContext, state.covs[i],
+                              state.jacobians[i], jacTransports[i],
+                              derivatives[i], state.jacToGlobals[i], pars[i],
+                              state.covTransport && transportCov,
+                              state.pathAccumulated, surface)
+               .value(),
+           state.pathLengthSinceLastSurface[i], state.weights[i]});
+    }
+
+    state.jacTransport = detail::combineInSimdObject(jacTransports);
+    state.derivative = detail::combineInSimdObject(derivatives);
+    state.pathLengthSinceLastSurface = SimdScalar::Zero();
+
+    return ret;
+  }
 
   template <typename charge_t>
   State makeState(std::reference_wrapper<const GeometryContext> gctx,
@@ -272,10 +410,9 @@ class MultiEigenStepperSIMD
     SimdVector3 ret;
 
     for (auto i = 0ul; i < NComponents; ++i) {
-      Vector3 pos;
-      pos << multi_pos[0][i], multi_pos[1][i], multi_pos[2][i];
-
-      Vector3 bf = SingleStepper::m_bField->getField(pos, state.fieldCache);
+      const Vector3 pos{multi_pos[0][i], multi_pos[1][i], multi_pos[2][i]};
+      const Vector3 bf =
+          SingleStepper::m_bField->getField(pos, state.fieldCache);
 
       ret[0][i] = bf[0];
       ret[1][i] = bf[1];
@@ -294,7 +431,7 @@ class MultiEigenStepperSIMD
   ///
   /// @param state [in] The stepping state (thread-local cache)
   Vector3 position(const State& state) const {
-    return Reducer::position(state.pars, state.weights);
+    return Reducer::position(state);
   }
 
   static SimdVector3 multiPosition(const State& state) {
@@ -302,17 +439,15 @@ class MultiEigenStepperSIMD
   }
 
   static Vector3 position(std::size_t i, const State& state) {
-    Vector3 pos;
-    pos << state.pars[eFreePos0][i], state.pars[eFreePos1][i],
-        state.pars[eFreePos2][i];
-    return pos;
+    return Vector3{state.pars[eFreePos0][i], state.pars[eFreePos1][i],
+                   state.pars[eFreePos2][i]};
   }
 
   /// Momentum direction accessor
   ///
   /// @param state [in] The stepping state (thread-local cache)
   Vector3 direction(const State& state) const {
-    return Reducer::direction(state.pars, state.weights);
+    return Reducer::direction(state);
   }
 
   static SimdVector3 multiDirection(const State& state) {
@@ -320,18 +455,14 @@ class MultiEigenStepperSIMD
   }
 
   static Vector3 direction(std::size_t i, const State& state) {
-    Vector3 dir;
-    dir << state.pars[eFreeDir0][i], state.pars[eFreeDir1][i],
-        state.pars[eFreeDir2][i];
-    return dir;
+    return Vector3{state.pars[eFreeDir0][i], state.pars[eFreeDir1][i],
+                   state.pars[eFreeDir2][i]};
   }
 
   /// Absolute momentum accessor
   ///
   /// @param state [in] The stepping state (thread-local cache)
-  double momentum(const State& state) const {
-    return Reducer::momentum(state.pars, state.weights, state.q);
-  }
+  double momentum(const State& state) const { return Reducer::momentum(state); }
 
   static SimdScalar multiMomentum(const State& state) {
     return state.q / state.pars[eFreeQOverP];
@@ -352,9 +483,7 @@ class MultiEigenStepperSIMD
   /// Time access
   ///
   /// @param state [in] The stepping state (thread-local cache)
-  double time(const State& state) const {
-    return Reducer::time(state.pars, state.weights);
-  }
+  double time(const State& state) const { return Reducer::time(state); }
 
   static SimdScalar multiTime(const State& state) {
     return state.pars[eFreeTime];
@@ -532,6 +661,7 @@ class MultiEigenStepperSIMD
   ///   - the curvilinear parameters at given position
   ///   - the stepweise jacobian towards it (from last bound)
   ///   - and the path length (from start - for ordering)
+  /// TODO reformulate with reducer functions
   CurvilinearState curvilinearState(State& state,
                                     bool transportCov = true) const {
     // std optional because CurvilinearState is not default constructable
@@ -552,8 +682,8 @@ class MultiEigenStepperSIMD
         }
 
       states[i] = detail::curvilinearState(
-          state.cov, state.jacobian, jacTransport, derivative,
-          state.jacToGlobal, pars, state.covTransport && transportCov,
+          state.covs[i], state.jacobians[i], jacTransport, derivative,
+          state.jacToGlobals[i], pars, state.covTransport && transportCov,
           state.pathAccumulated);
     }
 
@@ -701,17 +831,6 @@ class MultiEigenStepperSIMD
         return false;
       }
 
-      // std::cout << "  k1 = " << sd.k1.transpose() << std::endl;
-      // std::cout << "  k2 = " << sd.k2.transpose() << std::endl;
-      // std::cout << "  k3 = " << sd.k3.transpose() << std::endl;
-      // std::cout << "  k4 = " << sd.k4.transpose() << std::endl;
-      // std::cout << "  kQoP = " << sd.kQoP[0] << ", " << sd.kQoP[1] << ", "
-      //         << sd.kQoP[2] << ", " << sd.kQoP[3] << std::endl;
-
-      // TODO ugly workaround because we somehow get NAN here
-      //       sd.kQoP[2] = 0.0;
-      //       sd.kQoP[3] = 0.0;
-
       // Compute and check the local integration error estimate
       error_estimate = std::max(
           h2 * ((sd.k1 - sd.k2 - sd.k3 + sd.k4).template lpNorm<1>() +
@@ -801,7 +920,8 @@ class MultiEigenStepperSIMD
 
       for (auto i = 0ul; i < NComponents; ++i) {
         // h = 0 if surface not reachable, effectively suppress any progress
-        if (stepping.status[i] == Intersection3D::Status::reachable) {
+        if (stepping.active[i] &&
+            stepping.status[i] == Intersection3D::Status::reachable) {
           // make sure we get the correct minimal stepsize
           s[i] = std::min(h, static_cast<ActsScalar>(stepping.stepSizes[i]));
         }
@@ -879,34 +999,17 @@ class MultiEigenStepperSIMD
     stepping.pars.template segment<3>(eFreeDir0) +=
         h / SimdScalar(6.) * (sd.k1 + SimdScalar(2.) * (sd.k2 + sd.k3) + sd.k4);
 
-    // Normalize "by hand", default method does not work for nested types
-    //     const auto new_dir = stepping.pars.template
-    //     segment<3>(eFreeDir0); const auto squared_dir = new_dir.array() *
-    //     new_dir.array(); const SimdScalar len = sqrt(squared_dir.sum());
-    //     std::cout << "len = " << len.transpose() << std::endl;
-    //     stepping.pars.template segment<3>(eFreeDir0) /= len;
-
+    // Normalize the direction (TODO this can for sure be done smarter...)
     for (auto i = 0ul; i < NComponents; ++i) {
-      Vector3 d;
-      d << stepping.pars[eFreeDir0][i], stepping.pars[eFreeDir1][i],
-          stepping.pars[eFreeDir2][i];
+      Vector3 d{stepping.pars[eFreeDir0][i], stepping.pars[eFreeDir1][i],
+                stepping.pars[eFreeDir2][i]};
 
       d.normalize();
-      //         std::cout << "d[" << i << "] = " << d.transpose() << std::endl;
 
       stepping.pars[eFreeDir0][i] = d[0];
       stepping.pars[eFreeDir1][i] = d[1];
       stepping.pars[eFreeDir2][i] = d[2];
     }
-
-    //     std::cout << "\nSTEP RESULT:\n";
-    //     for(auto i=0ul; i<NComponents; ++i)
-    //     {
-    //         for(auto j=0ul; j<eFreeSize; ++j)
-    //             std::cout << stepping.pars[j][i] << "\t";
-    //         std::cout << std::endl;
-    //     }
-    //     std::cout << "-------------------------\n";
 
     // check for nan
     for (auto i = 0ul; i < eFreeSize; ++i)
@@ -914,6 +1017,10 @@ class MultiEigenStepperSIMD
           !stepping.pars[i].isNaN().any(),
           "AT THE END track parameters contain nan for component " << i);
 
+    // Update pathLengthSinceLastSurface
+    stepping.pathLengthSinceLastSurface += h;
+
+    // Compute average step and return
     const auto avg_step = h.sum() / NComponents;
 
     stepping.pathAccumulated += avg_step;

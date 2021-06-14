@@ -1,5 +1,5 @@
-add_executable(GsfTest GsfTest.cpp)
-#add_executable(StepperLoopTest StepperLoopTest.cpp)
+add_executable(MultiStepperTest TestMultiStepper.cpp)
+add_executable(GsfActorTest TestGsfActor.cpp)
 
-target_link_libraries(GsfTest ActsCore)
-#target_link_libraries(StepperLoopTest ActsCore)
+target_link_libraries(MultiStepperTest ActsCore)
+target_link_libraries(GsfActorTest ActsCore)

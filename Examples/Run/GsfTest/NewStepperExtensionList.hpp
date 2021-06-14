@@ -71,7 +71,7 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
   bool k1(const propagator_state_t& state, const stepper_t& stepper,
           Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
           std::array<scalar_t, 4>& kQoP) {
-    return k<0>(state, stepper, knew, bField, kQoP);
+    return k(state, stepper, knew, bField, kQoP);
   }
 
   template <typename propagator_state_t, typename stepper_t, typename scalar_t>
@@ -79,7 +79,7 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
           Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
           std::array<scalar_t, 4>& kQoP, const scalar_t h = scalar_t(0.),
           const Vector3<scalar_t>& kprev = Vector3<scalar_t>()) {
-    return k<1>(state, stepper, knew, bField, kQoP, h, kprev);
+    return k(state, stepper, knew, bField, kQoP, 1, h, kprev);
   }
 
   template <typename propagator_state_t, typename stepper_t, typename scalar_t>
@@ -87,7 +87,7 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
           Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
           std::array<scalar_t, 4>& kQoP, const scalar_t h = scalar_t(0.),
           const Vector3<scalar_t>& kprev = Vector3<scalar_t>()) {
-    return k<2>(state, stepper, knew, bField, kQoP, h, kprev);
+    return k(state, stepper, knew, bField, kQoP, 2, h, kprev);
   }
 
   template <typename propagator_state_t, typename stepper_t, typename scalar_t>
@@ -95,14 +95,14 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
           Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
           std::array<scalar_t, 4>& kQoP, const scalar_t h = scalar_t(0.),
           const Vector3<scalar_t>& kprev = Vector3<scalar_t>()) {
-    return k<3>(state, stepper, knew, bField, kQoP, h, kprev);
+    return k(state, stepper, knew, bField, kQoP, 3, h, kprev);
   }
 
-  template <std::size_t K, typename propagator_state_t, typename stepper_t,
+  template <typename propagator_state_t, typename stepper_t,
             typename scalar_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
-         std::array<scalar_t, 4>& kQoP, const scalar_t h = scalar_t(0.),
+         std::array<scalar_t, 4>& kQoP, const int i = 0, const scalar_t h = scalar_t(0.),
          const Vector3<scalar_t>& kprev = Vector3<scalar_t>()) {
     // TODO replace with integer-templated lambda with C++20
     auto impl = [&](auto intType, auto& impl_ref) {
@@ -117,7 +117,7 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
 
         // Continue as long as evaluations are 'true'
         if (std::get<N - 1>(this->tuple())
-                .template k<K>(state, stepper, knew, bField, kQoP, h, kprev)) {
+                .template k(state, stepper, knew, bField, kQoP, i, h, kprev)) {
           return impl_ref(std::integral_constant<std::size_t, N-1>{}, impl_ref);
         } else {
           // Break at false

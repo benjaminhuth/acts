@@ -1,6 +1,6 @@
 // This file is part of the Acts project.
 //
-// Copyright (C) 2016-2018 CERN for the benefit of the Acts project
+// Copyright (C) 2021 CERN for the benefit of the Acts project
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -37,6 +37,11 @@ using SimdType = Eigen::Array<ActsScalar, N, 1>;
 template<int N>
 using SimdType = xsimd::batch<ActsScalar, N>;
 #endif
+
+
+////////////////////////////////////
+/////// SIMD HELPER FUNCTIONS //////
+////////////////////////////////////
 
 namespace SimdHelpers {
 
@@ -144,6 +149,20 @@ auto deriveEnergyLossModeQOverP(const MaterialSlab& slab, int pdg, float m,
     ret[0] = deriveEnergyLossModeQOverP(slab, pdg, m, qOverP[i], q);
 
   return ret;
+}
+
+template<int N, int A, int B>
+auto extractFromSimd(const Eigen::Matrix<SimdType<N>, A, B> &s)
+{
+    using Mat = Eigen::Matrix<typename SimdType<N>::Scalar, A, B>;
+    std::array<Mat, N> ret;
+    
+    for(int n=0; n<N; ++n)
+        for(int a=0; a<A; ++a)
+            for(int b=0; b<B; ++b)
+                ret[n](a,b) = s(a,b)[n];
+            
+    return ret;
 }
 
 }  // namespace SimdHelpers
