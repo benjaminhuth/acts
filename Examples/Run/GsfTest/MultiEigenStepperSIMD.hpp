@@ -33,7 +33,7 @@
 #include <numeric>
 #include <vector>
 
-#include "MultiEigenStepperCommon.hpp"
+#include "MultiStepperError.hpp"
 #include "NewGenericDefaultExtension.hpp"
 #include "SimdHelpers.hpp"
 
@@ -56,6 +56,20 @@ auto extractFromSimdObject(const Eigen::Matrix<SimdType<N>, R, C>& m) {
   return ret;
 }
 
+// For single element
+template <int N, int R, int C>
+auto extractFromSimdObject(const Eigen::Matrix<SimdType<N>, R, C>& m, int i) {
+  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
+  Eigen::Matrix<typename SimdType<N>::Scalar, R, C> ret;
+
+  for (int c = 0; c < C; ++c)
+    for (int r = 0; r < R; ++r)
+      ret(r, c) = m(r, c)[i];
+
+  return ret;
+}
+
+// combine whole array to simd object
 template <std::size_t N, int R, int C>
 auto combineInSimdObject(
     const std::array<Eigen::Matrix<typename SimdType<N>::Scalar, R, C>, N>& a) {
@@ -68,6 +82,18 @@ auto combineInSimdObject(
         ret(r, c)[n] = a[n](r, c);
 
   return ret;
+}
+
+// for single object
+template <std::size_t N, int R, int C>
+auto combineInSimdObject(
+    const Eigen::Matrix<typename SimdType<N>::Scalar, R, C>& a,
+    const Eigen::Matrix<SimdType<N>, R, C>& m, int i) {
+  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
+
+  for (int c = 0; c < C; ++c)
+    for (int r = 0; r < R; ++r)
+      m(r, c)[i] = m(r, c);
 }
 
 }  // namespace detail
@@ -255,7 +281,6 @@ class MultiEigenStepperSIMD
 
     /// SIMD objects parameters
     SimdScalar weights;
-    SimdScalar pathLengthSinceLastSurface = SimdScalar::Zero();
     SimdFreeVector pars;
     SimdFreeVector derivative;
     SimdFreeMatrix jacTransport = SimdFreeMatrix::Identity();
@@ -355,7 +380,7 @@ class MultiEigenStepperSIMD
 
   auto extractComponents(State& state, const Surface& surface,
                          bool transportCov) const {
-    std::vector<detail::CommonComponentRep> ret;
+    std::vector<std::optional<std::tuple<ActsScalar, BoundState>>> ret;
     ret.reserve(NComponents);
 
     // TODO Could use Eigen::Map types here instead of extracting and combining?
@@ -368,19 +393,22 @@ class MultiEigenStepperSIMD
       if (!state.active[i])
         continue;
 
-      ret.push_back(
-          {detail::boundState(state.geoContext, state.covs[i],
-                              state.jacobians[i], jacTransports[i],
-                              derivatives[i], state.jacToGlobals[i], pars[i],
-                              state.covTransport && transportCov,
-                              state.pathAccumulated, surface)
-               .value(),
-           state.pathLengthSinceLastSurface[i], state.weights[i]});
+      if (state.status[i] == Intersection3D::Status::onSurface) {
+        ret.push_back(std::tuple<ActsScalar, BoundState>{
+            state.weights[i],
+            detail::boundState(state.geoContext, state.covs[i],
+                               state.jacobians[i], jacTransports[i],
+                               derivatives[i], state.jacToGlobals[i], pars[i],
+                               state.covTransport && transportCov,
+                               state.pathAccumulated, surface)
+                .value()});
+      } else {
+        ret.push_back(std::nullopt);
+      }
     }
 
     state.jacTransport = detail::combineInSimdObject(jacTransports);
     state.derivative = detail::combineInSimdObject(derivatives);
-    state.pathLengthSinceLastSurface = SimdScalar::Zero();
 
     return ret;
   }
@@ -647,6 +675,35 @@ class MultiEigenStepperSIMD
                                 bool /*transportCov = true*/) const {
     throw std::runtime_error(
         "'boundState' not yet implemented for MultiEigenStepper");
+  }
+
+  Result<std::tuple<double, BoundState>> boundState(
+      std::size_t i, State& state, const Surface& surface,
+      bool transportCov = true) const {
+    // Helper Function which creates a Eigen::Map for the index i
+    auto makeEigenMap = [i](auto& m) {
+      constexpr int Rows = decltype(m)::RowsAtCompileTime;
+      constexpr int Cols = decltype(m)::ColsAtCompileTime;
+      static_assert(Rows != Eigen::Dynamic && Cols != Eigen::Dynamic);
+      constexpr int iStride = NComponents;
+      constexpr int oStride = iStride * Rows;
+
+      return Eigen::Map<Eigen::Matrix<ActsScalar, Rows, Cols>, Eigen::Unaligned,
+                        Eigen::Stride<oStride, iStride>>(m(0, 0).data() + i);
+    };
+
+    throw_assert(state.active[i], "bound state not active, this is invalid");
+
+    if (state.status[i] != Intersection3D::Status::onSurface)
+      return MultiStepperError::ComponentNotOnSurface;
+
+    return {
+        state.weights[i],
+        detail::boundState(state.geoContext, state.covs[i], state.jacobians[i],
+                           makeEigenMap(state.jacTransport),
+                           makeEigenMap(state.derivative),
+                           state.jacToGlobals[i], makeEigenMap(state.pars),
+                           transportCov, state.pathAccumulated[i], surface)};
   }
 
   /// Create and return a curvilinear state at the current position
@@ -1016,9 +1073,6 @@ class MultiEigenStepperSIMD
       throw_assert(
           !stepping.pars[i].isNaN().any(),
           "AT THE END track parameters contain nan for component " << i);
-
-    // Update pathLengthSinceLastSurface
-    stepping.pathLengthSinceLastSurface += h;
 
     // Compute average step and return
     const auto avg_step = h.sum() / NComponents;

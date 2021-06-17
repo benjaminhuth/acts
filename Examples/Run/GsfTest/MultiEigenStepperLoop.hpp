@@ -34,7 +34,7 @@
 #include <sstream>
 #include <vector>
 
-#include "MultiEigenStepperCommon.hpp"
+#include "MultiStepperError.hpp"
 
 namespace Acts {
 
@@ -118,13 +118,13 @@ class MultiEigenStepperLoop
 
   /// @brief Use the definitions from the Single-stepper
   using typename SingleStepper::BoundState;
-  using typename SingleStepper::CurvilinearState;
   using typename SingleStepper::Covariance;
+  using typename SingleStepper::CurvilinearState;
   using typename SingleStepper::Jacobian;
 
   /// @brief The reducer type
   using Reducer = component_reducer_t;
-  
+
   /// @brief How many components can this stepper manage?
   static constexpr int maxComponents = std::numeric_limits<int>::max();
 
@@ -159,14 +159,13 @@ class MultiEigenStepperLoop
         components.push_back(
             {SingleState(gctx, bField->makeCache(mctx), single_component, ndir,
                          ssize, stolerance),
-             weight, 0.0, Intersection3D::Status::reachable});
+             weight, Intersection3D::Status::reachable});
       }
     }
 
     struct Component {
       SingleState state;
       ActsScalar weight;
-      ActsScalar pathLengthSinceLastSurface;
       Intersection3D::Status status;
     };
 
@@ -178,7 +177,7 @@ class MultiEigenStepperLoop
     Covariance cov = Covariance::Zero();
     NavigationDirection navDir;
     double pathAccumulated = 0.;
-    
+
     /// geoContext
     std::reference_wrapper<const GeometryContext> geoContext;
   };
@@ -187,18 +186,21 @@ class MultiEigenStepperLoop
   std::size_t numberComponents(const State& state) const {
     return state.components.size();
   }
-  
+
   auto extractComponents(State& state, const Surface& surface,
                          bool transportCov) const {
-    std::vector<detail::CommonComponentRep> ret;
+    std::vector<std::optional<std::tuple<ActsScalar, BoundState>>> ret;
     ret.reserve(state.components.size());
 
-    for (auto &comp : state.components) {
-      ret.push_back(
-          {SingleStepper::boundState(comp.state, surface, transportCov).value(),
-           comp.pathLengthSinceLastSurface, comp.weight});
-      
-      comp.pathLengthSinceLastSurface = 0.0;
+    for (auto& comp : state.components) {
+      if (comp.status == Intersection3D::Status::onSurface) {
+        ret.push_back(std::tuple<ActsScalar, BoundState>{
+            comp.weight,
+            SingleStepper::boundState(comp.state, surface, transportCov)
+                .value()});
+      } else {
+        ret.push_back(std::nullopt);
+      }
     }
 
     return ret;
@@ -543,9 +545,6 @@ class MultiEigenStepperLoop
       SinglePropState single_state{state.options, state.navigation,
                                    component.state};
       results.push_back(SingleStepper::step(single_state));
-      
-      if( results.back().ok() )
-          component.pathLengthSinceLastSurface += results.back().value();
     }
 
     if (results.empty())
