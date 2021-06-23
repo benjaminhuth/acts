@@ -64,6 +64,9 @@ class BetheHeitlerApprox {
     }
   }
 
+  /// @brief Returns the number of components the returned mixture will have
+  constexpr auto numComponents() const { return NComponents; }
+
   /// @brief Generates the mixture from the polynomials and reweights them, so
   /// that the sum of all weights is 1
   auto mixture(ActsScalar x) const {

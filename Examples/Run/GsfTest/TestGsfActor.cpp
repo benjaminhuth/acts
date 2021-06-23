@@ -9,6 +9,9 @@
 #include <chrono>
 #include <iostream>
 
+#include "Acts/TrackFitting/GainMatrixUpdater.hpp"
+#include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
+
 #include "GsfActor.hpp"
 #include "MultiEigenStepperLoop.hpp"
 #include "MultiEigenStepperSIMD.hpp"
@@ -54,10 +57,15 @@ int main() {
     Acts::GeometryIdentifier geometryId() const { return {}; }
   };
 
+  struct DummyOutlierFinder {
+      auto operator()(...) const { return false; }
+  };
+
   using GSF = Acts::GaussianSumFitter;
+  using Actor = GSF::Actor<DummySourceLink, Acts::GainMatrixUpdater, DummyOutlierFinder, Acts::VoidKalmanComponents>;
 
   using MultiActionList =
-      Acts::ActionList<MultiSteppingLogger, GSF::Actor<DummySourceLink>/*, Acts::MaterialInteractor*/>;
+      Acts::ActionList<MultiSteppingLogger, Actor>;
   using AbortList = Acts::AbortList<Acts::EndOfWorldReached>;
   using MultiPropagatorOptions =
       Acts::DenseStepperPropagatorOptions<MultiActionList, AbortList>;

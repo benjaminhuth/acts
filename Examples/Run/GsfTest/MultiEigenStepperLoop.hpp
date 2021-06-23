@@ -151,7 +151,7 @@ class MultiEigenStepperLoop
         NavigationDirection ndir = forward,
         double ssize = std::numeric_limits<double>::max(),
         double stolerance = s_onSurfaceTolerance)
-        : navDir(ndir), geoContext(gctx) {
+        : navDir(ndir), geoContext(gctx), magContext(mctx) {
       throw_assert(!multipars.components().empty(),
                    "Empty MultiComponent state");
 
@@ -163,12 +163,14 @@ class MultiEigenStepperLoop
       }
     }
 
+    /// The struct that stores the individual components
     struct Component {
       SingleState state;
       ActsScalar weight;
       Intersection3D::Status status;
     };
 
+    /// The components of which the state consists
     std::vector<Component> components;
 
     /// Required through stepper concept
@@ -180,30 +182,55 @@ class MultiEigenStepperLoop
 
     /// geoContext
     std::reference_wrapper<const GeometryContext> geoContext;
+
+    /// MagneticFieldContext
+    std::reference_wrapper<const MagneticFieldContext> magContext;
+  };
+
+  class ComponentProxy {
+    State& m_state;
+    std::size_t m_idx;
+
+    auto& cmp() { return m_state.components[m_idx]; }
+
+   public:
+    ComponentProxy(State& s, std::size_t i) : m_state(s), m_idx(i) {}
+
+    auto& weight() { return cmp().weight; }
+    auto weight() const { return cmp().weight; }
+    auto& pars() { return cmp().state.pars; }
+    const auto& pars() const { return cmp().state.pars; }
+    auto& derivative() { return cmp().state.derivative; }
+    const auto& derivative() const { return cmp().state.derivative; }
+    auto& jacTransport() { return cmp().state.jacTransport; }
+    const auto& jacTransport() const { return cmp().state.jacTransport; }
+    auto& cov() { return cmp().state.cov; }
+    const auto& cov() const { return cmp().state.cov; }
+    auto& jacobian() { return cmp().state.jacobian; }
+    const auto& jacobian() const { return cmp().state.jacobian; }
+    auto& jacToGlobal() { return cmp().state.jacToGlobal; }
+    const auto& jacToGlobal() const { return cmp().state.jacToGlobal; }
+
+    Result<BoundState> boundState(const Surface& surface, bool transportCov) {
+      if (cmp().status == Intersection3D::Status::onSurface) {
+        auto bs = detail::boundState(
+            m_state.geoContext, cov(), jacobian(), jacTransport(), derivative(),
+            jacToGlobal(), pars(), m_state.covTransport && transportCov,
+            cmp().state.pathAccumulated, surface);
+
+        if (!bs.ok())
+          return bs.error();
+
+        return std::move(bs.value());
+      } else {
+        return MultiStepperError::ComponentNotOnSurface;
+      }
+    }
   };
 
   /// Get the number of components
   std::size_t numberComponents(const State& state) const {
     return state.components.size();
-  }
-
-  auto extractComponents(State& state, const Surface& surface,
-                         bool transportCov) const {
-    std::vector<std::optional<std::tuple<ActsScalar, BoundState>>> ret;
-    ret.reserve(state.components.size());
-
-    for (auto& comp : state.components) {
-      if (comp.status == Intersection3D::Status::onSurface) {
-        ret.push_back(std::tuple<ActsScalar, BoundState>{
-            comp.weight,
-            SingleStepper::boundState(comp.state, surface, transportCov)
-                .value()});
-      } else {
-        ret.push_back(std::nullopt);
-      }
-    }
-
-    return ret;
   }
 
   template <typename charge_t>
@@ -491,6 +518,33 @@ class MultiEigenStepperLoop
     }
   }
 
+  /// Method to update the components individually
+  template <typename component_rep_t>
+  void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
+                        const Surface& surface) const {
+    state.components.clear();
+
+    for (const auto& cmp : cmps) {
+      auto track_pars = BoundTrackParameters::create(
+          surface.getSharedPtr(), state.geoContext,
+          cmp.filteredPars.template segment<4>(eFreePos0),
+          cmp.filteredPars.template segment<3>(eFreeDir0),
+          cmp.filteredPars[eFreeQOverP], cmp.filteredCov);
+
+      throw_assert(track_pars.ok(), "creation of BoundTrackParameters failed");
+
+      state.components.push_back(
+          {SingleStepper::makeState(state.geoContext, state.magContext,
+                                    std::move(*track_pars), state.navDir),
+           cmp.weight, Intersection3D::Status::onSurface});
+
+      state.components.back().state.jacobian = cmp.jacobian;
+      state.components.back().state.derivative = cmp.derivative;
+      state.components.back().state.jacToGlobal = cmp.jacToGlobal;
+      state.components.back().state.jacTransport = cmp.jacTransport;
+    }
+  }
+
   /// Method for on-demand transport of the covariance
   /// to a new curvilinear frame at current  position,
   /// or direction of the state
@@ -526,8 +580,8 @@ class MultiEigenStepperLoop
   /// parameters that are being propagated.
   ///
   /// The state contains the desired step size. It can be negative during
-  /// backwards track propagation, and since we're using an adaptive algorithm,
-  /// it can be modified by the stepper class during propagation.
+  /// backwards track propagation, and since we're using an adaptive
+  /// algorithm, it can be modified by the stepper class during propagation.
   template <typename propagator_state_t>
   Result<double> step(propagator_state_t& state) const {
     std::vector<Result<double>> results;

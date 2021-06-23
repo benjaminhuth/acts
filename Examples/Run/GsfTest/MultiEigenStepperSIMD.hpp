@@ -39,65 +39,6 @@
 
 namespace Acts {
 
-namespace detail {
-
-// TODO maybe implement an `SimdObjectIterable` which provides an SIMD object
-// iterator... Or this can be done with Eigen::Map types, see below
-template <int N, int R, int C>
-auto extractFromSimdObject(const Eigen::Matrix<SimdType<N>, R, C>& m) {
-  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
-  std::array<Eigen::Matrix<typename SimdType<N>::Scalar, R, C>, N> ret;
-
-  for (int c = 0; c < C; ++c)
-    for (int r = 0; r < R; ++r)
-      for (int n = 0; n < N; ++n)
-        ret[n](r, c) = m(r, c)[n];
-
-  return ret;
-}
-
-// For single element
-template <int N, int R, int C>
-auto extractFromSimdObject(const Eigen::Matrix<SimdType<N>, R, C>& m, int i) {
-  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
-  Eigen::Matrix<typename SimdType<N>::Scalar, R, C> ret;
-
-  for (int c = 0; c < C; ++c)
-    for (int r = 0; r < R; ++r)
-      ret(r, c) = m(r, c)[i];
-
-  return ret;
-}
-
-// combine whole array to simd object
-template <std::size_t N, int R, int C>
-auto combineInSimdObject(
-    const std::array<Eigen::Matrix<typename SimdType<N>::Scalar, R, C>, N>& a) {
-  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
-  Eigen::Matrix<SimdType<N>, R, C> ret;
-
-  for (int c = 0; c < C; ++c)
-    for (int r = 0; r < R; ++r)
-      for (auto n = 0ul; n < N; ++n)
-        ret(r, c)[n] = a[n](r, c);
-
-  return ret;
-}
-
-// for single object
-template <std::size_t N, int R, int C>
-auto combineInSimdObject(
-    const Eigen::Matrix<typename SimdType<N>::Scalar, R, C>& a,
-    const Eigen::Matrix<SimdType<N>, R, C>& m, int i) {
-  static_assert(R != Eigen::Dynamic && C != Eigen::Dynamic);
-
-  for (int c = 0; c < C; ++c)
-    for (int r = 0; r < R; ++r)
-      m(r, c)[i] = m(r, c);
-}
-
-}  // namespace detail
-
 /// @brief Reducer struct for the SIMD MultiEigenStepper which reduces the
 /// multicomponent state to simply by summing the weighted values
 struct WeightedComponentReducerSIMD {
@@ -234,10 +175,9 @@ class MultiEigenStepperSIMD
                        << NComponents
                        << ", multipars=" << multipars.components().size());
 
-      for (auto i = 0ul; i < multipars.components().size(); ++i) {
-        // set bit in active mask
-        active[i] = true;
+      numComponents = multipars.components().size();
 
+      for (auto i = 0ul; i < multipars.components().size(); ++i) {
         // extract the single representation of the component
         const auto bound = std::get<SingleBoundTrackParameters<charge_t>>(
             multipars.components().at(i));
@@ -276,8 +216,8 @@ class MultiEigenStepperSIMD
       }
     }
 
-    /// Mask which component is active
-    std::bitset<NComponents> active;
+    /// Number of current active components
+    std::size_t numComponents;
 
     /// SIMD objects parameters
     SimdScalar weights;
@@ -373,44 +313,76 @@ class MultiEigenStepperSIMD
     };
   };
 
-  /// Get the number of components
-  std::size_t numberComponents(const State& state) const {
-    return state.active.count();
-  }
+  class ComponentProxy {
+    State& m_state;
+    const std::size_t m_i;
 
-  auto extractComponents(State& state, const Surface& surface,
-                         bool transportCov) const {
-    std::vector<std::optional<std::tuple<ActsScalar, BoundState>>> ret;
-    ret.reserve(NComponents);
+    template <typename T>
+    static auto map(T& m, int i) {
+      constexpr int Rows = std::decay_t<decltype(m)>::RowsAtCompileTime;
+      constexpr int Cols = std::decay_t<decltype(m)>::ColsAtCompileTime;
+      static_assert(Rows != Eigen::Dynamic && Cols != Eigen::Dynamic);
+      constexpr int iStride = NComponents;
+      constexpr int oStride = iStride * Rows;
 
-    // TODO Could use Eigen::Map types here instead of extracting and combining?
-    // But then detail::boundState(...) must be templated...
-    auto jacTransports = detail::extractFromSimdObject(state.jacTransport);
-    const auto pars = detail::extractFromSimdObject(state.pars);
-    auto derivatives = detail::extractFromSimdObject(state.derivative);
+      return Eigen::Map<Eigen::Matrix<ActsScalar, Rows, Cols>, Eigen::Unaligned,
+                        Eigen::Stride<oStride, iStride>>(m(0, 0).data() + i);
+    };
 
-    for (int i = 0; i < NComponents; ++i) {
-      if (!state.active[i])
-        continue;
-
-      if (state.status[i] == Intersection3D::Status::onSurface) {
-        ret.push_back(std::tuple<ActsScalar, BoundState>{
-            state.weights[i],
-            detail::boundState(state.geoContext, state.covs[i],
-                               state.jacobians[i], jacTransports[i],
-                               derivatives[i], state.jacToGlobals[i], pars[i],
-                               state.covTransport && transportCov,
-                               state.pathAccumulated, surface)
-                .value()});
-      } else {
-        ret.push_back(std::nullopt);
-      }
+   public:
+    ComponentProxy(State& s, std::size_t i) : m_state(s), m_i(i) {
+      throw_assert(i < NComponents, "Cannot create proxy: out of range");
     }
 
-    state.jacTransport = detail::combineInSimdObject(jacTransports);
-    state.derivative = detail::combineInSimdObject(derivatives);
+    auto& weight() { return m_state.weights[m_i]; }
+    auto weight() const { return m_state.weights[m_i]; }
+    auto& status() { return m_state.status[m_i]; }
+    auto status() const { return m_state.status[m_i]; }
+    auto pars() { return map(m_state.pars, m_i); }
+    auto pars() const { return map(m_state.pars, m_i); }
+    auto derivative() { return map(m_state.derivative, m_i); }
+    auto derivative() const { return map(m_state.derivative, m_i); }
+    auto jacTransport() { return map(m_state.jacTransport, m_i); }
+    auto jacTransport() const { return map(m_state.jacTransport, m_i); }
+    auto& cov() { return m_state.covs[m_i]; }
+    const auto& cov() const { return m_state.covs[m_i]; }
+    auto& jacobian() { return m_state.jacobians[m_i]; }
+    const auto& jacobian() const { return m_state.jacobians[m_i]; }
+    auto& jacToGlobal() { return m_state.jacToGlobals[m_i]; }
+    const auto& jacToGlobal() const { return m_state.jacToGlobals[m_i]; }
 
-    return ret;
+    Result<BoundState> boundState(const Surface& surface, bool transportCov) {
+      if (status() != Intersection3D::Status::onSurface)
+        return MultiStepperError::ComponentNotOnSurface;
+
+      // TODO template detail::bounState(...) on Eigen::MatrixBase<T> to allow
+      // the Map types to go in directely
+      auto jacTransportMap = jacTransport();
+      auto derivativeMap = derivative();
+      auto parsMap = pars();
+
+      Acts::FreeMatrix jacTransport(jacTransportMap);
+      Acts::FreeVector derivative(derivativeMap);
+      Acts::FreeVector pars(parsMap);
+
+      auto bs = detail::boundState(
+          m_state.geoContext, cov(), jacobian(), jacTransport, derivative,
+          jacToGlobal(), pars, transportCov, m_state.pathAccumulated, surface);
+
+      jacTransportMap = jacTransport;
+      derivativeMap = derivative;
+      parsMap = pars;
+
+      if (!bs.ok())
+        return bs.error();
+
+      return std::move(bs.value());
+    }
+  };
+
+  /// Get the number of components
+  std::size_t numberComponents(const State& state) const {
+    return state.numComponents;
   }
 
   template <typename charge_t>
@@ -432,7 +404,8 @@ class MultiEigenStepperSIMD
   /// within the Cell, and updates the cell if necessary.
   ///
   /// @param [in,out] state is the propagation state associated with the track
-  ///                 the magnetic field cell is used (and potentially updated)
+  ///                 the magnetic field cell is used (and potentially
+  ///                 updated)
   /// @param [in] pos is the field position
   SimdVector3 getMultiField(State& state, const SimdVector3& multi_pos) const {
     SimdVector3 ret;
@@ -531,7 +504,8 @@ class MultiEigenStepperSIMD
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
-    // std::cout << "BEFORE updateSurfaceStatus(...): " << outputStepSize(state)
+    // std::cout << "BEFORE updateSurfaceStatus(...): " <<
+    // outputStepSize(state)
     // << std::endl;
 
     std::array<int, 4> counts = {0, 0, 0, 0};
@@ -548,7 +522,8 @@ class MultiEigenStepperSIMD
     // }
     // std::cout << std::endl;
 
-    // std::cout << "AFTER updateSurfaceStatus(...): " << outputStepSize(state)
+    // std::cout << "AFTER updateSurfaceStatus(...): " <<
+    // outputStepSize(state)
     // << std::endl;
 
     // This is a 'any_of' criterium. As long as any of the components has a
@@ -677,35 +652,6 @@ class MultiEigenStepperSIMD
         "'boundState' not yet implemented for MultiEigenStepper");
   }
 
-  Result<std::tuple<double, BoundState>> boundState(
-      std::size_t i, State& state, const Surface& surface,
-      bool transportCov = true) const {
-    // Helper Function which creates a Eigen::Map for the index i
-    auto makeEigenMap = [i](auto& m) {
-      constexpr int Rows = decltype(m)::RowsAtCompileTime;
-      constexpr int Cols = decltype(m)::ColsAtCompileTime;
-      static_assert(Rows != Eigen::Dynamic && Cols != Eigen::Dynamic);
-      constexpr int iStride = NComponents;
-      constexpr int oStride = iStride * Rows;
-
-      return Eigen::Map<Eigen::Matrix<ActsScalar, Rows, Cols>, Eigen::Unaligned,
-                        Eigen::Stride<oStride, iStride>>(m(0, 0).data() + i);
-    };
-
-    throw_assert(state.active[i], "bound state not active, this is invalid");
-
-    if (state.status[i] != Intersection3D::Status::onSurface)
-      return MultiStepperError::ComponentNotOnSurface;
-
-    return {
-        state.weights[i],
-        detail::boundState(state.geoContext, state.covs[i], state.jacobians[i],
-                           makeEigenMap(state.jacTransport),
-                           makeEigenMap(state.derivative),
-                           state.jacToGlobals[i], makeEigenMap(state.pars),
-                           transportCov, state.pathAccumulated[i], surface)};
-  }
-
   /// Create and return a curvilinear state at the current position
   ///
   /// @brief This transports (if necessary) the covariance
@@ -792,6 +738,31 @@ class MultiEigenStepperSIMD
               const Vector3& /*udirection*/, double /*up*/,
               double /*time*/) const {
     throw std::runtime_error("'update' not yet implemented correctely");
+  }
+
+
+  /// Method to update the components individually
+  template <typename component_rep_t>
+  void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
+                        const Surface&) const {
+    throw_assert(cmps.size() <= NComponents, "tried to create more components than possible");
+
+    state.numComponents = cmps.size();
+
+    for(auto i=0ul; i<cmps.size(); ++i)
+    {
+      ComponentProxy proxy(state, i);
+
+      proxy.pars() = cmps[i].filteredPars;
+      if( cmps[i].filteredCov ) {
+          proxy.cov() = *cmps[i].filteredCov;
+      }
+      proxy.jacobian() = cmps[i].jacobian;
+      proxy.jacToGlobal() = cmps[i].jacToGlobal;
+      proxy.derivative() = cmps[i].derivative;
+      proxy.jacTransport() = cmps[i].jacTransport;
+      proxy.weight() = cmps[i].weight;
+    }
   }
 
   /// Method for on-demand transport of the covariance
@@ -975,10 +946,9 @@ class MultiEigenStepperSIMD
       const ActsScalar h = *estimated_h;
       SimdScalar s = SimdScalar::Zero();
 
-      for (auto i = 0ul; i < NComponents; ++i) {
+      for (auto i = 0ul; i < stepping.numComponents; ++i) {
         // h = 0 if surface not reachable, effectively suppress any progress
-        if (stepping.active[i] &&
-            stepping.status[i] == Intersection3D::Status::reachable) {
+        if (stepping.status[i] == Intersection3D::Status::reachable) {
           // make sure we get the correct minimal stepsize
           s[i] = std::min(h, static_cast<ActsScalar>(stepping.stepSizes[i]));
         }
