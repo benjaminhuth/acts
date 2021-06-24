@@ -106,17 +106,16 @@ struct WeightedComponentReducerSIMD {
 /// compatible
 template <int NComponents, typename extensionlist_t,
           typename component_reducer_t = WeightedComponentReducerSIMD,
-          typename auctioneer_t = detail::VoidAuctioneer>
+          typename auctioneer_t = detail::VoidAuctioneer,
+          typename single_stepper_extensionlist_t =
+              StepperExtensionList<DefaultExtension>>
 class MultiEigenStepperSIMD
-    : public EigenStepper<
-          StepperExtensionList<DefaultExtension, DenseEnvironmentExtension>,
-          auctioneer_t> {
+    : public EigenStepper<single_stepper_extensionlist_t, auctioneer_t> {
  public:
   /// @brief Typedef to the Single-Component Eigen Stepper TODO this should work
   /// with the NewExtensions in the end
-  using SingleStepper = EigenStepper<
-      StepperExtensionList<DefaultExtension, DenseEnvironmentExtension>,
-      auctioneer_t>;
+  using SingleStepper =
+      EigenStepper<single_stepper_extensionlist_t, auctioneer_t>;
 
   /// @brief Typedef to the extensionlist of the underlying EigenStepper
   using SingleExtension = decltype(SingleStepper::State::extension);
@@ -740,22 +739,21 @@ class MultiEigenStepperSIMD
     throw std::runtime_error("'update' not yet implemented correctely");
   }
 
-
   /// Method to update the components individually
   template <typename component_rep_t>
   void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
                         const Surface&) const {
-    throw_assert(cmps.size() <= NComponents, "tried to create more components than possible");
+    throw_assert(cmps.size() <= NComponents,
+                 "tried to create more components than possible");
 
     state.numComponents = cmps.size();
 
-    for(auto i=0ul; i<cmps.size(); ++i)
-    {
+    for (auto i = 0ul; i < cmps.size(); ++i) {
       ComponentProxy proxy(state, i);
 
       proxy.pars() = cmps[i].filteredPars;
-      if( cmps[i].filteredCov ) {
-          proxy.cov() = *cmps[i].filteredCov;
+      if (cmps[i].filteredCov) {
+        proxy.cov() = *cmps[i].filteredCov;
       }
       proxy.jacobian() = cmps[i].jacobian;
       proxy.jacToGlobal() = cmps[i].jacToGlobal;

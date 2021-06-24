@@ -152,9 +152,8 @@ void export_tracks_to_obj(
 using MagneticField = Acts::ConstantBField;
 
 template <typename stepper_t>
-auto make_propagator(double bz,
+auto make_propagator(std::shared_ptr<Acts::ConstantBField> magField,
                      std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
-  auto magField = std::make_shared<MagneticField>(Acts::Vector3(0.0, 0.0, bz));
   Acts::Navigator navigator(tgeo);
   navigator.resolvePassive = true;
 

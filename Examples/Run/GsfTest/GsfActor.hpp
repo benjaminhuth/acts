@@ -9,12 +9,14 @@
 #pragma once
 
 #include "Acts/EventData/MultiTrajectory.hpp"
+#include "Acts/EventData/MultiTrajectoryHelpers.hpp"
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "Acts/Material/ISurfaceMaterial.hpp"
 #include "Acts/Propagator/EigenStepper.hpp"
 #include "Acts/Propagator/StandardAborters.hpp"
 #include "Acts/Surfaces/Surface.hpp"
-#include <Acts/EventData/MultiTrajectoryHelpers.hpp>
+#include "Acts/TrackFitting/GainMatrixUpdater.hpp"
+#include "Acts/EventData/SourceLinkConcept.hpp"
 
 #include <map>
 #include <numeric>
@@ -23,8 +25,26 @@
 
 namespace Acts {
 
-// template <typename propagator_t>
+template <typename calibrator_t, typename outlier_finder_t>
+struct GSFOptions {
+  using Calibrator = calibrator_t;
+  using OutlierFinder = outlier_finder_t;
+
+  Calibrator calibrator;
+  OutlierFinder outlierFinder;
+
+  std::reference_wrapper<const GeometryContext> geoContext;
+  std::reference_wrapper<const MagneticFieldContext> magFieldContext;
+
+  LoggerWrapper logger;
+};
+
+template <typename propagator_t>
 struct GaussianSumFitter {
+
+  GaussianSumFitter(propagator_t propagator)
+      : m_propagator(std::move(propagator)) {}
+
   /// struct to store the data related to a component during processing
   struct ComponentCache {
     std::size_t parentMultiTrajectoryIndex;
@@ -49,11 +69,14 @@ struct GaussianSumFitter {
     std::vector<std::size_t> currentTips;
 
     /// The number of measurement states created
-    int measurementStates = 0;
+    std::size_t measurementStates = 0;
 
     /// A std::vector storing the component caches so that it must not be
     /// reallocated every pass
     std::vector<ComponentCache> componentCache;
+
+    /// Boolean flag which indicates the fitting is done
+    bool isFinished = false;
   };
 
   template <
@@ -147,15 +170,16 @@ struct GaussianSumFitter {
 
       // Reduce the number of components to a managable degree
       if (result.componentCache.size() > m_config.maxComponents ||
-          result.componentCache.size()  > stepper.maxComponents) {
+          result.componentCache.size() > stepper.maxComponents) {
         reduceNumberOfComponents(
-            result.componentCache, std::min(static_cast<int>(m_config.maxComponents),
-                                    stepper.maxComponents));
+            result.componentCache,
+            std::min(static_cast<int>(m_config.maxComponents),
+                     stepper.maxComponents));
       }
 
       // Update the Multi trajectory with the new components
-      updateMultiTrajectoryAndDoKalmanUpdate(state, stepper, result,
-                                             measurement, result.componentCache);
+      updateMultiTrajectoryAndDoKalmanUpdate(
+          state, stepper, result, measurement, result.componentCache);
     }
 
     /// @brief Expands all existing components to new components by using a
@@ -365,9 +389,102 @@ struct GaussianSumFitter {
       // update stepper state with the collected component caches
       stepper.updateComponents(state.stepping, new_components, surface);
 
+      // At the moment finished when everything is done
+      if (result.measurementStates == m_config.inputMeasurements.size()) {
+        result.isFinished = true;
+      }
+
       return Acts::Result<void>::success();
     }
   };
+
+  template <typename source_link_t, typename updater_t, typename outlier_finder_t, typename calibrator_t>
+  class Aborter {
+   public:
+    /// Broadcast the result_type
+    using action_type =
+        Actor<source_link_t, GainMatrixUpdater, outlier_finder_t, calibrator_t>;
+
+    /// The call operator
+    template <typename propagator_state_t, typename stepper_t,
+              typename result_t>
+    bool operator()(propagator_state_t& /*state*/, const stepper_t& /*stepper*/,
+                    const result_t& result) const {
+      if (result.isFinished) {
+        return true;
+      }
+      return false;
+    }
+  };
+
+  /// The propagator instance used by the fit function
+  propagator_t m_propagator;
+
+  /// @brief The fit function
+  template <typename source_link_t, typename start_parameters_t,
+            typename calibrator_t, typename outlier_finder_t>
+  auto fit(const std::vector<source_link_t>& sourcelinks,
+           const start_parameters_t& sParameters,
+           const GSFOptions<calibrator_t, outlier_finder_t>& options) const {
+    const auto& logger = options.logger;
+    static_assert(SourceLinkConcept<source_link_t>,
+                  "Source link does not fulfill SourceLinkConcept");
+
+    // To be able to find measurements later, we put them into a map
+    // We need to copy input SourceLinks anyways, so the map can own them.
+    ACTS_VERBOSE("Preparing " << sourcelinks.size() << " input measurements");
+    std::map<GeometryIdentifier, source_link_t> inputMeasurements;
+    for (const auto& sl : sourcelinks) {
+      inputMeasurements.emplace(sl.geometryId(), sl);
+    }
+
+    // Create the ActionList and AbortList
+    using GSFActor =
+        Actor<source_link_t, GainMatrixUpdater, outlier_finder_t, calibrator_t>;
+    using GSFResult = typename GSFActor::result_type;
+    using GSFAborter = Aborter<source_link_t, GainMatrixUpdater, outlier_finder_t, calibrator_t>;
+
+    using Actors = ActionList<GSFActor>;
+    using Aborters = AbortList<GSFAborter>;
+
+    // Create relevant options for the propagation options
+    PropagatorOptions<Actors, Aborters> propOptions(
+        options.geoContext, options.magFieldContext, logger);
+
+    // Catch the actor and set the measurements
+    auto& actor = propOptions.actionList.template get<GSFActor>();
+    actor.m_config.inputMeasurements = inputMeasurements;
+    actor.m_calibrator = options.calibrator;
+    actor.m_outlierFinder = options.outlierFinder;
+
+    // Run the fitter
+    auto result = m_propagator.propagate(sParameters, propOptions);
+
+    if (!result.ok()) {
+      ACTS_ERROR("Propapation failed: " << result.error());
+      return Acts::Result<GSFResult>(result.error());
+    }
+
+    const auto& propResult = *result;
+
+    /// Get the result of the fit
+    auto gsfResult = propResult.template get<GSFResult>();
+
+    // TODO implement
+    /// It could happen that the fit ends in zero processed states.
+    /// The result gets meaningless so such case is regarded as fit failure
+//     if (gsfResult.result.ok() and not gsfResult.processedStates) {
+//       gsfResult.result = Result<void>(KalmanFitterError::NoMeasurementFound);
+//     }
+
+//     if (!gsfResult.result.ok()) {
+//       ACTS_ERROR("KalmanFilter failed: " << gsfResult.result.error());
+//       return gsfResult.result.error();
+//     }
+
+    // Return the converted Track
+    return Acts::Result<GSFResult>(gsfResult);
+  }
 };
 
 }  // namespace Acts
