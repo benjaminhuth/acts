@@ -27,8 +27,6 @@ template <>
 struct is_error_code_enum<Acts::MultiStepperError> : std::true_type {};
 }  // namespace std
 
-
-
 // On the long run, this can be in a C++ file
 namespace {
 

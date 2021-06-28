@@ -23,21 +23,20 @@
 /// Eigen::Array4d, N, 1 >).
 
 namespace Acts {
-    
+
 ////////////////////////////////////
 ////// DEFINE THE SIMD TYPE ////////
 ////////////////////////////////////
-    
+
 #ifdef SIMD_EIGEN
-template<int N>
+template <int N>
 using SimdType = Eigen::Array<ActsScalar, N, 1>;
 #endif
-    
+
 #ifdef SIMD_XSIMD
-template<int N>
+template <int N>
 using SimdType = xsimd::batch<ActsScalar, N>;
 #endif
-
 
 ////////////////////////////////////
 /////// SIMD HELPER FUNCTIONS //////
@@ -46,18 +45,16 @@ using SimdType = xsimd::batch<ActsScalar, N>;
 namespace SimdHelpers {
 
 #ifdef SIMD_XSIMD
-template<int N>
-auto sum(const SimdType<N> &a)
-{
-    return xsimd::hadd(a);
+template <int N>
+auto sum(const SimdType<N>& a) {
+  return xsimd::hadd(a);
 }
 #endif
 
 #ifdef SIMD_EIGEN
-template<typename T>
-auto sum(const Eigen::ArrayBase<T> &a)
-{
-    return a.sum();
+template <typename T>
+auto sum(const Eigen::ArrayBase<T>& a) {
+  return a.sum();
 }
 #endif
 
@@ -73,9 +70,9 @@ auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {
   // Standard Cross Product
   if constexpr (std::is_same_v<ScalarA, ActsScalar>) {
     return a.cross(b);
-  } 
+  }
   // Manual Cross Product for non default-Scalars
-  else if constexpr( A::ColsAtCompileTime == 1 ) {
+  else if constexpr (A::ColsAtCompileTime == 1) {
     Eigen::Matrix<ScalarA, 3, 1> ret;
 
     ret[0] = a[1] * b[2] - a[2] * b[1];
@@ -85,13 +82,13 @@ auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {
     return ret;
   }
   // Columnwise Cross Product if A is a 3x3 Matrix
-  else if constexpr( A::ColsAtCompileTime == 3 ){
+  else if constexpr (A::ColsAtCompileTime == 3) {
     Eigen::Matrix<ScalarA, 3, 3> ret;
-    
+
     ret.col(0) = cross(a.col(0), b);
     ret.col(1) = cross(a.col(1), b);
     ret.col(2) = cross(a.col(2), b);
-    
+
     return ret;
   }
 }
@@ -151,18 +148,17 @@ auto deriveEnergyLossModeQOverP(const MaterialSlab& slab, int pdg, float m,
   return ret;
 }
 
-template<int N, int A, int B>
-auto extractFromSimd(const Eigen::Matrix<SimdType<N>, A, B> &s)
-{
-    using Mat = Eigen::Matrix<typename SimdType<N>::Scalar, A, B>;
-    std::array<Mat, N> ret;
-    
-    for(int n=0; n<N; ++n)
-        for(int a=0; a<A; ++a)
-            for(int b=0; b<B; ++b)
-                ret[n](a,b) = s(a,b)[n];
-            
-    return ret;
+template <int N, int A, int B>
+auto extractFromSimd(const Eigen::Matrix<SimdType<N>, A, B>& s) {
+  using Mat = Eigen::Matrix<typename SimdType<N>::Scalar, A, B>;
+  std::array<Mat, N> ret;
+
+  for (int n = 0; n < N; ++n)
+    for (int a = 0; a < A; ++a)
+      for (int b = 0; b < B; ++b)
+        ret[n](a, b) = s(a, b)[n];
+
+  return ret;
 }
 
 }  // namespace SimdHelpers

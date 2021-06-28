@@ -40,7 +40,7 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
 
   // Vector of valid extensions for a step
   std::array<bool, nExtensions> validExtensions;
-  
+
  public:
   // Access to an extension
   using detail::Extendable<extensions...>::get;
@@ -98,11 +98,11 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
     return k(state, stepper, knew, bField, kQoP, 3, h, kprev);
   }
 
-  template <typename propagator_state_t, typename stepper_t,
-            typename scalar_t>
+  template <typename propagator_state_t, typename stepper_t, typename scalar_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
-         std::array<scalar_t, 4>& kQoP, const int i = 0, const scalar_t h = scalar_t(0.),
+         std::array<scalar_t, 4>& kQoP, const int i = 0,
+         const scalar_t h = scalar_t(0.),
          const Vector3<scalar_t>& kprev = Vector3<scalar_t>()) {
     // TODO replace with integer-templated lambda with C++20
     auto impl = [&](auto intType, auto& impl_ref) {
@@ -113,12 +113,14 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
       else {
         // If element is invalid: continue
         if (!std::get<N - 1>(validExtensions))
-          return impl_ref(std::integral_constant<std::size_t, N-1>{}, impl_ref);
+          return impl_ref(std::integral_constant<std::size_t, N - 1>{},
+                          impl_ref);
 
         // Continue as long as evaluations are 'true'
         if (std::get<N - 1>(this->tuple())
                 .template k(state, stepper, knew, bField, kQoP, i, h, kprev)) {
-          return impl_ref(std::integral_constant<std::size_t, N-1>{}, impl_ref);
+          return impl_ref(std::integral_constant<std::size_t, N - 1>{},
+                          impl_ref);
         } else {
           // Break at false
           return false;
@@ -143,11 +145,13 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
       else {
         // If element is invalid: continue
         if (!std::get<N - 1>(validExtensions))
-          return impl_ref(std::integral_constant<std::size_t, N-1>{}, impl_ref);
+          return impl_ref(std::integral_constant<std::size_t, N - 1>{},
+                          impl_ref);
 
         // Continue as long as evaluations are 'true'
         if (std::get<N - 1>(this->tuple()).finalize(state, stepper, h, D)) {
-          return impl_ref(std::integral_constant<std::size_t, N-1>{}, impl_ref);
+          return impl_ref(std::integral_constant<std::size_t, N - 1>{},
+                          impl_ref);
         } else {
           // Break at false
           return false;
@@ -172,11 +176,13 @@ struct NewStepperExtensionList : private detail::Extendable<extensions...> {
       else {
         // If element is invalid: continue
         if (!std::get<N - 1>(validExtensions))
-          return impl_ref(std::integral_constant<std::size_t, N-1>{}, impl_ref);
+          return impl_ref(std::integral_constant<std::size_t, N - 1>{},
+                          impl_ref);
 
         // Continue as long as evaluations are 'true'
         if (std::get<N - 1>(this->tuple()).finalize(state, stepper, h)) {
-          return impl_ref(std::integral_constant<std::size_t, N-1>{}, impl_ref);
+          return impl_ref(std::integral_constant<std::size_t, N - 1>{},
+                          impl_ref);
         } else {
           // Break at false
           return false;

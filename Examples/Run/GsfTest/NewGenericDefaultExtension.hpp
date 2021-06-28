@@ -62,9 +62,9 @@ struct NewGenericDefaultExtension {
   template <typename propagator_state_t, typename stepper_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          ThisVector3& knew, const ThisVector3& bField,
-         std::array<Scalar, 4>& kQoP, const int i = 0, const Scalar h = Scalar{0.},
+         std::array<Scalar, 4>& kQoP, const int i = 0,
+         const Scalar h = Scalar{0.},
          const ThisVector3& kprev = ThisVector3{}) {
-
     const Scalar qop = Scalar{stepper.charge(state.stepping)} /
                        stepper.momentum(state.stepping);
 
@@ -78,7 +78,7 @@ struct NewGenericDefaultExtension {
       knew = qop * SimdHelpers::cross(
                        stepper.direction(state.stepping) + h * kprev, bField);
     }
-    
+
     return true;
   }
 

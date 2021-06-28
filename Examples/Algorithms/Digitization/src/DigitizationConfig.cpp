@@ -15,7 +15,6 @@
 #include "ActsExamples/Digitization/Smearers.hpp"
 #include "ActsExamples/Digitization/SmearingAlgorithm.hpp"
 #include "ActsExamples/Digitization/SmearingConfig.hpp"
-#include "ActsExamples/Utilities/Options.hpp"
 
 #include <numeric>
 #include <string>
@@ -60,6 +59,20 @@ makeSmearFunctionForType(SmearingTypes smearingType, const double* parameters) {
 }  // namespace
 
 ActsExamples::DigitizationConfig::DigitizationConfig(
+    bool merge, bool merges, bool mergec, const std::vector<int>& volumes,
+    const std::vector<Options::VariableIntegers>& indices,
+    const std::vector<Options::VariableIntegers>& types,
+    const std::vector<Options::VariableReals>& parameters,
+    Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
+    : isSimpleSmearer(true),
+      doMerge(merge),
+      mergeNsigma(merges),
+      mergeCommonCorner(mergec) {
+  digitizationConfigs = std::move(digiCfgs);
+  smearingConfig(volumes, indices, types, parameters);
+}
+
+ActsExamples::DigitizationConfig::DigitizationConfig(
     const Options::Variables& vars,
     Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
     : isSimpleSmearer(vars["digi-smear"].as<bool>()),
@@ -73,6 +86,30 @@ ActsExamples::DigitizationConfig::DigitizationConfig(
 
 void ActsExamples::DigitizationConfig::smearingConfig(
     const Options::Variables& variables) {
+  ACTS_LOCAL_LOGGER(
+      Acts::getDefaultLogger("SmearingOptions", Acts::Logging::INFO));
+  if (not variables["digi-config-file"].as<std::string>().empty()) {
+    ACTS_WARNING(
+        "Smearing configuration on command-line will override .json "
+        "configuration!");
+  }
+
+  auto volumes = variables["digi-smear-volume"].as<std::vector<int>>();
+  auto indices = variables["digi-smear-indices"]
+                     .as<std::vector<Options::VariableIntegers>>();
+  auto types = variables["digi-smear-types"]
+                   .as<std::vector<Options::VariableIntegers>>();
+  auto parameters = variables["digi-smear-parameters"]
+                        .as<std::vector<Options::VariableReals>>();
+
+  smearingConfig(volumes, indices, types, parameters);
+}
+
+void ActsExamples::DigitizationConfig::smearingConfig(
+    const std::vector<int>& volumes,
+    const std::vector<Options::VariableIntegers>& indices,
+    const std::vector<Options::VariableIntegers>& types,
+    const std::vector<Options::VariableReals>& parameters) {
   ACTS_LOCAL_LOGGER(
       Acts::getDefaultLogger("SmearingOptions", Acts::Logging::INFO));
 
@@ -89,24 +126,9 @@ void ActsExamples::DigitizationConfig::smearingConfig(
   // construction.
 
   // no configured volumes are not considered an error at this stage
-  if (not variables.count("digi-smear-volume"))
-    return;
-  auto volumes = variables["digi-smear-volume"].as<std::vector<int>>();
   if (volumes.empty())
     return;
 
-  if (not variables["digi-config-file"].as<std::string>().empty()) {
-    ACTS_WARNING(
-        "Smearing configuration on command-line will override .json "
-        "configuration!");
-  }
-
-  auto indices =
-      variables["digi-smear-indices"].as<std::vector<VariableIntegers>>();
-  auto types =
-      variables["digi-smear-types"].as<std::vector<VariableIntegers>>();
-  auto parameters =
-      variables["digi-smear-parameters"].as<std::vector<VariableReals>>();
   if (indices.size() != volumes.size()) {
     ACTS_ERROR("Inconsistent digi-smear-indices options. Expected "
                << volumes.size() << ", but received " << indices.size());

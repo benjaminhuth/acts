@@ -4,4 +4,4 @@ add_executable(GsfActorTest TestGsfActor.cpp)
 #set_property(TARGET GsfActorTest PROPERTY CXX_STANDARD 20)
 
 target_link_libraries(MultiStepperTest ActsCore)
-target_link_libraries(GsfActorTest ActsCore ActsExamplesFramework ActsExamplesGenerators ActsExamplesCommon ActsExamplesFatras)
+target_link_libraries(GsfActorTest ActsCore ActsExamplesFramework ActsExamplesGenerators ActsExamplesCommon ActsExamplesDigitizationCommon ActsExamplesFatras)

@@ -10,13 +10,13 @@
 
 #include "Acts/EventData/MultiTrajectory.hpp"
 #include "Acts/EventData/MultiTrajectoryHelpers.hpp"
+#include "Acts/EventData/SourceLinkConcept.hpp"
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "Acts/Material/ISurfaceMaterial.hpp"
 #include "Acts/Propagator/EigenStepper.hpp"
 #include "Acts/Propagator/StandardAborters.hpp"
 #include "Acts/Surfaces/Surface.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
-#include "Acts/EventData/SourceLinkConcept.hpp"
 
 #include <map>
 #include <numeric>
@@ -41,7 +41,6 @@ struct GSFOptions {
 
 template <typename propagator_t>
 struct GaussianSumFitter {
-
   GaussianSumFitter(propagator_t propagator)
       : m_propagator(std::move(propagator)) {}
 
@@ -398,7 +397,8 @@ struct GaussianSumFitter {
     }
   };
 
-  template <typename source_link_t, typename updater_t, typename outlier_finder_t, typename calibrator_t>
+  template <typename source_link_t, typename updater_t,
+            typename outlier_finder_t, typename calibrator_t>
   class Aborter {
    public:
     /// Broadcast the result_type
@@ -442,10 +442,14 @@ struct GaussianSumFitter {
     using GSFActor =
         Actor<source_link_t, GainMatrixUpdater, outlier_finder_t, calibrator_t>;
     using GSFResult = typename GSFActor::result_type;
-    using GSFAborter = Aborter<source_link_t, GainMatrixUpdater, outlier_finder_t, calibrator_t>;
+    using GSFAborter = Aborter<source_link_t, GainMatrixUpdater,
+                               outlier_finder_t, calibrator_t>;
 
     using Actors = ActionList<GSFActor>;
     using Aborters = AbortList<GSFAborter>;
+
+    // test
+    GSFActor test;
 
     // Create relevant options for the propagation options
     PropagatorOptions<Actors, Aborters> propOptions(
@@ -473,14 +477,15 @@ struct GaussianSumFitter {
     // TODO implement
     /// It could happen that the fit ends in zero processed states.
     /// The result gets meaningless so such case is regarded as fit failure
-//     if (gsfResult.result.ok() and not gsfResult.processedStates) {
-//       gsfResult.result = Result<void>(KalmanFitterError::NoMeasurementFound);
-//     }
+    //     if (gsfResult.result.ok() and not gsfResult.processedStates) {
+    //       gsfResult.result =
+    //       Result<void>(KalmanFitterError::NoMeasurementFound);
+    //     }
 
-//     if (!gsfResult.result.ok()) {
-//       ACTS_ERROR("KalmanFilter failed: " << gsfResult.result.error());
-//       return gsfResult.result.error();
-//     }
+    //     if (!gsfResult.result.ok()) {
+    //       ACTS_ERROR("KalmanFilter failed: " << gsfResult.result.error());
+    //       return gsfResult.result.error();
+    //     }
 
     // Return the converted Track
     return Acts::Result<GSFResult>(gsfResult);

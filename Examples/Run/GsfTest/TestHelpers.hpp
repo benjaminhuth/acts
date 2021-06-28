@@ -8,16 +8,16 @@
 
 #pragma once
 
+#include "Acts/Definitions/Algebra.hpp"
+#include "Acts/Definitions/Units.hpp"
 #include "Acts/Geometry/CuboidVolumeBuilder.hpp"
 #include "Acts/Geometry/TrackingGeometry.hpp"
 #include "Acts/Geometry/TrackingGeometryBuilder.hpp"
-#include "Acts/Visualization/GeometryView3D.hpp"
-#include "Acts/Visualization/ObjVisualization3D.hpp"
-#include "Acts/Definitions/Algebra.hpp"
-#include "Acts/Definitions/Units.hpp"
 #include "Acts/MagneticField/ConstantBField.hpp"
 #include "Acts/Propagator/Navigator.hpp"
 #include "Acts/Surfaces/RectangleBounds.hpp"
+#include "Acts/Visualization/GeometryView3D.hpp"
+#include "Acts/Visualization/ObjVisualization3D.hpp"
 
 #include "MultiSteppingLogger.hpp"
 
@@ -27,7 +27,7 @@ const Acts::MagneticFieldContext magCtx;
 
 auto build_tracking_geometry() {
   using namespace Acts::UnitLiterals;
-    
+
   // Make some planar Surfaces:
   const Acts::Vector3 start_pos{0., 0., 0.};
   const Acts::Vector3 normal{1., 0., 0.};
@@ -147,7 +147,6 @@ void export_tracks_to_obj(
     }
   }
 }
-
 
 using MagneticField = Acts::ConstantBField;
 

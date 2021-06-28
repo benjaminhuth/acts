@@ -38,7 +38,7 @@ struct NewGenericDenseEnvironmentExtension {
   using Scalar = scalar_t;
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
-  
+
   /// @brief FreeMatrix replacement for the custom scalar type
   using ThisFreeMatrix = Eigen::Matrix<Scalar, eFreeSize, eFreeSize>;
 
@@ -132,7 +132,6 @@ struct NewGenericDenseEnvironmentExtension {
          ThisVector3& knew, const ThisVector3& bField,
          std::array<Scalar, 4>& kQoP, const int i = 0, const Scalar h = 0.,
          const ThisVector3& kprev = ThisVector3()) {
-    
     // i = 0 is used for setup and evaluation of k
     if (i == 0) {
       // Set up container for energy loss
@@ -326,11 +325,13 @@ struct NewGenericDenseEnvironmentExtension {
     dk1dL = SimdHelpers::cross(dir, sd.B_first);
 
     jdL[1] = dLdl[1] * (1. + half_h * jdL[0]);
-    dk2dL = (1. + half_h * jdL[0]) * SimdHelpers::cross(dir + half_h * sd.k1, sd.B_middle) +
-            qop[1] * half_h * SimdHelpers::cross(dk1dL,sd.B_middle);
+    dk2dL = (1. + half_h * jdL[0]) *
+                SimdHelpers::cross(dir + half_h * sd.k1, sd.B_middle) +
+            qop[1] * half_h * SimdHelpers::cross(dk1dL, sd.B_middle);
 
     jdL[2] = dLdl[2] * (1. + half_h * jdL[1]);
-    dk3dL = (1. + half_h * jdL[1]) * SimdHelpers::cross(dir + half_h * sd.k2, sd.B_middle) +
+    dk3dL = (1. + half_h * jdL[1]) *
+                SimdHelpers::cross(dir + half_h * sd.k2, sd.B_middle) +
             qop[2] * half_h * SimdHelpers::cross(dk2dL, sd.B_middle);
 
     jdL[3] = dLdl[3] * (1. + h * jdL[2]);
@@ -344,9 +345,9 @@ struct NewGenericDenseEnvironmentExtension {
     dk1dT(2, 0) = sd.B_first.y();
     dk1dT(2, 1) = -sd.B_first.x();
     dk1dT *= qop[0];
-    
-    using VectorHelpers::cross;
+
     using SimdHelpers::cross;
+    using VectorHelpers::cross;
 
     dk2dT += half_h * dk1dT;
     dk2dT = qop[1] * cross(dk2dT, sd.B_middle);
@@ -356,7 +357,7 @@ struct NewGenericDenseEnvironmentExtension {
 
     dk4dT += h * dk3dT;
     dk4dT = qop[3] * cross(dk4dT, sd.B_last);
-    
+
     const Scalar sixth_h = h / Scalar{6.};
 
     dFdT.setIdentity();
@@ -380,9 +381,9 @@ struct NewGenericDenseEnvironmentExtension {
     //~ (3. * g + qop[0] * dgdqop(energy[0], state.options.mass,
     //~ state.options.absPdgCode,
     //~ state.options.meanEnergyLoss));
-    
-    using std::hypot;
+
     using SimdHelpers::hypot;
+    using std::hypot;
 
     Scalar dtp1dl = qop[0] * state.options.mass * state.options.mass /
                     hypot(Scalar{1}, qop[0] * state.options.mass);
@@ -484,8 +485,8 @@ struct NewGenericDenseEnvironmentExtension {
   /// @param [in] i Index of the sub-step (1-3)
   template <typename stepper_state_t, typename stepper_t>
   void updateEnergyLoss(const double mass, const Scalar h,
-                        const stepper_state_t& state,
-                        const stepper_t& stepper, const int i) {
+                        const stepper_state_t& state, const stepper_t& stepper,
+                        const int i) {
     // Update parameters related to a changed momentum
     currentMomentum = initialMomentum + h * dPds[i - 1];
     using std::sqrt;

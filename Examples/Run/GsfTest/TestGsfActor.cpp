@@ -9,6 +9,8 @@
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "Acts/Utilities/PdgParticle.hpp"
+#include "ActsExamples/Digitization/DigitizationConfig.hpp"
+#include "ActsExamples/EventData/IndexSourceLink.hpp"
 #include "ActsExamples/EventData/SimHit.hpp"
 #include "ActsExamples/Fatras/FatrasAlgorithm.hpp"
 #include "ActsExamples/Framework/RandomNumbers.hpp"
@@ -18,6 +20,7 @@
 #include "ActsExamples/Generators/MultiplicityGenerators.hpp"
 #include "ActsExamples/Generators/ParametricParticleGenerator.hpp"
 #include "ActsExamples/Generators/VertexGenerators.hpp"
+#include "ActsExamples/Utilities/Options.hpp"
 #include "ActsFatras/EventData/Barcode.hpp"
 
 #include <chrono>
@@ -38,20 +41,22 @@ const char *kGeneratedParticles = "particles";
 const char *kSimulatedParticlesInitial = "sim-particles-initial";
 const char *kSimulatedParticlesFinal = "sim-particles-final";
 const char *kSimulatedHits = "sim-hits";
+const char *kSourceLinks = "source-links";
+
+const auto logging_level = Acts::Logging::INFO;
 
 /// The gsf algorithm
 class GSFAlgorithm : public ActsExamples::BareAlgorithm {
  public:
   struct Config {
-    std::string input;
-    std::string output;
     std::shared_ptr<MagneticField> bField;
-    std::shared_ptr<Acts::TrackingGeometry> trackingGeo;
-    Acts::Surface *startSurface;
+    std::shared_ptr<const Acts::TrackingGeometry> trackingGeo;
+    std::shared_ptr<const Acts::Surface> startSurface;
   };
 
   GSFAlgorithm(const Config &cfg,
-               Acts::Logging::Level level = Acts::Logging::INFO);
+               Acts::Logging::Level level = Acts::Logging::INFO)
+      : ActsExamples::BareAlgorithm("GSFAlgorithm", level), m_cfg(cfg) {}
 
   /// @brief Execute the GSF with the simulated particles
   ActsExamples::ProcessCode execute(
@@ -60,13 +65,10 @@ class GSFAlgorithm : public ActsExamples::BareAlgorithm {
     const auto logger =
         Acts::getDefaultLogger("GsfActorTest", Acts::Logging::VERBOSE);
 
-    // A dummy outlier finder
-    auto outlierFinder = [](...) { return false; };
-
     // Make the GSF options
-    Acts::GSFOptions<Acts::VoidKalmanComponents, decltype(outlierFinder)>
+    Acts::GSFOptions<Acts::VoidKalmanComponents, Acts::VoidOutlierFinder>
         gsfOptions{{},
-                   outlierFinder,
+                   {},
                    ctx.geoContext,
                    ctx.magFieldContext,
                    Acts::LoggerWrapper{*logger}};
@@ -76,7 +78,13 @@ class GSFAlgorithm : public ActsExamples::BareAlgorithm {
         ctx.eventStore.get<ActsExamples::SimHitContainer>(kSimulatedHits);
     const auto particles =
         ctx.eventStore.get<ActsExamples::SimParticleContainer>(kSimulatedHits);
+    const auto measurements =
+        ctx.eventStore.get<ActsExamples::IndexSourceLinkContainer>(
+            kSourceLinks);
+    const std::vector measurement_vector(measurements.begin(),
+                                         measurements.end());
 
+    // Filter out the particles
     std::vector<ActsFatras::Barcode> particleIds;
     std::transform(hits.begin(), hits.end(), std::back_inserter(particleIds),
                    [](const auto &p) { return p.particleId(); });
@@ -85,11 +93,6 @@ class GSFAlgorithm : public ActsExamples::BareAlgorithm {
 
     // Dummy measurements for the moment
     for (auto particleId : particleIds) {
-      // Filter out the correct measuremnts
-      std::vector<ActsFatras::Hit> measurements;
-      std::copy_if(hits.begin(), hits.end(), std::back_inserter(measurements),
-                   [=](const auto &s) { return s.particleId() == particleId; });
-
       // Extract start parameters
       auto found = std::find_if(
           particles.begin(), particles.end(),
@@ -99,11 +102,12 @@ class GSFAlgorithm : public ActsExamples::BareAlgorithm {
       freePars << found->fourPosition(), found->unitDirection(),
           found->charge() / found->absoluteMomentum();
 
-      auto boundPars = Acts::detail::transformFreeToBoundParameters(freePars, *m_cfg.startSurface, ctx.geoContext);
+      auto boundPars = Acts::detail::transformFreeToBoundParameters(
+          freePars, *m_cfg.startSurface, ctx.geoContext);
 
       // Make MultiComponentTrackParameters
-        Acts::MultiComponentBoundTrackParameters<Acts::SinglyCharged> multi_pars(
-      m_cfg.startSurface->getSharedPtr(), *boundPars);
+      Acts::MultiComponentBoundTrackParameters<Acts::SinglyCharged> multi_pars(
+          m_cfg.startSurface->getSharedPtr(), *boundPars);
 
       //////////////////////////
       // LOOP Stepper
@@ -117,7 +121,7 @@ class GSFAlgorithm : public ActsExamples::BareAlgorithm {
 
         Acts::GaussianSumFitter gsf(std::move(prop));
 
-        auto result = gsf.fit(measurements, multi_pars, gsfOptions);
+        auto result = gsf.fit(measurement_vector, multi_pars, gsfOptions);
       }
 
       //////////////////////////
@@ -134,7 +138,7 @@ class GSFAlgorithm : public ActsExamples::BareAlgorithm {
 
         Acts::GaussianSumFitter gsf(std::move(prop));
 
-        auto result = gsf.fit(measurements, multi_pars, gsfOptions);
+        auto result = gsf.fit(measurement_vector, multi_pars, gsfOptions);
       }
     }
 
@@ -161,6 +165,9 @@ int main() {
   // Tracking Geometry
   auto [start_surface, detector] = build_tracking_geometry();
 
+  const auto volume_id =
+      detector->highestTrackingVolume()->geometryId().volume();
+
   /////////////////////
   // Particle gun
   /////////////////////
@@ -185,8 +192,8 @@ int main() {
     cfg.outputParticles = "particles";
     cfg.randomNumbers = rnd;
 
-    sequencer.addReader(std::make_shared<ActsExamples::EventGenerator>(
-        cfg, Acts::Logging::WARNING));
+    sequencer.addReader(
+        std::make_shared<ActsExamples::EventGenerator>(cfg, logging_level));
   }
 
   ////////////////
@@ -203,31 +210,48 @@ int main() {
     cfg.magneticField = magField;
 
     sequencer.addAlgorithm(std::make_shared<ActsExamples::FatrasAlgorithm>(
-        std::move(cfg), Acts::Logging::WARNING));
+        std::move(cfg), logging_level));
   }
 
-  const double bfield_value = 2_T;
+  ///////////////////
+  // Digitization
+  ///////////////////
+  {
+    using namespace ActsExamples::Options;
 
-  // Setup tracks
-  const auto track_data_vector = []() {
-    const double l0{0.}, l1{0.}, theta{0.5 * M_PI}, phi{0.}, p{50._GeV}, q{-1.},
-        t{0.};
-    std::vector<std::tuple<double, Acts::BoundVector, Acts::BoundSymMatrix>>
-        vec;
+    const bool doMerge = false;
+    const bool mergeNsigma = false;
+    const bool mergeCommonCorner = false;
+    const std::vector<int> volumes = {static_cast<int>(volume_id)};
+    const std::vector<VariableIntegers> indices = {
+        {std::vector<int>{0, 1}}};  // loc0, loc1
+    const std::vector<VariableIntegers> types = {
+        {std::vector<int>{0, 0}}};  // gauss, gauss
+    const std::vector<VariableReals> parameters = {
+        {std::vector<double>{10.0, 10.0}}};  // gaussian width
 
-    const double factor = 0.1;
+    auto cfg = ActsExamples::DigitizationConfig(
+        doMerge, mergeNsigma, mergeCommonCorner, volumes, indices, types,
+        parameters,
+        Acts::GeometryHierarchyMap<ActsExamples::DigiComponentsConfig>());
 
-    for (int i = 0; i < N; ++i) {
-      Acts::BoundVector pars;
-      pars << l0, l1, phi, theta, q / ((factor * i + 1) * p), t;
-      vec.push_back({1. / N, pars, Acts::BoundSymMatrix::Identity()});
-    }
+    cfg.inputSimHits = kSimulatedHits;
+    cfg.outputSourceLinks = kSourceLinks;
 
-    return vec;
-  }();
+    sequencer.addAlgorithm(createDigitizationAlgorithm(cfg, logging_level));
+  }
 
-  Acts::MultiComponentBoundTrackParameters<Acts::SinglyCharged> multi_pars(
-      start_surface, track_data_vector);
+  ////////////////////////
+  // Gaussian Sum Filter
+  ////////////////////////
+  {
+    GSFAlgorithm::Config cfg;
+    cfg.bField = magField;
+    cfg.trackingGeo = detector;
+    cfg.startSurface = start_surface;
 
-  // Options
+    sequencer.addAlgorithm(std::make_shared<GSFAlgorithm>(cfg, logging_level));
+  }
+
+  return sequencer.run();
 }

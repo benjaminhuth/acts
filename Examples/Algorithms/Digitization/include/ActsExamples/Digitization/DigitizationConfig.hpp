@@ -18,6 +18,7 @@
 #include "ActsExamples/Digitization/SmearingConfig.hpp"
 #include "ActsExamples/Framework/IAlgorithm.hpp"
 #include "ActsExamples/Framework/RandomNumbers.hpp"
+#include "ActsExamples/Utilities/Options.hpp"
 #include "ActsExamples/Utilities/OptionsFwd.hpp"
 #include "ActsFatras/Digitization/UncorrelatedHitSmearer.hpp"
 
@@ -90,6 +91,13 @@ class DigitizationConfig {
       const Options::Variables &vars,
       Acts::GeometryHierarchyMap<DigiComponentsConfig> &&digiCfgs);
 
+  DigitizationConfig(
+      bool merge, bool merges, bool mergec, const std::vector<int> &volumes,
+      const std::vector<Options::VariableIntegers> &indices,
+      const std::vector<Options::VariableIntegers> &types,
+      const std::vector<Options::VariableReals> &parameters,
+      Acts::GeometryHierarchyMap<DigiComponentsConfig> &&digiCfgs);
+
   /// Input collection of simulated hits.
   std::string inputSimHits = "simhits";
   /// Output source links collection.
@@ -124,6 +132,11 @@ class DigitizationConfig {
  private:
   // Private initializer for SmearingAlgorithm
   void smearingConfig(const Options::Variables &vars);
+
+  void smearingConfig(const std::vector<int> &volumes,
+                      const std::vector<Options::VariableIntegers> &indices,
+                      const std::vector<Options::VariableIntegers> &types,
+                      const std::vector<Options::VariableReals> &parameters);
 };
 
 std::shared_ptr<ActsExamples::IAlgorithm> createDigitizationAlgorithm(

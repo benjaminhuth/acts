@@ -19,14 +19,13 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include "TestHelpers.hpp"
 #include "MultiEigenStepperLoop.hpp"
 #include "MultiEigenStepperSIMD.hpp"
 #include "NewGenericDefaultExtension.hpp"
 #include "NewGenericDenseEnvironmentExtension.hpp"
 #include "NewStepperExtensionList.hpp"
 #include "SimdHelpers.hpp"
-
+#include "TestHelpers.hpp"
 
 int main(int argc, char** argv) {
   using namespace Acts::UnitLiterals;
@@ -66,7 +65,8 @@ int main(int argc, char** argv) {
   std::cout << "B-Field strenth: " << bfield_value / Acts::UnitConstants::T
             << "T\n";
 
-  auto magField = std::make_shared<MagneticField>(Acts::Vector3(0.0, 0.0, bfield_value));
+  auto magField =
+      std::make_shared<MagneticField>(Acts::Vector3(0.0, 0.0, bfield_value));
 
   // Which stepper?
   const std::string_view stepper_type = [&]() {
@@ -122,10 +122,10 @@ int main(int argc, char** argv) {
       start_surface, track_data_vector);
 
   // Action list and abort list TODO currently problem wiht material interactor
-  using SingleActionList =
-      Acts::ActionList<Acts::detail::SteppingLogger/*, Acts::MaterialInteractor*/>;
+  using SingleActionList = Acts::ActionList<
+      Acts::detail::SteppingLogger /*, Acts::MaterialInteractor*/>;
   using MultiActionList =
-      Acts::ActionList<MultiSteppingLogger/*, Acts::MaterialInteractor*/>;
+      Acts::ActionList<MultiSteppingLogger /*, Acts::MaterialInteractor*/>;
   using AbortList = Acts::AbortList<Acts::EndOfWorldReached>;
 
   // Propagator options
@@ -146,8 +146,7 @@ int main(int argc, char** argv) {
   // SINGLE Stepper
   //////////////////////////
   if (stepper_type == "single" || stepper_type == "all") {
-    const auto prop =
-        make_propagator<Acts::EigenStepper<>>(magField, detector);
+    const auto prop = make_propagator<Acts::EigenStepper<>>(magField, detector);
 
     using SingleResult =
         decltype(prop.propagate(std::declval<Acts::BoundTrackParameters>(),
@@ -213,8 +212,8 @@ int main(int argc, char** argv) {
     using DenseExt =
         Acts::detail::GenericDenseEnvironmentExtension<Acts::ActsScalar>;
     using ExtList = Acts::StepperExtensionList<DefaultExt, DenseExt>;
-    const auto prop =
-        make_propagator<Acts::MultiEigenStepperLoop<ExtList>>(magField, detector);
+    const auto prop = make_propagator<Acts::MultiEigenStepperLoop<ExtList>>(
+        magField, detector);
 
     // One dummy run to create object
     auto multi_result = prop.propagate(multi_pars, multi_options);
@@ -256,9 +255,8 @@ int main(int argc, char** argv) {
         Acts::detail::NewGenericDenseEnvironmentExtension<SimdScalar>;
     using ExtList = Acts::NewStepperExtensionList<DefaultExt, DenseExt>;
 
-    const auto prop =
-        make_propagator<Acts::MultiEigenStepperSIMD<N, ExtList>>(
-            magField, detector);
+    const auto prop = make_propagator<Acts::MultiEigenStepperSIMD<N, ExtList>>(
+        magField, detector);
 
     // One dummy run to get object
     auto multi_result = prop.propagate(multi_pars, multi_options);
