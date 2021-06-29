@@ -22,6 +22,7 @@
 #include <numeric>
 
 #include "BetheHeitlerApprox.hpp"
+#include "MultiSteppingLogger.hpp"
 
 namespace Acts {
 
@@ -445,8 +446,8 @@ struct GaussianSumFitter {
     using GSFAborter = Aborter<source_link_t, GainMatrixUpdater,
                                outlier_finder_t, calibrator_t>;
 
-    using Actors = ActionList<GSFActor>;
-    using Aborters = AbortList<GSFAborter>;
+    using Actors = ActionList<GSFActor, MultiSteppingLogger>;
+    using Aborters = AbortList<GSFAborter, EndOfWorldReached>;
 
     // test
     GSFActor test;
@@ -462,33 +463,33 @@ struct GaussianSumFitter {
     actor.m_outlierFinder = options.outlierFinder;
 
     // Run the fitter
-    auto result = m_propagator.propagate(sParameters, propOptions);
+    return m_propagator.propagate(sParameters, propOptions);
 
-    if (!result.ok()) {
-      ACTS_ERROR("Propapation failed: " << result.error());
-      return Acts::Result<GSFResult>(result.error());
-    }
-
-    const auto& propResult = *result;
-
-    /// Get the result of the fit
-    auto gsfResult = propResult.template get<GSFResult>();
-
-    // TODO implement
-    /// It could happen that the fit ends in zero processed states.
-    /// The result gets meaningless so such case is regarded as fit failure
-    //     if (gsfResult.result.ok() and not gsfResult.processedStates) {
-    //       gsfResult.result =
-    //       Result<void>(KalmanFitterError::NoMeasurementFound);
-    //     }
-
-    //     if (!gsfResult.result.ok()) {
-    //       ACTS_ERROR("KalmanFilter failed: " << gsfResult.result.error());
-    //       return gsfResult.result.error();
-    //     }
-
-    // Return the converted Track
-    return Acts::Result<GSFResult>(gsfResult);
+//     if (!result.ok()) {
+//       ACTS_ERROR("Propapation failed: " << result.error());
+//       return Acts::Result<GSFResult>(result.error());
+//     }
+//
+//     const auto& propResult = *result;
+//
+//     /// Get the result of the fit
+//     auto gsfResult = propResult.template get<GSFResult>();
+//
+//     // TODO implement
+//     /// It could happen that the fit ends in zero processed states.
+//     /// The result gets meaningless so such case is regarded as fit failure
+//     //     if (gsfResult.result.ok() and not gsfResult.processedStates) {
+//     //       gsfResult.result =
+//     //       Result<void>(KalmanFitterError::NoMeasurementFound);
+//     //     }
+//
+//     //     if (!gsfResult.result.ok()) {
+//     //       ACTS_ERROR("KalmanFilter failed: " << gsfResult.result.error());
+//     //       return gsfResult.result.error();
+//     //     }
+//
+//     // Return the converted Track
+//     return Acts::Result<GSFResult>(gsfResult);
   }
 };
 

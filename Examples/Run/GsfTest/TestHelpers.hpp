@@ -25,7 +25,7 @@
 const Acts::GeometryContext geoCtx;
 const Acts::MagneticFieldContext magCtx;
 
-auto build_tracking_geometry() {
+inline auto build_tracking_geometry() {
   using namespace Acts::UnitLiterals;
 
   // Make some planar Surfaces:
@@ -98,7 +98,7 @@ auto build_tracking_geometry() {
       std::shared_ptr{tgeo_builder.trackingGeometry(geoCtx)});
 }
 
-void export_detector_to_obj(const Acts::TrackingGeometry& detector) {
+inline void export_detector_to_obj(const Acts::TrackingGeometry& detector) {
   const double output_scalor = 1.0;
   const size_t output_recision = 6;
 
@@ -118,7 +118,7 @@ void export_detector_to_obj(const Acts::TrackingGeometry& detector) {
       draw_config.passiveView, draw_config.sensitiveView, draw_config.gridView);
 }
 
-void export_tracks_to_obj(
+inline void export_tracks_to_obj(
     const std::vector<std::vector<Acts::detail::Step>>& tracks,
     std::string filename_without_extension) {
   const double output_scalor = 1.0;
