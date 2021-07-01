@@ -4,6 +4,7 @@
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
+#include "ActsExamples/EventData/Measurement.hpp"
 #include "ActsExamples/EventData/SimHit.hpp"
 #include "ActsExamples/EventData/SimParticle.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
@@ -23,14 +24,6 @@ ActsExamples::ProcessCode GSFAlgorithm::execute(
   // A logger
   const Acts::LoggerWrapper logger{ActsExamples::BareAlgorithm::logger()};
 
-  // Make the GSF options
-  Acts::GSFOptions<Acts::VoidKalmanComponents, Acts::VoidOutlierFinder>
-      gsfOptions{{},
-                 {},
-                 ctx.geoContext,
-                 ctx.magFieldContext,
-                 Acts::LoggerWrapper{ActsExamples::BareAlgorithm::logger()}};
-
   // Extract the events
   const auto hits =
       ctx.eventStore.get<ActsExamples::SimHitContainer>(m_cfg.inSimulatedHits);
@@ -41,8 +34,19 @@ ActsExamples::ProcessCode GSFAlgorithm::execute(
       ctx.eventStore.get<ActsExamples::SimParticleContainer>(
           m_cfg.inSimulatedParticlesInitial);
   const auto measurements =
+      ctx.eventStore.get<ActsExamples::MeasurementContainer>(
+          m_cfg.inMeasurements);
+  const auto sourceLinks =
       ctx.eventStore.get<ActsExamples::IndexSourceLinkContainer>(
           m_cfg.inSourceLinks);
+
+  // Make the GSF options
+  Acts::GSFOptions<ActsExamples::MeasurementCalibrator, Acts::VoidOutlierFinder>
+      gsfOptions{{measurements},
+                 {},
+                 ctx.geoContext,
+                 ctx.magFieldContext,
+                 Acts::LoggerWrapper{ActsExamples::BareAlgorithm::logger()}};
 
   // Find intersection of final and initial particles
   std::vector<ActsFatras::Particle> particles;
@@ -62,9 +66,19 @@ ActsExamples::ProcessCode GSFAlgorithm::execute(
   ACTS_VERBOSE("Found " << particles.size()
                         << " particles remaining filtering");
   ACTS_VERBOSE("Found " << hits.size() << " hits in the data");
-  ACTS_VERBOSE("Found " << measurements.size() << " source-links in the data");
+  ACTS_VERBOSE("Found " << sourceLinks.size() << " source-links in the data");
 
-  // Dummy measurements for the moment
+  for (const auto &hit : hits) {
+    ACTS_VERBOSE("Hit with pos " << hit.position().transpose() << " on surface "
+                                 << hit.geometryId() << ", "
+                                 << hit.geometryId().value());
+  }
+
+  for (const auto &srclnk : sourceLinks) {
+    ACTS_VERBOSE("Source link on surface " << srclnk.geometryId() << ", "
+                                           << srclnk.geometryId().value());
+  }
+
   for (const auto &particle : particles) {
     Acts::FreeVector freePars;
     freePars << particle.fourPosition(), particle.unitDirection(),
@@ -94,34 +108,41 @@ ActsExamples::ProcessCode GSFAlgorithm::execute(
 
       Acts::GaussianSumFitter gsf(std::move(prop));
 
-      auto result =
-          gsf.fit(std::vector(measurements.begin(), measurements.end()),
-                  multi_pars, gsfOptions);
+      auto result = gsf.fit(std::vector(sourceLinks.begin(), sourceLinks.end()),
+                            multi_pars, gsfOptions);
 
-      if( !result.ok() )
+      if (!result.ok())
         return ActsExamples::ProcessCode::ABORT;
 
-      const auto stepLog = result.value().get<MultiSteppingLogger::result_type>();
+      auto stepLog = result.value().get<MultiSteppingLogger::result_type>();
 
-      ctx.eventStore.
+      ACTS_VERBOSE("Add MultiSteppingLogger results to whiteboard");
+
+      using StepLogContainer = decltype(stepLog.steps);
+      ctx.eventStore.add(m_cfg.outMultiStepLogAverage,
+                         StepLogContainer{std::move(stepLog.averaged_steps)});
+      ctx.eventStore.add(m_cfg.outMultiStepLogComponents,
+                         std::move(stepLog.steps));
     }
 
     //////////////////////////
     // SIMD Stepper
     //////////////////////////
-//     {
-//       using SimdScalar = Acts::SimdType<N>;
-//       using DefaultExt = Acts::detail::NewGenericDefaultExtension<SimdScalar>;
-//       using ExtList = Acts::NewStepperExtensionList<DefaultExt>;
-//
-//       const auto prop =
-//           make_propagator<Acts::MultiEigenStepperSIMD<N, ExtList>>(
-//               m_cfg.bField, m_cfg.trackingGeo);
-//
-//       Acts::GaussianSumFitter gsf(std::move(prop));
-//
-//       auto result = gsf.fit(measurement_vector, multi_pars, gsfOptions);
-//     }
+#if 0
+    {
+      using SimdScalar = Acts::SimdType<N>;
+      using DefaultExt = Acts::detail::NewGenericDefaultExtension<SimdScalar>;
+      using ExtList = Acts::NewStepperExtensionList<DefaultExt>;
+
+      const auto prop =
+          make_propagator<Acts::MultiEigenStepperSIMD<N, ExtList>>(
+              m_cfg.bField, m_cfg.trackingGeo);
+
+      Acts::GaussianSumFitter gsf(std::move(prop));
+
+      auto result = gsf.fit(measurement_vector, multi_pars, gsfOptions);
+    }
+#endif
   }
 
   return ActsExamples::ProcessCode::SUCCESS;

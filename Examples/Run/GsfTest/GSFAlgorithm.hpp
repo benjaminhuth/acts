@@ -13,6 +13,9 @@ class GSFAlgorithm : public ActsExamples::BareAlgorithm {
     std::string inSimulatedParticlesFinal;
     std::string inSimulatedParticlesInitial;
     std::string inSourceLinks;
+    std::string inMeasurements;
+    std::string outMultiStepLogAverage;
+    std::string outMultiStepLogComponents;
     std::shared_ptr<Acts::ConstantBField> bField;
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeo;
     std::shared_ptr<const Acts::Surface> startSurface;

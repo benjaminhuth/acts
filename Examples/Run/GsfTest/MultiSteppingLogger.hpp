@@ -21,7 +21,7 @@ struct MultiSteppingLogger {
   bool sterile = false;
 
   template <typename propagator_state_t, typename stepper_t>
-  void operator()(propagator_state_t& state, const stepper_t& stepper,
+  void operator()(const propagator_state_t& state, const stepper_t& stepper,
                   result_type& result) const {
     if (sterile or state.navigation.targetReached) {
       return;
@@ -30,26 +30,27 @@ struct MultiSteppingLogger {
     if (result.steps.empty())
       result.steps.resize(stepper.numberComponents(state.stepping));
 
-    if (stepper.numberComponents(state.stepping) != result.steps.size())
-      throw std::runtime_error(
-          "stepping logger: multi stepper component number mismatch");
+    // Very poor workaround vor changing number of components... the problem is,
+    // we do not have the information here in the logger which component is the
+    // child of which older component...
+    if (stepper.numberComponents(state.stepping) == result.steps.size()) {
+      const auto N = std::min(stepper.numberComponents(state.stepping),
+                              result.steps.size());
 
-    const auto N =
-        std::min(stepper.numberComponents(state.stepping), result.steps.size());
+      // Individual components
+      for (auto i = 0ul; i < N; ++i) {
+        Acts::detail::Step step;
+        //       step.stepSize = state.stepping.stepSize;
+        step.position = stepper.position(i, state.stepping);
+        step.momentum = stepper.momentum(i, state.stepping) *
+                        stepper.direction(i, state.stepping);
 
-    // Individual components
-    for (auto i = 0ul; i < N; ++i) {
-      Acts::detail::Step step;
-      //       step.stepSize = state.stepping.stepSize;
-      step.position = stepper.position(i, state.stepping);
-      step.momentum = stepper.momentum(i, state.stepping) *
-                      stepper.direction(i, state.stepping);
+        if (state.navigation.currentSurface != nullptr)
+          step.surface = state.navigation.currentSurface->getSharedPtr();
 
-      if (state.navigation.currentSurface != nullptr)
-        step.surface = state.navigation.currentSurface->getSharedPtr();
-
-      step.volume = state.navigation.currentVolume;
-      result.steps[i].push_back(std::move(step));
+        step.volume = state.navigation.currentVolume;
+        result.steps[i].push_back(std::move(step));
+      }
     }
 
     // Average

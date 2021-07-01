@@ -16,11 +16,12 @@
 #include "ActsExamples/Generators/MultiplicityGenerators.hpp"
 #include "ActsExamples/Generators/ParametricParticleGenerator.hpp"
 #include "ActsExamples/Generators/VertexGenerators.hpp"
+#include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
-#include "ActsExamples/Plugins/Obj/ObjTrackingGeometryWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjPropagationStepsWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjSpacePointWriter.hpp"
+#include "ActsExamples/Plugins/Obj/ObjTrackingGeometryWriter.hpp"
 #include "ActsExamples/TelescopeDetector/BuildTelescopeDetector.hpp"
 #include "ActsExamples/Utilities/Options.hpp"
 #include "ActsFatras/EventData/Barcode.hpp"
@@ -30,6 +31,7 @@
 #include <random>
 
 #include "GSFAlgorithm.hpp"
+#include "ObjHitWriter.hpp"
 #include "TestHelpers.hpp"
 
 using namespace Acts::UnitLiterals;
@@ -38,11 +40,30 @@ const char *kGeneratedParticles = "particles";
 const char *kSimulatedParticlesInitial = "sim-particles-initial";
 const char *kSimulatedParticlesFinal = "sim-particles-final";
 const char *kSimulatedHits = "sim-hits";
+const char *kMeasurements = "measurements";
 const char *kSourceLinks = "source-links";
 const char *kMultiSteppingLogAverageLoop = "average-track-loop-stepper";
-const char *kMultiSteppingLogComponentsLoop = "component-tracks-loop-stepper"
+const char *kMultiSteppingLogComponentsLoop = "component-tracks-loop-stepper";
 
-int main() {
+int main(int argc, char ** argv) {
+  const std::vector<std::string> args(argv, argv+argc);
+
+  if( std::find(begin(args), end(args), "--help") != args.end() )
+  {
+    std::cout << "Usage: " << args[0] << " <options>\n";
+    std::cout << "Options:\n";
+    std::cout << "\t --bf-value <val-in-tesla>\n";
+    return EXIT_SUCCESS;
+  }
+
+  const double bfValue = [&](){
+      const auto found = std::find(begin(args), end(args), "--bf-value");
+      if( found != args.end() && std::next(found) != args.end() ) {
+          return std::stod(*std::next(found)) * Acts::UnitConstants::T;
+      }
+      return 2.0_T;
+  }();
+
   // Logger
   auto mainLogger = Acts::getDefaultLogger("main logger", Acts::Logging::INFO);
   ACTS_LOCAL_LOGGER(std::move(mainLogger));
@@ -50,6 +71,7 @@ int main() {
   // Setup the sequencer
   ActsExamples::Sequencer::Config seqCfg;
   seqCfg.events = 1;
+  seqCfg.numThreads = 1;
   ActsExamples::Sequencer sequencer(seqCfg);
 
   // RNG
@@ -58,7 +80,7 @@ int main() {
 
   // MagneticField
   auto magField =
-      std::make_shared<MagneticField>(Acts::Vector3(0.0, 0.0, 2.0_T));
+      std::make_shared<MagneticField>(Acts::Vector3(0.0, 0.0, bfValue));
 
   // Tracking Geometry
   //   auto [start_surface, detector] = build_tracking_geometry();
@@ -78,6 +100,9 @@ int main() {
   auto detector = std::shared_ptr(ActsExamples::Telescope::buildDetector(
       detectorContext, detectorElementStorage, distances, offsets, bounds,
       thickness, type, detectorDirection));
+
+  // No need to put detector geometry writing in sequencer loop
+  export_detector_to_obj(*detector);
 
   // Find start surface
   std::shared_ptr<const Acts::Surface> start_surface;
@@ -117,8 +142,8 @@ int main() {
     cfg.outputParticles = "particles";
     cfg.randomNumbers = rnd;
 
-    sequencer.addReader(
-        std::make_shared<ActsExamples::EventGenerator>(cfg, Acts::Logging::INFO));
+    sequencer.addReader(std::make_shared<ActsExamples::EventGenerator>(
+        cfg, Acts::Logging::INFO));
   }
 
   ////////////////
@@ -179,13 +204,14 @@ int main() {
 
     cfg.inputSimHits = kSimulatedHits;
     cfg.outputSourceLinks = kSourceLinks;
+    cfg.outputMeasurements = kMeasurements;
 
     cfg.randomNumbers = rnd;
     cfg.trackingGeometry = detector;
 
-    sequencer.addAlgorithm(createDigitizationAlgorithm(cfg, Acts::Logging::INFO));
+    sequencer.addAlgorithm(
+        createDigitizationAlgorithm(cfg, Acts::Logging::INFO));
   }
-
 
   ////////////////////////
   // Gaussian Sum Filter
@@ -196,22 +222,54 @@ int main() {
     cfg.inSimulatedParticlesInitial = kSimulatedParticlesInitial;
     cfg.inSimulatedParticlesFinal = kSimulatedParticlesFinal;
     cfg.inSourceLinks = kSourceLinks;
+    cfg.inMeasurements = kMeasurements;
+    cfg.outMultiStepLogAverage = kMultiSteppingLogAverageLoop;
+    cfg.outMultiStepLogComponents = kMultiSteppingLogComponentsLoop;
     cfg.bField = magField;
     cfg.trackingGeo = detector;
     cfg.startSurface = start_surface;
 
-    sequencer.addAlgorithm(std::make_shared<GSFAlgorithm>(cfg, Acts::Logging::VERBOSE));
+    sequencer.addAlgorithm(
+        std::make_shared<GSFAlgorithm>(cfg, Acts::Logging::VERBOSE));
   }
 
   /////////////////////////
   // Write Obj
   /////////////////////////
-  {
+  using ObjPropStepWriter =
+      ActsExamples::ObjPropagationStepsWriter<Acts::detail::Step>;
 
+  {
+    ObjPropStepWriter::Config cfg;
+    cfg.outputDir = "";
+    cfg.collection = kMultiSteppingLogAverageLoop;
+    cfg.outputStem = "averaged-steps";
+
+    sequencer.addWriter(
+        std::make_shared<ObjPropStepWriter>(cfg, Acts::Logging::INFO));
+  }
+
+  {
+    ObjPropStepWriter::Config cfg;
+    cfg.outputDir = "";
+    cfg.collection = kMultiSteppingLogComponentsLoop;
+    cfg.outputStem = "components-steps";
+
+    sequencer.addWriter(
+        std::make_shared<ObjPropStepWriter>(cfg, Acts::Logging::INFO));
+  }
+
+  {
+    ActsExamples::ObjHitWriter::Config cfg;
+    cfg.outputDir = "";
+    cfg.collection = kSimulatedHits;
+
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::ObjHitWriter>(cfg, Acts::Logging::INFO));
   }
 
   //////////////////
-  // Write Geometry
+  // Write CSV
   ///////////////////
   {
     ActsExamples::CsvTrackingGeometryWriter::Config cfg;
@@ -223,16 +281,24 @@ int main() {
             cfg, Acts::Logging::INFO));
   }
 
-  ///////////////////////////
-  // Write Simulated Hits
-  ///////////////////////////
   {
-    ActsExamples::CsvSimHitWriter::Config writeSimHits;
-    writeSimHits.inputSimHits = kSimulatedHits;
-    writeSimHits.outputDir = "";
-    writeSimHits.outputStem = "simulated-hits";
+    ActsExamples::CsvSimHitWriter::Config cfg;
+    cfg.inputSimHits = kSimulatedHits;
+    cfg.outputDir = "";
+    cfg.outputStem = "simulated-hits";
+
     sequencer.addWriter(std::make_shared<ActsExamples::CsvSimHitWriter>(
-        writeSimHits, Acts::Logging::INFO));
+        cfg, Acts::Logging::INFO));
+  }
+
+  {
+    ActsExamples::CsvPropagationStepsWriter::Config cfg;
+    cfg.collection = kMultiSteppingLogAverageLoop;
+    cfg.outputDir = "";
+
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::CsvPropagationStepsWriter>(
+            cfg, Acts::Logging::INFO));
   }
 
   return sequencer.run();

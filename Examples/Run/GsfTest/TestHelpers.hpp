@@ -154,7 +154,6 @@ template <typename stepper_t>
 auto make_propagator(std::shared_ptr<Acts::ConstantBField> magField,
                      std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
   Acts::Navigator navigator(tgeo);
-  navigator.resolvePassive = true;
 
   using Propagator = Acts::Propagator<stepper_t, Acts::Navigator>;
 

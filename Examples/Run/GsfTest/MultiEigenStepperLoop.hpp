@@ -522,6 +522,7 @@ class MultiEigenStepperLoop
   template <typename component_rep_t>
   void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
                         const Surface& surface) const {
+    std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size() << " COMPONENTS TO UPDATE\n";
     state.components.clear();
 
     for (const auto& cmp : cmps) {
@@ -542,6 +543,8 @@ class MultiEigenStepperLoop
       state.components.back().state.derivative = cmp.derivative;
       state.components.back().state.jacToGlobal = cmp.jacToGlobal;
       state.components.back().state.jacTransport = cmp.jacTransport;
+
+      std::cout << "NEW COMPONENT HAS PARAMETERS " << state.components.back().state.pars.transpose() << "\n";
     }
   }
 
