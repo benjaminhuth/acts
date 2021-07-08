@@ -316,9 +316,9 @@ class MultiEigenStepperLoop
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
-        std::cout << "BEFORE updateSurfaceStatus(...): " <<
-        outputStepSize(state)
-                  << std::endl;
+//         std::cout << "BEFORE updateSurfaceStatus(...): " <<
+//         outputStepSize(state)
+//                   << std::endl;
 
     std::array<int, 4> counts = {0, 0, 0, 0};
 
@@ -328,15 +328,15 @@ class MultiEigenStepperLoop
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
-        std::cout << "COMPONENTS STATUS: ";
-        for (auto& component : state.components) {
-          std::cout << static_cast<std::size_t>(component.status) << ", ";
-        }
-        std::cout << std::endl;
-
-        std::cout << "AFTER updateSurfaceStatus(...): " <<
-        outputStepSize(state)
-                  << std::endl;
+//         std::cout << "COMPONENTS STATUS: ";
+//         for (auto& component : state.components) {
+//           std::cout << static_cast<std::size_t>(component.status) << ", ";
+//         }
+//         std::cout << std::endl;
+//
+//         std::cout << "AFTER updateSurfaceStatus(...): " <<
+//         outputStepSize(state)
+//                   << std::endl;
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a

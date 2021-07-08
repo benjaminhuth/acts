@@ -51,6 +51,7 @@ const char *kMultiSteppingLogComponentsLoop = "component-tracks-loop-stepper";
 const char *kProtoTracks = "proto-tracks";
 const char *kProtoTrackParameters = "proto-track-parameters";
 const char *kKalmanOutputTrajectories = "kalman-output";
+const char *kGsfOutputTrajectories = "gsf-output";
 
 int main(int argc, char **argv) {
   const std::vector<std::string> args(argv, argv + argc);
@@ -254,14 +255,14 @@ int main(int argc, char **argv) {
     cfg.inputSourceLinks = kSourceLinks;
     cfg.inputProtoTracks = kProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
-    cfg.outputTrajectories = kKalmanOutputTrajectories;
+    cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.directNavigation = false;
     cfg.trackingGeometry = detector;
     cfg.fit = makeGsfFitterFunction(detector, magField);
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(
-            cfg, Acts::Logging::INFO));
+            cfg, Acts::Logging::VERBOSE));
   }
 
   //////////////////////////////////

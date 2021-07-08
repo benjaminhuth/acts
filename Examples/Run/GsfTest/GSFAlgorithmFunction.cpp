@@ -43,7 +43,7 @@ struct GsfFitterFunction {
       const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions& kalmanOptions)
       const {
 
-    Acts::GSFOptions<Calibrator, OutlierFinder> gsfOptions{
+    Acts::GsfOptions<Calibrator, OutlierFinder> gsfOptions{
         kalmanOptions.calibrator,
         kalmanOptions.outlierFinder,
         kalmanOptions.geoContext,
@@ -52,9 +52,7 @@ struct GsfFitterFunction {
         kalmanOptions.logger
     };
 
-    auto gsfResult = trackFitter.fit(sourceLinks, initialParameters, gsfOptions);
-
-    return Acts::KalmanFitterResult<ActsExamples::IndexSourceLink>{};
+    return trackFitter.fit(sourceLinks, initialParameters, gsfOptions);
   };
 };
 
