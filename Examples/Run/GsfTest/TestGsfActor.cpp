@@ -23,6 +23,9 @@
 #include "ActsExamples/Plugins/Obj/ObjSpacePointWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjTrackingGeometryWriter.hpp"
 #include "ActsExamples/TelescopeDetector/BuildTelescopeDetector.hpp"
+#include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
+#include "ActsExamples/TruthTracking/ParticleSmearing.hpp"
+#include "ActsExamples/TruthTracking/TruthTrackFinder.hpp"
 #include "ActsExamples/Utilities/Options.hpp"
 #include "ActsFatras/EventData/Barcode.hpp"
 
@@ -30,7 +33,7 @@
 #include <iostream>
 #include <random>
 
-#include "GSFAlgorithm.hpp"
+#include "GSFAlgorithmFunction.hpp"
 #include "ObjHitWriter.hpp"
 #include "TestHelpers.hpp"
 
@@ -41,27 +44,30 @@ const char *kSimulatedParticlesInitial = "sim-particles-initial";
 const char *kSimulatedParticlesFinal = "sim-particles-final";
 const char *kSimulatedHits = "sim-hits";
 const char *kMeasurements = "measurements";
+const char *kMeasurementParticleMap = "measurement-particle-map";
 const char *kSourceLinks = "source-links";
 const char *kMultiSteppingLogAverageLoop = "average-track-loop-stepper";
 const char *kMultiSteppingLogComponentsLoop = "component-tracks-loop-stepper";
+const char *kProtoTracks = "proto-tracks";
+const char *kProtoTrackParameters = "proto-track-parameters";
+const char *kKalmanOutputTrajectories = "kalman-output";
 
-int main(int argc, char ** argv) {
-  const std::vector<std::string> args(argv, argv+argc);
+int main(int argc, char **argv) {
+  const std::vector<std::string> args(argv, argv + argc);
 
-  if( std::find(begin(args), end(args), "--help") != args.end() )
-  {
+  if (std::find(begin(args), end(args), "--help") != args.end()) {
     std::cout << "Usage: " << args[0] << " <options>\n";
     std::cout << "Options:\n";
     std::cout << "\t --bf-value <val-in-tesla>\n";
     return EXIT_SUCCESS;
   }
 
-  const double bfValue = [&](){
-      const auto found = std::find(begin(args), end(args), "--bf-value");
-      if( found != args.end() && std::next(found) != args.end() ) {
-          return std::stod(*std::next(found)) * Acts::UnitConstants::T;
-      }
-      return 2.0_T;
+  const double bfValue = [&]() {
+    const auto found = std::find(begin(args), end(args), "--bf-value");
+    if (found != args.end() && std::next(found) != args.end()) {
+      return std::stod(*std::next(found)) * Acts::UnitConstants::T;
+    }
+    return 2.0_T;
   }();
 
   // Logger
@@ -170,6 +176,7 @@ int main(int argc, char ** argv) {
     sequencer.addAlgorithm(std::make_shared<ActsExamples::FatrasAlgorithm>(
         std::move(cfg), Acts::Logging::INFO));
   }
+
   ///////////////////
   // Digitization
   ///////////////////
@@ -195,7 +202,7 @@ int main(int argc, char ** argv) {
     const std::vector<VariableIntegers> types = {
         {std::vector<int>{0, 0}}};  // gauss, gauss
     const std::vector<VariableReals> parameters = {
-        {std::vector<double>{10.0, 10.0}}};  // gaussian width
+        {std::vector<double>{10._mm, 10._mm}}};  // gaussian width
 
     auto cfg = ActsExamples::DigitizationConfig(
         doMerge, mergeNsigma, mergeCommonCorner, volumes, indices, types,
@@ -204,6 +211,7 @@ int main(int argc, char ** argv) {
 
     cfg.inputSimHits = kSimulatedHits;
     cfg.outputSourceLinks = kSourceLinks;
+    cfg.outputMeasurementParticlesMap = kMeasurementParticleMap;
     cfg.outputMeasurements = kMeasurements;
 
     cfg.randomNumbers = rnd;
@@ -213,24 +221,68 @@ int main(int argc, char ** argv) {
         createDigitizationAlgorithm(cfg, Acts::Logging::INFO));
   }
 
+  ////////////////////
+  // Truth Tracking //
+  ////////////////////
+  {
+    ActsExamples::TruthTrackFinder::Config cfg;
+    cfg.inputParticles = kGeneratedParticles;
+    cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
+    cfg.outputProtoTracks = kProtoTracks;
+
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::TruthTrackFinder>(
+        cfg, Acts::Logging::INFO));
+  }
+
+  {
+    ActsExamples::ParticleSmearing::Config cfg;
+    cfg.inputParticles = kGeneratedParticles;
+    cfg.outputTrackParameters = kProtoTrackParameters;
+    cfg.randomNumbers = rnd;
+
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::ParticleSmearing>(
+        cfg, Acts::Logging::INFO));
+  }
+
   ////////////////////////
   // Gaussian Sum Filter
   ////////////////////////
   {
-    GSFAlgorithm::Config cfg;
-    cfg.inSimulatedHits = kSimulatedHits;
-    cfg.inSimulatedParticlesInitial = kSimulatedParticlesInitial;
-    cfg.inSimulatedParticlesFinal = kSimulatedParticlesFinal;
-    cfg.inSourceLinks = kSourceLinks;
-    cfg.inMeasurements = kMeasurements;
-    cfg.outMultiStepLogAverage = kMultiSteppingLogAverageLoop;
-    cfg.outMultiStepLogComponents = kMultiSteppingLogComponentsLoop;
-    cfg.bField = magField;
-    cfg.trackingGeo = detector;
-    cfg.startSurface = start_surface;
+    ActsExamples::TrackFittingAlgorithm::Config cfg;
+
+    cfg.inputMeasurements = kMeasurements;
+    cfg.inputSourceLinks = kSourceLinks;
+    cfg.inputProtoTracks = kProtoTracks;
+    cfg.inputInitialTrackParameters = kProtoTrackParameters;
+    cfg.outputTrajectories = kKalmanOutputTrajectories;
+    cfg.directNavigation = false;
+    cfg.trackingGeometry = detector;
+    cfg.fit = makeGsfFitterFunction(detector, magField);
 
     sequencer.addAlgorithm(
-        std::make_shared<GSFAlgorithm>(cfg, Acts::Logging::VERBOSE));
+        std::make_shared<ActsExamples::TrackFittingAlgorithm>(
+            cfg, Acts::Logging::INFO));
+  }
+
+  //////////////////////////////////
+  // Kalman Fitter for comparison //
+  //////////////////////////////////
+  {
+    ActsExamples::TrackFittingAlgorithm::Config cfg;
+
+    cfg.inputMeasurements = kMeasurements;
+    cfg.inputSourceLinks = kSourceLinks;
+    cfg.inputProtoTracks = kProtoTracks;
+    cfg.inputInitialTrackParameters = kProtoTrackParameters;
+    cfg.outputTrajectories = kKalmanOutputTrajectories;
+    cfg.directNavigation = false;
+    cfg.trackingGeometry = detector;
+    cfg.fit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
+        detector, magField);
+
+    sequencer.addAlgorithm(
+        std::make_shared<ActsExamples::TrackFittingAlgorithm>(
+            cfg, Acts::Logging::INFO));
   }
 
   /////////////////////////

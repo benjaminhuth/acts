@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
 #include "Acts/EventData/MultiTrajectory.hpp"
 #include "Acts/EventData/MultiTrajectoryHelpers.hpp"
 #include "Acts/EventData/SourceLinkConcept.hpp"
@@ -16,12 +17,15 @@
 #include "Acts/Propagator/EigenStepper.hpp"
 #include "Acts/Propagator/StandardAborters.hpp"
 #include "Acts/Surfaces/Surface.hpp"
+#include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
+#include "Acts/TrackFitting/KalmanFitter.hpp"
 
 #include <map>
 #include <numeric>
 
 #include "BetheHeitlerApprox.hpp"
+#include "GsfUtils.hpp"
 #include "MultiSteppingLogger.hpp"
 
 namespace Acts {
@@ -37,6 +41,8 @@ struct GSFOptions {
   std::reference_wrapper<const GeometryContext> geoContext;
   std::reference_wrapper<const MagneticFieldContext> magFieldContext;
 
+  const Surface referenceSurface = nullptr;
+
   LoggerWrapper logger;
 };
 
@@ -44,21 +50,6 @@ template <typename propagator_t>
 struct GaussianSumFitter {
   GaussianSumFitter(propagator_t propagator)
       : m_propagator(std::move(propagator)) {}
-
-  /// struct to store the data related to a component during processing
-  struct ComponentCache {
-    std::size_t parentMultiTrajectoryIndex;
-    BoundVector pars;
-    std::optional<BoundSymMatrix> cov;
-    BoundMatrix jacobian;
-    BoundToFreeMatrix jacToGlobal;
-    FreeMatrix jacTransport;
-    FreeVector derivative;
-    ActsScalar pathLength;
-    ActsScalar weight;
-    FreeVector filteredPars;
-    std::optional<BoundSymMatrix> filteredCov;
-  };
 
   template <typename source_link_t>
   struct Result {
@@ -71,23 +62,28 @@ struct GaussianSumFitter {
     /// The number of measurement states created
     std::size_t measurementStates = 0;
 
-    /// A std::vector storing the component caches so that it must not be
-    /// reallocated every pass
-    std::vector<ComponentCache> componentCache;
+    /// The collected BoundStates along the trajectory
+    std::vector<BoundTrackParameters> combinedTrackParameters;
 
     /// Boolean flag which indicates the fitting is done
     bool isFinished = false;
+
+    /// Boolean flag which indicates the components have been smoothed
+    bool isSmoothed = false;
   };
 
-  template <
-      typename source_link_t, typename updater_t, typename outlier_finder_t,
-      typename calibrator_t /*, typename parameters_t, typename smoother_t*/>
+  template <typename source_link_t, typename updater_t,
+            typename outlier_finder_t, typename calibrator_t,
+            typename smoother_t /*, typename parameters_t*/>
   struct Actor {
     /// Enforce default construction
     Actor() = default;
 
     /// Broadcast the result_type
     using result_type = Result<source_link_t>;
+
+    /// Broadcast the componentCache type
+    using ComponentCache = detail::GsfComponentCache<source_link_t>;
 
     // Actor configuration
     struct Config {
@@ -110,14 +106,15 @@ struct GaussianSumFitter {
       /// Whether to consider energy loss.
       bool energyLoss = true;
 
-      /// Whether run reversed filtering
-      bool reversedFiltering = false;
+      /// Target surface for reverse filtering
+      const Surface *targetSurface;
     } m_config;
 
     /// Configurable components:
     updater_t m_updater;
     outlier_finder_t m_outlierFinder;
     calibrator_t m_calibrator;
+    smoother_t m_smoother;
 
     /// @brief Kalman actor operation
     ///
@@ -162,6 +159,8 @@ struct GaussianSumFitter {
                                   SIZE_MAX);
       }
 
+      // We assume that the number of components did not change during stepping,
+      // but only here in the gsf actor
       if (stepper.numberComponents(state.stepping) !=
           result.currentTips.size()) {
         std::stringstream msg;
@@ -171,30 +170,75 @@ struct GaussianSumFitter {
         throw std::runtime_error(msg.str());
       }
 
-      ACTS_VERBOSE("GSF actor: " << stepper.numberComponents(state.stepping) << " at the start");
+      ACTS_VERBOSE("GSF actor: " << stepper.numberComponents(state.stepping)
+                                 << " at the start");
+
+      filter(state, stepper, result, measurement);
+    }
+
+    /// @brief A filtering step
+    template <typename propagator_state_t, typename stepper_t>
+    void filter(propagator_state_t& state, const stepper_t& stepper,
+                result_type& result, const source_link_t& measurement) const {
+      const auto& logger = state.options.logger;
+      const auto& surface = *state.navigation.currentSurface;
+
+      // Static std::vector to avoid reallocation every pass. Reserve enough
+      // space to allow all possible components to be stored
+      static std::vector<ComponentCache> componentCache;
+      componentCache.reserve(m_config.maxComponents *
+                             m_config.bethe_heitler_approx.numComponents());
+      componentCache.clear();
+
+      ACTS_VERBOSE("GSF actor: Start filtering");
 
       // Apply material effect by creating new components
-      create_new_components(state, stepper, result.componentCache,
-                            result.currentTips, surface);
+      create_new_components(state, stepper, componentCache, result.currentTips,
+                            surface);
 
-      ACTS_VERBOSE("GSF actor: " << result.componentCache.size() << " components candidates");
+      throw_assert(!componentCache.empty(),
+                   "components are empty after creation");
+      ACTS_VERBOSE("GSF actor: " << componentCache.size()
+                                 << " components candidates");
 
       // Reduce the number of components to a managable degree
-      if (result.componentCache.size() > m_config.maxComponents ||
-          result.componentCache.size() > stepper.maxComponents) {
+      if (componentCache.size() > m_config.maxComponents ||
+          componentCache.size() > stepper.maxComponents) {
         reduceNumberOfComponents(
-            result.componentCache,
-            std::min(static_cast<int>(m_config.maxComponents),
-                     stepper.maxComponents));
+            componentCache, std::min(static_cast<int>(m_config.maxComponents),
+                                     stepper.maxComponents));
       }
 
-      ACTS_VERBOSE("GSF actor: " << result.componentCache.size() << " after component reduction");
+      throw_assert(!componentCache.empty(),
+                   "components are empty after reduction");
+      ACTS_VERBOSE("GSF actor: " << componentCache.size()
+                                 << " after component reduction");
 
       // Update the Multi trajectory with the new components
-      updateMultiTrajectoryAndDoKalmanUpdate(
-          state, stepper, result, measurement, result.componentCache);
+      kalmanUpdate(state, result, measurement, componentCache);
 
-      ACTS_VERBOSE("GSF actor: " << stepper.numberComponents(state.stepping) << " at the end");
+      // Reweigth components according to measurement
+      detail::reweightComponents(componentCache);
+
+      // update stepper state with the collected component caches
+      stepper.updateComponents(state.stepping, componentCache, surface);
+
+      // Add the combined track state to results
+      result.combinedTrackParameters.push_back(
+          detail::combineMultiComponentState(componentCache, surface));
+
+      ACTS_VERBOSE("GSF actor: combined multicomponent state");
+
+      // At the moment finished when everything is done
+      if (result.measurementStates == m_config.inputMeasurements.size()) {
+        ACTS_VERBOSE(
+            "GSF actor: finished, because of number of states reached number "
+            "of measurements");
+        result.isFinished = true;
+      }
+
+      ACTS_VERBOSE("GSF actor: " << stepper.numberComponents(state.stepping)
+                                 << " at the end");
     }
 
     /// @brief Expands all existing components to new components by using a
@@ -209,7 +253,7 @@ struct GaussianSumFitter {
         const std::vector<std::size_t>& parentTrajectoryIdxs,
         const Surface& surface) const {
       // Some shortcuts
-      auto &stepping = state.stepping;
+      auto& stepping = state.stepping;
       const auto& logger = state.options.logger;
       const auto& gctx = stepping.geoContext;
       const auto navDir = stepping.navDir;
@@ -228,6 +272,7 @@ struct GaussianSumFitter {
         auto boundState = old_cmp.boundState(surface, m_config.doCovTransport);
 
         if (!boundState.ok()) {
+          ACTS_ERROR("Error with boundstate: " << boundState.error());
           continue;
         }
 
@@ -239,8 +284,11 @@ struct GaussianSumFitter {
         const auto mixture =
             m_config.bethe_heitler_approx.mixture(slab.thicknessInX0());
 
+        std::cout << "mixture.size() = " << mixture.size() << "\n";
+
         // Create all possible new components
         for (const auto& gaussian : mixture) {
+          std::cout << "create gaussian component TTTTTTTTTTTTTT\n";
           ComponentCache new_cmp;
 
           // compute delta p from mixture and update parameters
@@ -254,10 +302,12 @@ struct GaussianSumFitter {
           throw_assert(p_prev + delta_p > 0.,
                        "new momentum after bethe-heitler must be > 0");
 
-          new_cmp.pars = old_bound.parameters();
-          new_cmp.pars[eBoundQOverP] = old_bound.charge() / (p_prev + delta_p);
+          new_cmp.predictedPars = old_bound.parameters();
+          new_cmp.predictedPars[eBoundQOverP] =
+              old_bound.charge() / (p_prev + delta_p);
 
-          ACTS_VERBOSE("GSF actor: created new component with pars " << new_cmp.pars.transpose());
+          ACTS_VERBOSE("GSF actor: created new component with pars "
+                       << new_cmp.predictedPars.transpose());
 
           // compute inverse variance of p from mixture and update covariance
           if (old_bound.covariance()) {
@@ -270,12 +320,12 @@ struct GaussianSumFitter {
               }
             }();
 
-            new_cmp.cov = old_bound.covariance();
-            (*new_cmp.cov)(eBoundQOverP, eBoundQOverP) += varInvP;
+            new_cmp.predictedCov = old_bound.covariance();
+            (*new_cmp.predictedCov)(eBoundQOverP, eBoundQOverP) += varInvP;
           }
 
-          // Here we combine the new child weight with the parent weight. when
-          // done correctely, the sum of the weights should stay at 1
+          // Here we combine the new child weight with the parent weight.
+          // However, this must be later re-adjusted
           new_cmp.weight = gaussian.weight * old_cmp.weight();
 
           // Set the remaining things and push to vector
@@ -284,7 +334,7 @@ struct GaussianSumFitter {
           new_cmp.jacToGlobal = old_cmp.jacToGlobal();
           new_cmp.derivative = old_cmp.derivative();
           new_cmp.jacTransport = old_cmp.jacTransport();
-          new_cmp.parentMultiTrajectoryIndex = parentTrajectoryIdxs[i];
+          new_cmp.parentIndex = parentTrajectoryIdxs[i];
 
           new_components.push_back(new_cmp);
         }
@@ -317,10 +367,10 @@ struct GaussianSumFitter {
       }
     }
 
-    template <typename propagator_state_t, typename stepper_t>
-    Acts::Result<void> updateMultiTrajectoryAndDoKalmanUpdate(
-        propagator_state_t& state, const stepper_t& stepper,
-        result_type& result, const source_link_t measurement,
+    template <typename propagator_state_t>
+    Acts::Result<void> kalmanUpdate(
+        propagator_state_t& state, result_type& result,
+        const source_link_t measurement,
         std::vector<ComponentCache>& new_components) const {
       // Some shortcut references
       const auto& logger = state.options.logger;
@@ -335,10 +385,12 @@ struct GaussianSumFitter {
 
         // Create new track state
         result.currentTips.push_back(result.fittedStates.addTrackState(
-            TrackStatePropMask::All, cmp.parentMultiTrajectoryIndex));
+            TrackStatePropMask::All, cmp.parentIndex));
 
-        auto trackProxy =
+        cmp.trackStateProxy =
             result.fittedStates.getTrackState(result.currentTips.back());
+
+        auto& trackProxy = *cmp.trackStateProxy;
 
         // Set surface
         trackProxy.setReferenceSurface(surface.getSharedPtr());
@@ -347,9 +399,9 @@ struct GaussianSumFitter {
         trackProxy.uncalibrated() = measurement;
 
         // Set track parameters
-        trackProxy.predicted() = std::move(cmp.pars);
-        if (cmp.cov) {
-          trackProxy.predictedCovariance() = std::move(*cmp.cov);
+        trackProxy.predicted() = std::move(cmp.predictedPars);
+        if (cmp.predictedCov) {
+          trackProxy.predictedCovariance() = std::move(*cmp.predictedCov);
         }
 
         trackProxy.jacobian() = std::move(cmp.jacobian);
@@ -360,8 +412,7 @@ struct GaussianSumFitter {
             [&](const auto& calibrated) {
               trackProxy.setCalibrated(calibrated);
             },
-            m_calibrator(trackProxy.uncalibrated(),
-                         trackProxy.predicted()));
+            m_calibrator(trackProxy.uncalibrated(), trackProxy.predicted()));
 
         // Get and set the type flags
         trackProxy.typeFlags().set(TrackStateFlag::ParameterFlag);
@@ -380,22 +431,14 @@ struct GaussianSumFitter {
             return updateRes.error();
           }
 
-          // TODO ACTS_VERBOSE message
-
           trackProxy.typeFlags().set(TrackStateFlag::MeasurementFlag);
-
-          // update component cache using filtered parameters after
-          cmp.filteredPars = MultiTrajectoryHelpers::freeFiltered(
-              state.options.geoContext, trackProxy);
-          if (m_config.doCovTransport) {
-            cmp.filteredCov = trackProxy.filteredCovariance();
-          }
 
           // We count the state with measurement
           ++result.measurementStates;
         } else {
           // TODO ACTS_VERBOSE message
-            throw std::runtime_error("outlier handling not yet implemented fully");
+          throw std::runtime_error(
+              "outlier handling not yet implemented fully");
 
           // Set the outlier type flag
           trackProxy.typeFlags().set(TrackStateFlag::OutlierFlag);
@@ -403,32 +446,85 @@ struct GaussianSumFitter {
         }
       }
 
-      // update stepper state with the collected component caches
-      stepper.updateComponents(state.stepping, new_components, surface);
-
-      // At the moment finished when everything is done
-      if (result.measurementStates == m_config.inputMeasurements.size()) {
-        result.isFinished = true;
-      }
-
       return Acts::Result<void>::success();
     }
+
+    // TODO not clear if smoothing would work this way, see "track fitting with
+    // non-gaussian noise, R. frühwirth"
+    //     /// @brief Kalman actor operation : finalize
+    //     ///
+    //     /// @tparam propagator_state_t is the type of Propagagor state
+    //     /// @tparam stepper_t Type of the stepper
+    //     ///
+    //     /// @param state is the mutable propagator state object
+    //     /// @param stepper The stepper in use
+    //     /// @param result is the mutable result state object
+    //     template <typename propagator_state_t, typename stepper_t>
+    //     Acts::Result<void> finalize(propagator_state_t& state,
+    //                                 const stepper_t& /*stepper*/,
+    //                                 result_type& result) const {
+    //       const auto& logger = state.options.logger;
+    //
+    //       ACTS_VERBOSE("GSF actor: Start smoothing");
+    //
+    //       // Remember you smoothed the track states TODO why this is set here
+    //       // (copied from Kalman filter)
+    //       result.isSmoothed = true;
+    //
+    //       // Copy to new MultiTrajectory object in a way, that there are no
+    //       shared
+    //       // points between the components. Furthermore, we copy only if
+    //       there is a
+    //       // measurement.
+    //       std::vector<size_t> newTips(result.currentTips.size(), SIZE_MAX);
+    //       decltype(result.fittedStates) newMultitrajectory;
+    //
+    //       for (auto i = 0ul; i < result.currentTips.size(); ++i) {
+    //         result.fittedStates.visitBackwards(
+    //             result.currentTips[i], [&](auto proxy) {
+    //               if
+    //               (proxy.typeFlags().test(TrackStateFlag::MeasurementFlag)) {
+    //                 newTips[i] = newMultitrajectory.addTrackState(
+    //                     TrackStatePropMask::All, newTips[i]);
+    //
+    //                 auto newProxy =
+    //                 newMultitrajectory.getTrackState(newTips[i]);
+    //                 newProxy.copyFrom(proxy);
+    //               }
+    //             });
+    //       }
+    //
+    //       // Smooth the track states TODO due to the above the tracks will be
+    //       // reversed, is this a problem for the smoothing?
+    //       for (auto tip : newTips) {
+    //         auto smoothRes =
+    //             m_smoother(state.geoContext, newMultitrajectory, tip,
+    //             logger);
+    //         if (!smoothRes.ok()) {
+    //           ACTS_ERROR("GSF actor: Smoothing step failed: " <<
+    //           smoothRes.error()); return smoothRes.error();
+    //         }
+    //       }
+    //
+    //       ACTS_VERBOSE("GSF actor: Smoothing done!");
+    //
+    //       // In case the loop ran through without an error, we can report
+    //       success return Acts::Result<void>::success();
+    //     }
   };
 
-  template <typename source_link_t, typename updater_t,
-            typename outlier_finder_t, typename calibrator_t>
+  template <typename gsf_actor_t>
   class Aborter {
    public:
     /// Broadcast the result_type
-    using action_type =
-        Actor<source_link_t, GainMatrixUpdater, outlier_finder_t, calibrator_t>;
+    using action_type = gsf_actor_t;
 
     /// The call operator
     template <typename propagator_state_t, typename stepper_t,
               typename result_t>
     bool operator()(propagator_state_t& /*state*/, const stepper_t& /*stepper*/,
                     const result_t& result) const {
-      if (result.isFinished) {
+      if (result.isFinished && result.isSmoothed) {
         return true;
       }
       return false;
@@ -441,9 +537,10 @@ struct GaussianSumFitter {
   /// @brief The fit function
   template <typename source_link_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
-  auto fit(const std::vector<source_link_t>& sourcelinks,
-           const start_parameters_t& sParameters,
-           const GSFOptions<calibrator_t, outlier_finder_t>& options) const {
+  auto fit(
+      const std::vector<source_link_t>& sourcelinks,
+      const start_parameters_t& sParameters,
+      const GSFOptions<calibrator_t, outlier_finder_t>& options) const {
     const auto& logger = options.logger;
     static_assert(SourceLinkConcept<source_link_t>,
                   "Source link does not fulfill SourceLinkConcept");
@@ -459,11 +556,10 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("Final measuerement map size: " << inputMeasurements.size());
 
     // Create the ActionList and AbortList
-    using GSFActor =
-        Actor<source_link_t, GainMatrixUpdater, outlier_finder_t, calibrator_t>;
-//     using GSFResult = typename GSFActor::result_type;
-    using GSFAborter = Aborter<source_link_t, GainMatrixUpdater,
-                               outlier_finder_t, calibrator_t>;
+    using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
+                           calibrator_t, GainMatrixSmoother>;
+    using GSFAborter = Aborter<GSFActor>;
+    using GSFResult = Result<source_link_t>;
 
     using Actors = ActionList<GSFActor, MultiSteppingLogger>;
     using Aborters = AbortList<GSFAborter, EndOfWorldReached>;
@@ -479,36 +575,45 @@ struct GaussianSumFitter {
     actor.m_calibrator = options.calibrator;
     actor.m_outlierFinder = options.outlierFinder;
 
-    // Run the fitter
-    return m_propagator.propagate(sParameters, propOptions);
+    // Make Single Start Parameters to Multi Start parameters
+    throw_assert(sParameters.covariance() != std::nullopt,
+                 "we need a covariance here...");
+    MultiComponentBoundTrackParameters<SinglyCharged> sMultiPars(
+        sParameters.referenceSurface().getSharedPtr(), sParameters.parameters(),
+        sParameters.covariance());
 
-    //     if (!result.ok()) {
-    //       ACTS_ERROR("Propapation failed: " << result.error());
-    //       return Acts::Result<GSFResult>(result.error());
-    //     }
-    //
-    //     const auto& propResult = *result;
-    //
-    //     /// Get the result of the fit
-    //     auto gsfResult = propResult.template get<GSFResult>();
-    //
-    //     // TODO implement
-    //     /// It could happen that the fit ends in zero processed states.
-    //     /// The result gets meaningless so such case is regarded as fit
-    //     failure
-    //     //     if (gsfResult.result.ok() and not gsfResult.processedStates) {
-    //     //       gsfResult.result =
-    //     //       Result<void>(KalmanFitterError::NoMeasurementFound);
-    //     //     }
-    //
-    //     //     if (!gsfResult.result.ok()) {
-    //     //       ACTS_ERROR("KalmanFilter failed: " <<
-    //     gsfResult.result.error());
-    //     //       return gsfResult.result.error();
-    //     //     }
-    //
-    //     // Return the converted Track
-    //     return Acts::Result<GSFResult>(gsfResult);
+    // Run the fitter forward direction
+    ACTS_VERBOSE("Run forward pass");
+    propOptions.direction = NavigationDirection::forward;
+    auto forwardResult = m_propagator.propagate(sMultiPars, propOptions);
+
+    // Use last point in trajectory as start point
+    // TODO at the moment we cannot start with a multi component state, since we
+    // do not have the weights here
+    auto lastParams = (*forwardResult)
+                          .template get<GSFResult>()
+                          .combinedTrackParameters.back();
+    MultiComponentBoundTrackParameters<SinglyCharged> backwardsStartParameters(
+        lastParams.referenceSurface().getSharedPtr(), lastParams.parameters(),
+        lastParams.covariance());
+
+    // Run the fitter backwards again
+    ACTS_VERBOSE("Run backwards pass");
+    propOptions.direction = NavigationDirection::backward;
+    auto backwardsResult =
+        m_propagator.propagate(backwardsStartParameters, propOptions);
+
+    // Combine the two
+    const auto forwardTrack =
+        (*forwardResult).template get<GSFResult>().combinedTrackParameters;
+    auto backwardTrack =
+        (*backwardsResult).template get<GSFResult>().combinedTrackParameters;
+    std::reverse(backwardTrack.begin(), backwardTrack.end());
+
+    const auto weightedMeanSmoothed =
+        detail::combineForwardAndBackwardPass(forwardTrack, backwardTrack);
+
+    return forwardResult;
   }
 };
 

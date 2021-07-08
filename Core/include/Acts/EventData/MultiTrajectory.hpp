@@ -574,6 +574,9 @@ class TrackStateProxy {
   size_t m_istate;
 
   friend class Acts::MultiTrajectory<SourceLink>;
+
+  // To allow copy operation for differen ReadOnly properties
+  friend class TrackStateProxy<source_link_t, M, !ReadOnly>;
 };
 
 // implement track state visitor concept

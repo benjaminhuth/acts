@@ -316,9 +316,9 @@ class MultiEigenStepperLoop
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
-    //     std::cout << "BEFORE updateSurfaceStatus(...): " <<
-    //     outputStepSize(state)
-    //               << std::endl;
+        std::cout << "BEFORE updateSurfaceStatus(...): " <<
+        outputStepSize(state)
+                  << std::endl;
 
     std::array<int, 4> counts = {0, 0, 0, 0};
 
@@ -328,15 +328,15 @@ class MultiEigenStepperLoop
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
-    //     std::cout << "COMPONENTS STATUS: ";
-    //     for (auto& component : state.components) {
-    //       std::cout << static_cast<std::size_t>(component.status) << ", ";
-    //     }
-    //     std::cout << std::endl;
-    //
-    //     std::cout << "AFTER updateSurfaceStatus(...): " <<
-    //     outputStepSize(state)
-    //               << std::endl;
+        std::cout << "COMPONENTS STATUS: ";
+        for (auto& component : state.components) {
+          std::cout << static_cast<std::size_t>(component.status) << ", ";
+        }
+        std::cout << std::endl;
+
+        std::cout << "AFTER updateSurfaceStatus(...): " <<
+        outputStepSize(state)
+                  << std::endl;
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -522,21 +522,22 @@ class MultiEigenStepperLoop
   template <typename component_rep_t>
   void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
                         const Surface& surface) const {
-    std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size() << " COMPONENTS TO UPDATE\n";
+    std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size()
+              << " COMPONENTS TO UPDATE\n";
     state.components.clear();
 
     for (const auto& cmp : cmps) {
-      auto track_pars = BoundTrackParameters::create(
-          surface.getSharedPtr(), state.geoContext,
-          cmp.filteredPars.template segment<4>(eFreePos0),
-          cmp.filteredPars.template segment<3>(eFreeDir0),
-          cmp.filteredPars[eFreeQOverP], cmp.filteredCov);
+      using Opt = std::optional<BoundSymMatrix>;
+      auto& tp = *cmp.trackStateProxy;
+      auto track_pars = BoundTrackParameters(
+          surface.getSharedPtr(), tp.filtered(),
+          (state.covTransport ? Opt{BoundSymMatrix{tp.filteredCovariance()}}
+                              : Opt{}));
 
-      throw_assert(track_pars.ok(), "creation of BoundTrackParameters failed");
 
       state.components.push_back(
           {SingleStepper::makeState(state.geoContext, state.magContext,
-                                    std::move(*track_pars), state.navDir),
+                                    std::move(track_pars), state.navDir),
            cmp.weight, Intersection3D::Status::onSurface});
 
       state.components.back().state.jacobian = cmp.jacobian;
@@ -544,8 +545,11 @@ class MultiEigenStepperLoop
       state.components.back().state.jacToGlobal = cmp.jacToGlobal;
       state.components.back().state.jacTransport = cmp.jacTransport;
 
-      std::cout << "NEW COMPONENT HAS PARAMETERS " << state.components.back().state.pars.transpose() << "\n";
+      std::cout << "NEW COMPONENT HAS PARAMETERS "
+                << state.components.back().state.pars.transpose() << "\n";
     }
+
+      std::cout << "DONE WITH UPDATE\n";
   }
 
   /// Method for on-demand transport of the covariance

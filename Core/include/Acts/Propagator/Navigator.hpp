@@ -440,6 +440,7 @@ class Navigator {
       ACTS_VERBOSE(volInfo(state)
                    << "Current surface set to start surface "
                    << state.navigation.currentSurface->geometryId());
+      stepper.updateSurfaceStatus(state.stepping, *state.navigation.currentSurface, true);
     }
     // Fast Navigation initialization for start condition:
     // - short-cut through object association, saves navigation in the

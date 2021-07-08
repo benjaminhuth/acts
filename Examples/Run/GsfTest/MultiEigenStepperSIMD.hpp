@@ -751,9 +751,9 @@ class MultiEigenStepperSIMD
     for (auto i = 0ul; i < cmps.size(); ++i) {
       ComponentProxy proxy(state, i);
 
-      proxy.pars() = cmps[i].filteredPars;
-      if (cmps[i].filteredCov) {
-        proxy.cov() = *cmps[i].filteredCov;
+      proxy.pars() = cmps[i].trackStateProxy->filtered();
+      if (state.covTransport) {
+        proxy.cov() = cmps[i].trackStateProxy->filteredCovariance();
       }
       proxy.jacobian() = cmps[i].jacobian;
       proxy.jacToGlobal() = cmps[i].jacToGlobal;
