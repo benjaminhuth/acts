@@ -328,8 +328,8 @@ class MultiEigenStepperLoop
     std::array<int, 4> counts = {0, 0, 0, 0};
 
     for (auto& component : state.components) {
-      component.status = SingleStepper::updateSurfaceStatus(
-          component.state, surface, bcheck, logger);
+      component.status =
+          SingleStepper::updateSurfaceStatus(component.state, surface, bcheck, logger);
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
@@ -528,8 +528,8 @@ class MultiEigenStepperLoop
   template <typename component_rep_t>
   void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
                         const Surface& surface) const {
-    //     std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size()
-    //               << " COMPONENTS TO UPDATE\n";
+//     std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size()
+//               << " COMPONENTS TO UPDATE\n";
     state.components.clear();
 
     for (const auto& cmp : cmps) {
@@ -550,11 +550,11 @@ class MultiEigenStepperLoop
       state.components.back().state.jacToGlobal = cmp.jacToGlobal;
       state.components.back().state.jacTransport = cmp.jacTransport;
 
-      //       std::cout << "NEW COMPONENT HAS PARAMETERS "
-      //                 << state.components.back().state.pars.transpose() << "\n";
+//       std::cout << "NEW COMPONENT HAS PARAMETERS "
+//                 << state.components.back().state.pars.transpose() << "\n";
     }
 
-    //     std::cout << "DONE WITH UPDATE\n";
+//     std::cout << "DONE WITH UPDATE\n";
   }
 
   /// Method for on-demand transport of the covariance
@@ -640,3 +640,4 @@ class MultiEigenStepperLoop
 };
 
 }  // namespace Acts
+

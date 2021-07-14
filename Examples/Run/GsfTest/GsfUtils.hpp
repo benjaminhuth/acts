@@ -45,25 +45,48 @@ struct GsfComponentCache {
   ActsScalar pathLength;
 };
 
+/// @brief iterable for the component proxys of the multi steppers
+// template<typename component_proxy_t>
+// struct ComponentIterable{
+//     using State = std::decay_t<typename component_proxy_t::m_state>;
+//     State &state;
+//     std::size_t numComponents;
+//
+//     struct Iterator
+//         {
+//             std::size_t i;
+//             State &state;
+//             bool operator != (const Iterator & other) const { return i !=
+//             other.i; } void operator ++ () { ++i; } auto operator *  () const
+//             { return component_proxy_t(state, i); }
+//         };
+//
+//     auto begin() { return Iterator{0, state}; }
+//     auto end() { return Iterator{numComponents, state}; }
+// };
+
 /// @brief Combine multiple components into one representative track state
 /// object
-template <typename source_link_t>
 BoundTrackParameters combineMultiComponentState(
-    const std::vector<GsfComponentCache<source_link_t>> &cmps,
+    const std::vector<std::tuple<ActsScalar, BoundTrackParameters>> &cmps,
     const Surface &surface) {
   BoundVector mean = BoundVector::Zero();
   BoundSymMatrix cov = BoundSymMatrix::Zero();
   double sumOfWeights{0.0};
 
-  const double referencePhi =
-      cmps.front().trackStateProxy->filtered()[eBoundPhi];
+  const double referencePhi = std::get<BoundTrackParameters>(cmps.front()).parameters()[eBoundPhi];
 
   // clang-format off
   // x = \sum_{l} w_l * x_l
   // C = \sum_{l} w_l * C_l + \sum_{l} \sum_{m>l} w_l * w_m * (x_l - x_m)(x_l - x_m)^T
   // clang-format on
-  for (auto l = cmps.cbegin(); l != cmps.cend(); ++l) {
-    BoundVector pars_l = l->trackStateProxy->filtered();
+  for (auto l = cmps.begin(); l != cmps.end(); ++l) {
+    const auto &bs_l = std::get<BoundTrackParameters>(*l);
+    throw_assert(bs_l.covariance(), "we require a covariance here");
+    throw_assert(surface.geometryId() == bs_l.referenceSurface().geometryId(),
+                 "surface mismatch");
+
+    BoundVector pars_l = bs_l.parameters();
 
     // Avoid problems with cyclic phi
     const double deltaPhi = referencePhi - pars_l[eBoundPhi];
@@ -74,18 +97,20 @@ BoundTrackParameters combineMultiComponentState(
       pars_l[eBoundPhi] -= 2 * M_PI;
     }
 
-    sumOfWeights += l->weight;
-    mean += l->weight * pars_l;
-    cov += l->weight * l->trackStateProxy->filteredCovariance();
+    sumOfWeights += std::get<ActsScalar>(*l);
+    mean += std::get<ActsScalar>(*l) * pars_l;
+    cov += std::get<ActsScalar>(*l) * *bs_l.covariance();
 
     for (auto m = std::next(l); m != cmps.end(); ++m) {
-      const BoundVector diff = pars_l - m->trackStateProxy->filtered();
+      const auto &bs_m = std::get<BoundTrackParameters>(*m);
+      throw_assert(bs_m.covariance(), "we require a covariance here");
 
-      cov += l->weight * m->weight * diff * diff.transpose();
+      const BoundVector diff = pars_l - bs_m.parameters();
+
+      cov += std::get<ActsScalar>(*l) * std::get<ActsScalar>(*m) * diff * diff.transpose();
     }
 
-    throw_assert(surface.geometryId() ==
-                     l->trackStateProxy->referenceSurface().geometryId(),
+    throw_assert(surface.geometryId() == bs_l.referenceSurface().geometryId(),
                  "surface mismatch");
   }
 
@@ -165,25 +190,31 @@ std::vector<BoundTrackParameters> combineForwardAndBackwardPass(
                      backward[i].referenceSurface().geometryId(),
                  "ID must be equal");
 
-//     const BoundSymMatrix covFwdInv = forward[i].covariance()->inverse();
-//     const BoundSymMatrix covBwdInv = backward[i].covariance()->inverse();
-// 
-//     const BoundSymMatrix covInv = covFwdInv + covBwdInv;
-// 
-//     const BoundVector params = covInv * (covFwdInv * forward[i].parameters() +
-//                                          covBwdInv * backward[i].parameters());
-//         ret.push_back(
-//         BoundTrackParameters(forward[i].referenceSurface().getSharedPtr(),
-//                              params, covInv.inverse()));
-    
+    //     const BoundSymMatrix covFwdInv = forward[i].covariance()->inverse();
+    //     const BoundSymMatrix covBwdInv = backward[i].covariance()->inverse();
+    //
+    //     const BoundSymMatrix covInv = covFwdInv + covBwdInv;
+    //
+    //     const BoundVector params = covInv * (covFwdInv *
+    //     forward[i].parameters() +
+    //                                          covBwdInv *
+    //                                          backward[i].parameters());
+    //         ret.push_back(
+    //         BoundTrackParameters(forward[i].referenceSurface().getSharedPtr(),
+    //                              params, covInv.inverse()));
+
     // Where do these equations come from???
-    const BoundSymMatrix covSummed = *forward[i].covariance() + *backward[i].covariance();
+    const BoundSymMatrix covSummed =
+        *forward[i].covariance() + *backward[i].covariance();
     const BoundSymMatrix K = *forward[i].covariance() * covSummed.inverse();
     const BoundSymMatrix newCov = K * *backward[i].covariance();
-    
-    const BoundVector xNew = forward[i].parameters() + K * (backward[i].parameters() - forward[i].parameters());
 
-    ret.push_back(BoundTrackParameters(forward[i].referenceSurface().getSharedPtr(), xNew, newCov));
+    const BoundVector xNew =
+        forward[i].parameters() +
+        K * (backward[i].parameters() - forward[i].parameters());
+
+    ret.push_back(BoundTrackParameters(
+        forward[i].referenceSurface().getSharedPtr(), xNew, newCov));
   }
 
   return ret;

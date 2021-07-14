@@ -328,7 +328,7 @@ int main(int argc, char **argv) {
             cfg, Acts::Logging::VERBOSE));
   }
 #endif
-#if 0
+#if 1
   //////////////////////////////////
   // Kalman Fitter for comparison //
   //////////////////////////////////
@@ -340,11 +340,10 @@ int main(int argc, char **argv) {
     cfg.inputProtoTracks = kProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
     cfg.outputTrajectories = kKalmanOutputTrajectories;
-    cfg.directNavigation = false;
+    cfg.directNavigation = true;
     cfg.trackingGeometry = detector;
-    cfg.targetSurface = startSurface;
-    cfg.fit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
-        detector, magField);
+//     cfg.targetSurface = startSurface;
+    cfg.dFit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(magField);
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
@@ -352,7 +351,7 @@ int main(int argc, char **argv) {
   }
 #endif
   
-#if 0
+#if 1
   //////////////////////////////////
   // Print comparison
   ////////////////////////
