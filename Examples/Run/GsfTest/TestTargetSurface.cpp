@@ -120,10 +120,12 @@ int main() {
 
   // Propagator
   Acts::EigenStepper<> stepper(std::move(bField));
-  Acts::Navigator navigator(detector);
-  navigator.resolvePassive = false;
-  navigator.resolveMaterial = true;
-  navigator.resolveSensitive = true;
+  Acts::Navigator::Config cfg;
+  cfg.trackingGeometry = detector;
+  cfg.resolvePassive = false;
+  cfg.resolveMaterial = true;
+  cfg.resolveSensitive = true;
+  Acts::Navigator navigator(cfg);
   Acts::Propagator propagator(std::move(stepper), std::move(navigator));
 
   using Actors = Acts::ActionList<TargetSetterActor, PrintPositionActor>;

@@ -412,7 +412,7 @@ class MultiEigenStepperSIMD
     for (auto i = 0ul; i < NComponents; ++i) {
       const Vector3 pos{multi_pos[0][i], multi_pos[1][i], multi_pos[2][i]};
       const Vector3 bf =
-          SingleStepper::m_bField->getField(pos, state.fieldCache);
+          *SingleStepper::m_bField->getField(pos, state.fieldCache);
 
       ret[0][i] = bf[0];
       ret[1][i] = bf[1];
@@ -422,7 +422,7 @@ class MultiEigenStepperSIMD
     return ret;
   }
 
-  Vector3 getField(State& state, const Vector3& pos) const {
+  Result<Vector3> getField(State& state, const Vector3& pos) const {
     // get the field from the cell
     return SingleStepper::m_bField->getField(pos, state.fieldCache);
   }
@@ -502,7 +502,8 @@ class MultiEigenStepperSIMD
   /// @param surface [in] The surface provided
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
-      State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
+      State& state, const Surface& surface, const BoundaryCheck& bcheck,
+      LoggerWrapper logger = getDummyLogger()) const {
     // std::cout << "BEFORE updateSurfaceStatus(...): " <<
     // outputStepSize(state)
     // << std::endl;
@@ -511,7 +512,8 @@ class MultiEigenStepperSIMD
 
     for (auto i = 0ul; i < NComponents; ++i) {
       state.status[i] = detail::updateSingleSurfaceStatus<SingleProxyStepper>(
-          SingleProxyStepper{i, overstepLimit(state)}, state, surface, bcheck);
+          SingleProxyStepper{i, overstepLimit(state)}, state, surface, bcheck,
+          logger);
       ++counts[static_cast<std::size_t>(state.status[i])];
     }
 
@@ -838,7 +840,7 @@ class MultiEigenStepperSIMD
 
       // Second Runge-Kutta point
       const Vector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
-      sd.B_middle = SingleStepper::m_bField->getField(pos1, fieldCache);
+      sd.B_middle = *SingleStepper::m_bField->getField(pos1, fieldCache);
       if (!extension.k2(state, stepper, sd.k2, sd.B_middle, sd.kQoP, half_h,
                         sd.k1)) {
         return false;
@@ -852,7 +854,7 @@ class MultiEigenStepperSIMD
 
       // Last Runge-Kutta point
       const Vector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
-      sd.B_last = SingleStepper::m_bField->getField(pos2, fieldCache);
+      sd.B_last = *SingleStepper::m_bField->getField(pos2, fieldCache);
       if (!extension.k4(state, stepper, sd.k4, sd.B_last, sd.kQoP, h, sd.k3)) {
         return false;
       }

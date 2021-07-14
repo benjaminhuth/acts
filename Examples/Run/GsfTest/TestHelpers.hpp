@@ -153,7 +153,9 @@ using MagneticField = Acts::ConstantBField;
 template <typename stepper_t>
 auto make_propagator(std::shared_ptr<Acts::ConstantBField> magField,
                      std::shared_ptr<const Acts::TrackingGeometry> tgeo) {
-  Acts::Navigator navigator(tgeo);
+  Acts::Navigator::Config cfg;
+  cfg.trackingGeometry = tgeo;
+  Acts::Navigator navigator(cfg);
 
   using Propagator = Acts::Propagator<stepper_t, Acts::Navigator>;
 

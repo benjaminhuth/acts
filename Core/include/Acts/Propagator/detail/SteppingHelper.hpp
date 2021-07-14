@@ -42,12 +42,12 @@ Acts::Intersection3D::Status updateSingleSurfaceStatus(
   // The intersection is on surface already
   if (sIntersection.intersection.status == Intersection3D::Status::onSurface) {
     // Release navigation step size
-    state.stepSize.release(ConstrainedStep::actor);
+    stepper.releaseStepSize(state);
     ACTS_VERBOSE("Intersection: state is ON SURFACE");
     return Intersection3D::Status::onSurface;
   } else if (sIntersection.intersection or sIntersection.alternative) {
     // Path and overstep limit checking
-    double pLimit = state.stepSize.value(ConstrainedStep::aborter);
+    double pLimit = stepper.getStepSize(state, ConstrainedStep::aborter);
     double oLimit = stepper.overstepLimit(state);
     auto checkIntersection = [&](const Intersection3D& intersection) -> bool {
       double cLimit = intersection.pathLength;
@@ -96,12 +96,12 @@ Acts::Intersection3D::Status updateSingleSurfaceStatus(
 /// @param state [in,out] The stepping state (thread-local cache)
 /// @param oIntersection [in] The object that yielded this step size
 /// @param release [in] A release flag
-template <typename stepper_t, typename object_intersection_t>
-void updateSingleStepSize(typename stepper_t::State& state,
+template <typename object_intersection_t>
+void updateSingleStepSize(ConstrainedStep &stepSize,
                           const object_intersection_t& oIntersection,
                           bool release = true) {
-  double stepSize = oIntersection.intersection.pathLength;
-  state.stepSize.update(stepSize, ConstrainedStep::actor, release);
+  double size = oIntersection.intersection.pathLength;
+  stepSize.update(size, ConstrainedStep::actor, release);
 }
 
 }  // namespace detail

@@ -258,7 +258,7 @@ class MultiEigenStepperLoop
   /// @param [in,out] state is the propagation state associated with the track
   ///                 the magnetic field cell is used (and potentially updated)
   /// @param [in] pos is the field position
-  Vector3 getField(State& state, const Vector3& pos) const {
+  Result<Vector3> getField(State& state, const Vector3& pos) const {
     // get the field from the cell
     return SingleStepper::getField(state.components.front().state, pos);
   }
@@ -319,7 +319,8 @@ class MultiEigenStepperLoop
   /// @param surface [in] The surface provided
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
-      State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
+      State& state, const Surface& surface, const BoundaryCheck& bcheck,
+      LoggerWrapper logger = getDummyLogger()) const {
     //         std::cout << "BEFORE updateSurfaceStatus(...): " <<
     //         outputStepSize(state)
     //                   << std::endl;
@@ -327,8 +328,8 @@ class MultiEigenStepperLoop
     std::array<int, 4> counts = {0, 0, 0, 0};
 
     for (auto& component : state.components) {
-      component.status =
-          SingleStepper::updateSurfaceStatus(component.state, surface, bcheck);
+      component.status = SingleStepper::updateSurfaceStatus(
+          component.state, surface, bcheck, logger);
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
@@ -527,8 +528,8 @@ class MultiEigenStepperLoop
   template <typename component_rep_t>
   void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
                         const Surface& surface) const {
-//     std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size()
-//               << " COMPONENTS TO UPDATE\n";
+    //     std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size()
+    //               << " COMPONENTS TO UPDATE\n";
     state.components.clear();
 
     for (const auto& cmp : cmps) {
@@ -549,11 +550,11 @@ class MultiEigenStepperLoop
       state.components.back().state.jacToGlobal = cmp.jacToGlobal;
       state.components.back().state.jacTransport = cmp.jacTransport;
 
-//       std::cout << "NEW COMPONENT HAS PARAMETERS "
-//                 << state.components.back().state.pars.transpose() << "\n";
+      //       std::cout << "NEW COMPONENT HAS PARAMETERS "
+      //                 << state.components.back().state.pars.transpose() << "\n";
     }
 
-//     std::cout << "DONE WITH UPDATE\n";
+    //     std::cout << "DONE WITH UPDATE\n";
   }
 
   /// Method for on-demand transport of the covariance
