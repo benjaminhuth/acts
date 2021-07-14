@@ -545,8 +545,8 @@ box_t* Acts::make_octree(std::vector<std::unique_ptr<box_t>>& store,
 }
 
 template <typename T, typename U, size_t V>
-std::ostream& Acts::operator<<(std::ostream& os,
+std::ostream& operator<<(std::ostream& os,
                          const Acts::AxisAlignedBoundingBox<T, U, V>& box) {
-  box.toStream(os);
+  box.dump(os);
   return os;
 }
