@@ -80,6 +80,8 @@ class TrackFittingAlgorithm final : public BareAlgorithm {
     bool energyLoss = true;
     /// Pick a single track for debugging (-1 process all tracks)
     int pickTrack = -1;
+    /// Optionally provide an external target surface
+    std::shared_ptr<const Acts::Surface> targetSurface = nullptr;
   };
 
   /// Constructor of the fitting algorithm

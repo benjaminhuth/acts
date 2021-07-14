@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
 #include "Acts/EventData/MultiTrajectory.hpp"
 #include "Acts/EventData/TrackParameters.hpp"
 
@@ -164,21 +165,47 @@ std::vector<BoundTrackParameters> combineForwardAndBackwardPass(
                      backward[i].referenceSurface().geometryId(),
                  "ID must be equal");
 
-    const auto covFwdInv = forward[i].covariance()->inverse();
-    const auto covBwdInv = backward[i].covariance()->inverse();
+//     const BoundSymMatrix covFwdInv = forward[i].covariance()->inverse();
+//     const BoundSymMatrix covBwdInv = backward[i].covariance()->inverse();
+// 
+//     const BoundSymMatrix covInv = covFwdInv + covBwdInv;
+// 
+//     const BoundVector params = covInv * (covFwdInv * forward[i].parameters() +
+//                                          covBwdInv * backward[i].parameters());
+//         ret.push_back(
+//         BoundTrackParameters(forward[i].referenceSurface().getSharedPtr(),
+//                              params, covInv.inverse()));
+    
+    // Where do these equations come from???
+    const BoundSymMatrix covSummed = *forward[i].covariance() + *backward[i].covariance();
+    const BoundSymMatrix K = *forward[i].covariance() * covSummed.inverse();
+    const BoundSymMatrix newCov = K * *backward[i].covariance();
+    
+    const BoundVector xNew = forward[i].parameters() + K * (backward[i].parameters() - forward[i].parameters());
 
-    const BoundSymMatrix covInv = covFwdInv + covBwdInv;
-
-    const BoundVector params = covInv * (covFwdInv * forward[i].parameters() +
-                                         covBwdInv * backward[i].parameters());
-
-    ret.push_back(
-        BoundTrackParameters(forward[i].referenceSurface().getSharedPtr(),
-                             params, covInv.inverse()));
+    ret.push_back(BoundTrackParameters(forward[i].referenceSurface().getSharedPtr(), xNew, newCov));
   }
 
   return ret;
 }
+
+#if 0
+template <typename source_link_t>
+auto bayesianSmoothing(const MultiTrajectory<source_link_t> &fwdTraj,
+                       const std::vector<size_t> &fwdTips,
+                       const std::map<size_t, ActsScalar> &fwdWeights,
+                       const MultiTrajectory<source_link_t> &bwdTraj,
+                       const std::vector<size_t> &bwdTips,
+                       const std::map<size_t, ActsScalar> &bwdWeights) {
+  std::vector<std::tuple<double, BoundVector, BoundSymMatrix>> smoothedState;
+
+  for (auto fwdIdx : fwdTips) {
+    for (auto bwdIdx : bwdTips) {
+      // some code
+    }
+  }
+}
+#endif
 
 }  // namespace detail
 

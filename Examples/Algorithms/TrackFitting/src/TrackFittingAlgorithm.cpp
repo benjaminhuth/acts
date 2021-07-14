@@ -63,15 +63,21 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
   trajectories.reserve(protoTracks.size());
 
   // Construct a perigee surface as the target surface
-  auto pSurface = Acts::Surface::makeShared<Acts::PerigeeSurface>(
+  std::shared_ptr<const Acts::Surface> targetSurface;
+  
+  if( not m_cfg.targetSurface ) {
+      targetSurface = Acts::Surface::makeShared<Acts::PerigeeSurface>(
       Acts::Vector3{0., 0., 0.});
+  } else {
+      targetSurface = m_cfg.targetSurface;
+  }
 
   // Set the KalmanFitter options
   Acts::KalmanFitterOptions<MeasurementCalibrator, Acts::VoidOutlierFinder>
       kfOptions(ctx.geoContext, ctx.magFieldContext, ctx.calibContext,
                 MeasurementCalibrator(measurements), Acts::VoidOutlierFinder(),
                 Acts::LoggerWrapper{logger()}, Acts::PropagatorPlainOptions(),
-                &(*pSurface));
+                targetSurface.get());
 
   kfOptions.multipleScattering = m_cfg.multipleScattering;
   kfOptions.energyLoss = m_cfg.energyLoss;

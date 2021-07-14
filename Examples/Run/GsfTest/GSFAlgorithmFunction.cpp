@@ -27,7 +27,7 @@ using Calibrator = ActsExamples::MeasurementCalibrator;
 using DefaultExt = Acts::detail::GenericDefaultExtension<Acts::ActsScalar>;
 using ExtList = Acts::StepperExtensionList<DefaultExt>;
 using Stepper = Acts::MultiEigenStepperLoop<ExtList>;
-using Propagator = Acts::Propagator<Stepper, Acts::Navigator>;
+using Propagator = Acts::Propagator<Stepper, Acts::DirectNavigator>;
 
 // The Fitter
 using Fitter = Acts::GaussianSumFitter<Propagator>;
@@ -40,7 +40,8 @@ struct GsfFitterFunction {
   ActsExamples::TrackFittingAlgorithm::TrackFitterResult operator()(
       const std::vector<ActsExamples::IndexSourceLink>& sourceLinks,
       const ActsExamples::TrackParameters& initialParameters,
-      const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions& kalmanOptions)
+      const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions& kalmanOptions,
+      const std::vector<const Acts::Surface*>& sSequence)
       const {
 
     Acts::GsfOptions<Calibrator, OutlierFinder> gsfOptions{
@@ -52,19 +53,16 @@ struct GsfFitterFunction {
         kalmanOptions.logger
     };
 
-    return trackFitter.fit(sourceLinks, initialParameters, gsfOptions);
+    return trackFitter.fit(sourceLinks, initialParameters, gsfOptions, sSequence);
   };
 };
 
-ActsExamples::TrackFittingAlgorithm::TrackFitterFunction makeGsfFitterFunction(
-      std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
+ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction makeGsfFitterFunction(
+      std::shared_ptr<const Acts::TrackingGeometry> /*trackingGeometry*/,
       std::shared_ptr<const Acts::MagneticFieldProvider> magneticField)
 {
   Stepper stepper(std::move(magneticField));
-  Acts::Navigator navigator(trackingGeometry);
-  navigator.resolvePassive = false;
-  navigator.resolveMaterial = true;
-  navigator.resolveSensitive = true;
+  Acts::DirectNavigator navigator;
   Propagator propagator(std::move(stepper), std::move(navigator));
   Fitter trackFitter(std::move(propagator));
 

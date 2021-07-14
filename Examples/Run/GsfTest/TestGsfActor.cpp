@@ -27,6 +27,7 @@
 #include "ActsExamples/TruthTracking/ParticleSmearing.hpp"
 #include "ActsExamples/TruthTracking/TruthTrackFinder.hpp"
 #include "ActsExamples/Utilities/Options.hpp"
+#include "ActsExamples/EventData/Trajectories.hpp"
 #include "ActsFatras/EventData/Barcode.hpp"
 
 #include <chrono>
@@ -53,15 +54,65 @@ const char *kProtoTrackParameters = "proto-track-parameters";
 const char *kKalmanOutputTrajectories = "kalman-output";
 const char *kGsfOutputTrajectories = "gsf-output";
 
+struct ComparisonAlgorithm : public ActsExamples::BareAlgorithm
+{
+    struct Config 
+    {
+        std::string inTrajectoriesGsf;
+        std::string inTrajectoriesKalman;
+    } m_cfg;
+    
+    ComparisonAlgorithm(const Config &cfg, Acts::Logging::Level level) : ActsExamples::BareAlgorithm("Comparison Algorithm", level), m_cfg(cfg) {}
+    
+    ActsExamples::ProcessCode execute(
+      const ActsExamples::AlgorithmContext &ctx) const override
+    {
+        auto gsfTrajectory = ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(m_cfg.inTrajectoriesGsf)[0];
+        auto kalmanTrajectory = ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(m_cfg.inTrajectoriesKalman)[0];
+        
+        std::size_t gsfIdx = gsfTrajectory.tips()[0];
+        std::size_t kalmanIdx = kalmanTrajectory.tips()[0];
+        
+        std::cout << gsfIdx << std::endl;
+        std::cout << kalmanIdx << std::endl;
+        
+        // Stupid but didnt want to think about why SIZE_MAX does not work here
+        while(gsfIdx < 10000 && kalmanIdx < 10000)
+        {            
+            const auto gsfProxy = gsfTrajectory.multiTrajectory().getTrackState(gsfIdx);
+            gsfIdx = gsfProxy.previous();
+            
+            const auto kalmanProxy = kalmanTrajectory.multiTrajectory().getTrackState(kalmanIdx);
+            kalmanIdx = kalmanProxy.previous();
+            
+            std::cout << "=======================\n";
+            std::cout << "GSF:    " << gsfProxy.smoothed().transpose() << "\n";
+            std::cout << "Kalman: " << kalmanProxy.smoothed().transpose() << "\n";
+        }
+        
+        std::cout << "=======================\n";
+        
+        return ActsExamples::ProcessCode::SUCCESS;
+    }
+};
+
 int main(int argc, char **argv) {
   const std::vector<std::string> args(argv, argv + argc);
 
   if (std::find(begin(args), end(args), "--help") != args.end()) {
     std::cout << "Usage: " << args[0] << " <options>\n";
     std::cout << "Options:\n";
-    std::cout << "\t --bf-value <val-in-tesla>\n";
+    std::cout << "\t --bf-value <val>\tMagnetic field value (in tesla)\n";
+    std::cout
+        << "\t -v              \tAll algorithms verbose (not just the GSF)\n";
     return EXIT_SUCCESS;
   }
+
+  const bool foundVerboseFlag =
+      std::find(begin(args), end(args), "-v") != args.end();
+
+  const auto globalLogLevel =
+      foundVerboseFlag ? Acts::Logging::VERBOSE : Acts::Logging::INFO;
 
   const double bfValue = [&]() {
     const auto found = std::find(begin(args), end(args), "--bf-value");
@@ -72,8 +123,12 @@ int main(int argc, char **argv) {
   }();
 
   // Logger
-  auto mainLogger = Acts::getDefaultLogger("main logger", Acts::Logging::INFO);
+  auto mainLogger = Acts::getDefaultLogger("main logger", globalLogLevel);
   ACTS_LOCAL_LOGGER(std::move(mainLogger));
+
+  if (foundVerboseFlag) {
+    ACTS_INFO("Swiched on global verbose mode");
+  }
 
   // Setup the sequencer
   ActsExamples::Sequencer::Config seqCfg;
@@ -97,7 +152,7 @@ int main(int argc, char **argv) {
   std::vector<
       std::shared_ptr<ActsExamples::Telescope::TelescopeDetectorElement>>
       detectorElementStorage;
-  const std::vector<double> distances = {0_mm, 200_mm, 300_mm, 400_mm, 500_mm};
+  const std::vector<double> distances = {100_mm, 200_mm, 300_mm, 400_mm, 500_mm};
   const std::array<double, 2> offsets = {0.0_mm, 0.0_mm};
   const std::array<double, 2> bounds = {100._mm, 100._mm};
   const double thickness = 10._mm;
@@ -111,23 +166,31 @@ int main(int argc, char **argv) {
   // No need to put detector geometry writing in sequencer loop
   export_detector_to_obj(*detector);
 
-  // Find start surface
-  std::shared_ptr<const Acts::Surface> start_surface;
+// Find a surface in the tgeo for some use later
+  std::shared_ptr<const Acts::Surface> some_surface;
 
   detector->visitSurfaces([&](auto surface) {
-    if (surface->center(Acts::GeometryContext{})[0] == 0.0) {
-      start_surface = surface->getSharedPtr();
+    if (surface->center(Acts::GeometryContext{})[0] == 100.0) {
+      some_surface = surface->getSharedPtr();
     }
   });
 
-  throw_assert(start_surface, "no valid start surface found");
+  throw_assert(some_surface, "no valid surface found");
+  
+  // Make a start surface
+  auto startBounds = std::make_shared<Acts::RectangleBounds>(1000,1000);
+  Acts::Transform3 trafo = Acts::Transform3::Identity() * Eigen::AngleAxisd(0.5*M_PI, Eigen::Vector3d::UnitY());
+  auto startSurface = Acts::Surface::makeShared<Acts::PlaneSurface>(trafo, startBounds);
+  
+  
+  ACTS_VERBOSE("some surface normal: " << some_surface->normal(geoCtx, Acts::Vector2{0,0}).transpose());
+  ACTS_VERBOSE("start surface normal: " << startSurface->normal(geoCtx, Acts::Vector2{0,0}).transpose());
 
   /////////////////////
   // Particle gun
   /////////////////////
   {
-    Acts::Vector4 vertex;
-    vertex << start_surface->center(Acts::GeometryContext{}), 0.0;
+    Acts::Vector4 vertex = Acts::Vector4::Zero();
 
     ActsExamples::FixedVertexGenerator vertexGen{vertex};
 
@@ -149,8 +212,8 @@ int main(int argc, char **argv) {
     cfg.outputParticles = "particles";
     cfg.randomNumbers = rnd;
 
-    sequencer.addReader(std::make_shared<ActsExamples::EventGenerator>(
-        cfg, Acts::Logging::INFO));
+    sequencer.addReader(
+        std::make_shared<ActsExamples::EventGenerator>(cfg, globalLogLevel));
   }
 
   ////////////////
@@ -175,7 +238,7 @@ int main(int argc, char **argv) {
     cfg.generateHitsOnPassive = false;
 
     sequencer.addAlgorithm(std::make_shared<ActsExamples::FatrasAlgorithm>(
-        std::move(cfg), Acts::Logging::INFO));
+        std::move(cfg), globalLogLevel));
   }
 
   ///////////////////
@@ -186,7 +249,7 @@ int main(int argc, char **argv) {
         detector
             ->lowestTrackingVolume(
                 Acts::GeometryContext{},
-                start_surface->center(Acts::GeometryContext{}))
+                some_surface->center(Acts::GeometryContext{}))
             ->geometryId()
             .volume();
 
@@ -218,8 +281,7 @@ int main(int argc, char **argv) {
     cfg.randomNumbers = rnd;
     cfg.trackingGeometry = detector;
 
-    sequencer.addAlgorithm(
-        createDigitizationAlgorithm(cfg, Acts::Logging::INFO));
+    sequencer.addAlgorithm(createDigitizationAlgorithm(cfg, globalLogLevel));
   }
 
   ////////////////////
@@ -231,8 +293,8 @@ int main(int argc, char **argv) {
     cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
     cfg.outputProtoTracks = kProtoTracks;
 
-    sequencer.addAlgorithm(std::make_shared<ActsExamples::TruthTrackFinder>(
-        cfg, Acts::Logging::INFO));
+    sequencer.addAlgorithm(
+        std::make_shared<ActsExamples::TruthTrackFinder>(cfg, globalLogLevel));
   }
 
   {
@@ -241,10 +303,10 @@ int main(int argc, char **argv) {
     cfg.outputTrackParameters = kProtoTrackParameters;
     cfg.randomNumbers = rnd;
 
-    sequencer.addAlgorithm(std::make_shared<ActsExamples::ParticleSmearing>(
-        cfg, Acts::Logging::INFO));
+    sequencer.addAlgorithm(
+        std::make_shared<ActsExamples::ParticleSmearing>(cfg, globalLogLevel));
   }
-
+#if 1
   ////////////////////////
   // Gaussian Sum Filter
   ////////////////////////
@@ -256,15 +318,17 @@ int main(int argc, char **argv) {
     cfg.inputProtoTracks = kProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
     cfg.outputTrajectories = kGsfOutputTrajectories;
-    cfg.directNavigation = false;
+    cfg.directNavigation = true;
     cfg.trackingGeometry = detector;
-    cfg.fit = makeGsfFitterFunction(detector, magField);
+//     cfg.targetSurface = startSurface;
+    cfg.dFit = makeGsfFitterFunction(detector, magField);
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(
             cfg, Acts::Logging::VERBOSE));
   }
-
+#endif
+#if 0
   //////////////////////////////////
   // Kalman Fitter for comparison //
   //////////////////////////////////
@@ -278,14 +342,30 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kKalmanOutputTrajectories;
     cfg.directNavigation = false;
     cfg.trackingGeometry = detector;
+    cfg.targetSurface = startSurface;
     cfg.fit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
         detector, magField);
 
     sequencer.addAlgorithm(
-        std::make_shared<ActsExamples::TrackFittingAlgorithm>(
-            cfg, Acts::Logging::INFO));
+        std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
+                                                              globalLogLevel));
   }
-
+#endif
+  
+#if 0
+  //////////////////////////////////
+  // Print comparison
+  ////////////////////////
+  {
+    ComparisonAlgorithm::Config cfg;
+    cfg.inTrajectoriesGsf = kGsfOutputTrajectories;
+    cfg.inTrajectoriesKalman = kKalmanOutputTrajectories;
+    
+    sequencer.addAlgorithm(std::make_shared<ComparisonAlgorithm>(cfg, globalLogLevel));
+  }
+#endif
+  
+#if 0
   /////////////////////////
   // Write Obj
   /////////////////////////
@@ -299,7 +379,7 @@ int main(int argc, char **argv) {
     cfg.outputStem = "averaged-steps";
 
     sequencer.addWriter(
-        std::make_shared<ObjPropStepWriter>(cfg, Acts::Logging::INFO));
+        std::make_shared<ObjPropStepWriter>(cfg, globalLogLevel));
   }
 
   {
@@ -309,7 +389,7 @@ int main(int argc, char **argv) {
     cfg.outputStem = "components-steps";
 
     sequencer.addWriter(
-        std::make_shared<ObjPropStepWriter>(cfg, Acts::Logging::INFO));
+        std::make_shared<ObjPropStepWriter>(cfg, globalLogLevel));
   }
 
   {
@@ -318,7 +398,7 @@ int main(int argc, char **argv) {
     cfg.collection = kSimulatedHits;
 
     sequencer.addWriter(
-        std::make_shared<ActsExamples::ObjHitWriter>(cfg, Acts::Logging::INFO));
+        std::make_shared<ActsExamples::ObjHitWriter>(cfg, globalLogLevel));
   }
 
   //////////////////
@@ -331,7 +411,7 @@ int main(int argc, char **argv) {
     cfg.writePerEvent = true;
     sequencer.addWriter(
         std::make_shared<ActsExamples::CsvTrackingGeometryWriter>(
-            cfg, Acts::Logging::INFO));
+            cfg, globalLogLevel));
   }
 
   {
@@ -340,8 +420,8 @@ int main(int argc, char **argv) {
     cfg.outputDir = "";
     cfg.outputStem = "simulated-hits";
 
-    sequencer.addWriter(std::make_shared<ActsExamples::CsvSimHitWriter>(
-        cfg, Acts::Logging::INFO));
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::CsvSimHitWriter>(cfg, globalLogLevel));
   }
 
   {
@@ -351,8 +431,9 @@ int main(int argc, char **argv) {
 
     sequencer.addWriter(
         std::make_shared<ActsExamples::CsvPropagationStepsWriter>(
-            cfg, Acts::Logging::INFO));
+            cfg, globalLogLevel));
   }
+#endif
 
   return sequencer.run();
 }

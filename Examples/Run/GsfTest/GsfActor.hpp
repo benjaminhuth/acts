@@ -50,6 +50,7 @@ template <typename source_link_t>
 struct GsfResult {
   /// The multi-trajectory which stores the graph of components
   MultiTrajectory<source_link_t> fittedStates;
+  std::map<size_t, ActsScalar> weightsOfStates;
 
   /// The current indexes for the active components in the multi trajectory
   std::vector<std::size_t> currentTips;
@@ -59,20 +60,13 @@ struct GsfResult {
   std::size_t processedStates = 0;
 
   /// The collected BoundStates along the trajectory
-  std::vector<BoundTrackParameters> combinedParsForward;
-  std::vector<BoundTrackParameters> combinedParsReverse;
-
-  /// Boolean flag which indicates the fitting is done
-  bool isFinished = false;
-
-  // Indicates if we have reversed the state
-  bool isReversed = false;
-
-  // Wether to reset the state in the next pass
-  bool doReset = false;
+  std::vector<BoundTrackParameters> combinedPars;
 
   // Measurement surfaces handled in both forward and backward filtering
   std::vector<const Surface*> passedAgainSurfaces;
+
+  // Flag if we are isFinished
+  bool isFinished = false;
 };
 
 template <typename propagator_t>
@@ -119,9 +113,9 @@ struct GaussianSumFitter {
 
       /// Whether to consider energy loss.
       bool energyLoss = true;
-
-      /// Target surface for reverse filtering
-      const Surface* targetSurface;
+      
+      /// Target surface for backwards
+      const Surface *targetSurface = nullptr;
     } m_config;
 
     /// Configurable components:
@@ -144,48 +138,17 @@ struct GaussianSumFitter {
                     result_type& result) const {
       const auto& logger = state.options.logger;
 
-      ACTS_VERBOSE("Gsf step");
+      ACTS_VERBOSE("Gsf step at mean position "
+                   << stepper.position(state.stepping).transpose()
+                   << " with direction "
+                   << stepper.direction(state.stepping).transpose());
 
-      if (result.isFinished) {
-        ACTS_VERBOSE("Gsf Actor: Fast return because of isFinished");
+      if (state.navigation.targetSurface &&
+          m_targetReachedAborter(state, stepper)) {
+        ACTS_VERBOSE("Gsf Actor reached target surface");
+        result.isFinished = true;
         return;
       }
-
-      throw_assert(m_config.targetSurface, "we must have a target surface");
-
-      ////////////////
-      // Pre-Config //
-      ////////////////
-
-      // This is because we do not have a DirectNavigator option for now. Should
-      // also be resolved by #846
-      {
-        if (result.processedStates == 0) {
-          for (auto measurementIt = m_config.inputMeasurements.begin();
-               measurementIt != m_config.inputMeasurements.end();
-               measurementIt++) {
-            state.navigation.externalSurfaces.insert(
-                std::pair<uint64_t, GeometryIdentifier>(
-                    measurementIt->first.layer(), measurementIt->first));
-          }
-        }
-
-        if (result.doReset and state.navigation.navSurfaceIter ==
-                                   state.navigation.navSurfaces.end()) {
-          // So the navigator target call will target layers
-          state.navigation.navigationStage = GsfNavigator::Stage::layerTarget;
-          // We only do this after the backward-propagation
-          // starting layer has been processed
-          result.doReset = false;
-        }
-      }
-
-      ////////////
-      // Update //
-      ////////////
-      //
-      std::string direction =
-          (state.stepping.navDir == forward) ? "forward" : "backward";
 
       // TODO handle surfaces without material
       if (state.navigation.currentSurface &&
@@ -195,57 +158,140 @@ struct GaussianSumFitter {
         const auto source_link =
             m_config.inputMeasurements.find(surface.geometryId())->second;
 
-        if(result.currentTips.empty()) {
-            result.currentTips.resize(stepper.numberComponents(state.stepping), SIZE_MAX);
+        if (result.currentTips.empty()) {
+          result.currentTips.resize(stepper.numberComponents(state.stepping),
+                                    SIZE_MAX);
         }
 
-        auto res = [&]() {
-          if (not result.isReversed) {
-            ACTS_VERBOSE("Perform " << direction << " filter step");
-            return filter(state, stepper, result, source_link);
-          } else {
-            ACTS_VERBOSE("Perform " << direction << " filter step");
-            return filter(state, stepper, result, source_link);
-          }
-        }();
-
-        if (!res.ok()) {
-          ACTS_ERROR("Error in " << direction << " filter: " << res.error());
-          //           result.result = res.error();
-        }
-      }
-
-      //////////////////
-      // Finalization //
-      //////////////////
-      bool canReverse =
-          result.measurementStates == m_config.inputMeasurements.size() ||
-          (result.measurementStates > 0 && state.navigation.navigationBreak);
-
-      if (not result.isReversed && canReverse) {
-        throw_assert(false, "break here at reserve");
-        reverse(state, stepper, result);
-      }
-
-      ///////////////////////
-      // Post-finalization //
-      ///////////////////////
-
-      if (result.isReversed &&
-          m_targetReachedAborter(state, stepper, *m_config.targetSurface)) {
-        ACTS_VERBOSE("Completing with fitted track parameter");
-
-        throw_assert(
-            result.combinedParsForward.size() ==
-                result.combinedParsReverse.size(),
-            "both reverse and forward pass results must match in size");
-
-        std::reverse(result.combinedParsReverse.begin(),
-                     result.combinedParsReverse.end());
-
-        result.isFinished = true;
+        std::string_view direction =
+            (state.stepping.navDir == forward) ? "forward" : "backward";
+        ACTS_VERBOSE("Perform " << direction << " filter step");
+        filter(state, stepper, result, source_link);
       }
     }
+
+    //     /// @brief Kalman actor operation
+    //     ///
+    //     /// @tparam propagator_state_t is the type of Propagagor state
+    //     /// @tparam stepper_t Type of the stepper
+    //     ///
+    //     /// @param state is the mutable propagator state object
+    //     /// @param stepper The stepper in use
+    //     /// @param result is the mutable result state object
+    //     template <typename propagator_state_t, typename stepper_t>
+    //     void operator()(propagator_state_t& state, const stepper_t& stepper,
+    //                     result_type& result) const {
+    //       const auto& logger = state.options.logger;
+    //
+    //       ACTS_VERBOSE("Gsf step");
+    //
+    //       if (result.isFinished) {
+    //         ACTS_VERBOSE("Gsf Actor: Fast return because of isFinished");
+    //         return;
+    //       }
+    //
+    //       throw_assert(m_config.targetSurface, "we must have a target
+    //       surface");
+    //
+    //       ////////////////
+    //       // Pre-Config //
+    //       ////////////////
+    //
+    //       // This is because we do not have a DirectNavigator option for now.
+    //       Should
+    //       // also be resolved by #846
+    //       {
+    //         if (result.processedStates == 0) {
+    //           for (auto measurementIt = m_config.inputMeasurements.begin();
+    //                measurementIt != m_config.inputMeasurements.end();
+    //                measurementIt++) {
+    //             state.navigation.externalSurfaces.insert(
+    //                 std::pair<uint64_t, GeometryIdentifier>(
+    //                     measurementIt->first.layer(), measurementIt->first));
+    //           }
+    //         }
+    //
+    //         if (result.doReset and state.navigation.navSurfaceIter ==
+    //                                    state.navigation.navSurfaces.end()) {
+    //           // So the navigator target call will target layers
+    //           state.navigation.navigationStage =
+    //           GsfNavigator::Stage::layerTarget;
+    //           // We only do this after the backward-propagation
+    //           // starting layer has been processed
+    //           result.doReset = false;
+    //         }
+    //       }
+    //
+    //       ////////////
+    //       // Update //
+    //       ////////////
+    //       //
+    //       std::string direction =
+    //           (state.stepping.navDir == forward) ? "forward" : "backward";
+    //
+    //       // TODO handle surfaces without material
+    //       if (state.navigation.currentSurface &&
+    //           state.navigation.currentSurface->surfaceMaterial()) {
+    //         const auto& surface = *state.navigation.currentSurface;
+    //
+    //         const auto source_link =
+    //             m_config.inputMeasurements.find(surface.geometryId())->second;
+    //
+    //         if(result.currentTips.empty()) {
+    //             result.currentTips.resize(stepper.numberComponents(state.stepping),
+    //             SIZE_MAX);
+    //         }
+    //
+    //         auto res = [&]() {
+    //           if (not result.isReversed) {
+    //             ACTS_VERBOSE("Perform " << direction << " filter step");
+    //             return filter(state, stepper, result, source_link);
+    //           } else {
+    //             ACTS_VERBOSE("Perform " << direction << " filter step");
+    //             return filter(state, stepper, result, source_link);
+    //           }
+    //         }();
+    //
+    //         if (!res.ok()) {
+    //           ACTS_ERROR("Error in " << direction << " filter: " <<
+    //           res.error());
+    //           //           result.result = res.error();
+    //         }
+    //       }
+    //
+    //       //////////////////
+    //       // Finalization //
+    //       //////////////////
+    //       bool canReverse =
+    //           result.measurementStates == m_config.inputMeasurements.size()
+    //           || (result.measurementStates > 0 &&
+    //           state.navigation.navigationBreak);
+    //
+    //       if (not result.isReversed && canReverse) {
+    //         throw_assert(false, "break here at reserve");
+    //         reverse(state, stepper, result);
+    //       }
+    //
+    //       ///////////////////////
+    //       // Post-finalization //
+    //       ///////////////////////
+    //
+    //       if (result.isReversed &&
+    //           m_targetReachedAborter(state, stepper,
+    //           *m_config.targetSurface)) {
+    //         ACTS_VERBOSE("Completing with fitted track parameter");
+    //
+    //         throw_assert(
+    //             result.combinedParsForward.size() ==
+    //                 result.combinedParsReverse.size(),
+    //             "both reverse and forward pass results must match in size");
+    //
+    //         std::reverse(result.combinedParsReverse.begin(),
+    //                      result.combinedParsReverse.end());
+    //
+    //         result.isFinished = true;
+    //       }
+    //     }
 
     /// @brief A filtering step
     template <typename propagator_state_t, typename stepper_t>
@@ -301,17 +347,17 @@ struct GaussianSumFitter {
       // Reweigth components according to measurement
       detail::reweightComponents(componentCache);
 
+      // Store the weights
+      for (const auto& cmp : componentCache) {
+        result.weightsOfStates[cmp.trackStateProxy->index()] = cmp.weight;
+      }
+
       // update stepper state with the collected component caches
       stepper.updateComponents(state.stepping, componentCache, surface);
 
       // Add the combined track state to results
-      if (!result.isReversed) {
-        result.combinedParsForward.push_back(
-            detail::combineMultiComponentState(componentCache, surface));
-      } else {
-        result.combinedParsReverse.push_back(
-            detail::combineMultiComponentState(componentCache, surface));
-      }
+      result.combinedPars.push_back(
+          detail::combineMultiComponentState(componentCache, surface));
 
       ACTS_VERBOSE("GSF actor: " << stepper.numberComponents(state.stepping)
                                  << " at the end");
@@ -344,7 +390,6 @@ struct GaussianSumFitter {
                              m_config.bethe_heitler_approx.numComponents());
 
       for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-        ACTS_VERBOSE("Gsf Actor: process parent compnent #" << i);
         // Approximate bethe-heitler distribution as gaussian mixture
         typename stepper_t::ComponentProxy old_cmp(stepping, i);
 
@@ -365,7 +410,6 @@ struct GaussianSumFitter {
 
         // Create all possible new components
         for (const auto& gaussian : mixture) {
-          ACTS_VERBOSE("Gsf Actor: create new sub-component");
           ComponentCache new_cmp;
 
           // compute delta p from mixture and update parameters
@@ -382,9 +426,6 @@ struct GaussianSumFitter {
           new_cmp.predictedPars = old_bound.parameters();
           new_cmp.predictedPars[eBoundQOverP] =
               old_bound.charge() / (p_prev + delta_p);
-
-          ACTS_VERBOSE("GSF actor: created new component with pars "
-                       << new_cmp.predictedPars.transpose());
 
           // compute inverse variance of p from mixture and update covariance
           if (old_bound.covariance()) {
@@ -629,74 +670,80 @@ struct GaussianSumFitter {
     //       return Result<void>::success();
     //     }
 
-    /// @brief GSF actor operation : reverse direction
-    ///
-    /// @tparam propagator_state_t is the type of Propagagor state
-    /// @tparam stepper_t Type of the stepper
-    ///
-    /// @param state is the mutable propagator state object
-    /// @param stepper The stepper in use
-    /// @param result is the mutable result state objecte
-    template <typename propagator_state_t, typename stepper_t>
-    void reverse(propagator_state_t& state, stepper_t& stepper,
-                 result_type& result) const {
-      // Remember the navigation direciton has been reversed
-      result.isReversed = true;
-      // The reset is used for resetting the navigation
-      result.doReset = true;
-
-      // Reverse navigation direction
-      state.stepping.navDir =
-          (state.stepping.navDir == forward) ? backward : forward;
-
-      // Reset propagator options
-      state.options.maxStepSize =
-          state.stepping.navDir * std::abs(state.options.maxStepSize);
-      // Not sure if reset of pathLimit during propagation makes any sense
-      state.options.pathLimit =
-          state.stepping.navDir * std::abs(state.options.pathLimit);
-
-      // Reset stepping&navigation state using last measurement track state on
-      // sensitive surface
-      state.navigation = typename propagator_t::NavigatorState();
-
-      for (const auto idx : result.currentTips) {
-        result.fittedStates.applyBackwards(idx, [&](auto st) {
-          if (st.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag)) {
-            // Set the navigation state
-            state.navigation.startSurface = &st.referenceSurface();
-            if (state.navigation.startSurface->associatedLayer() != nullptr) {
-              state.navigation.startLayer =
-                  state.navigation.startSurface->associatedLayer();
-            }
-            state.navigation.startVolume =
-                state.navigation.startLayer->trackingVolume();
-            state.navigation.targetSurface = m_config.targetSurface;
-            state.navigation.currentSurface = state.navigation.startSurface;
-            state.navigation.currentVolume = state.navigation.startVolume;
-
-            // Update the stepping state
-            stepper.resetState(state.stepping, st.filtered(),
-                               st.filteredCovariance(), st.referenceSurface(),
-                               state.stepping.navDir,
-                               state.options.maxStepSize);
-
-            // For the last measurement state, smoothed is filtered
-            st.smoothed() = st.filtered();
-            st.smoothedCovariance() = st.filteredCovariance();
-            result.passedAgainSurfaces.push_back(&st.referenceSurface());
-
-            // Update material effects for last measurement state in reversed
-            // direction
-            //             materialInteractor(state.navigation.currentSurface,
-            //             state, stepper);
-
-            return false;  // abort execution
-          }
-          return true;  // continue execution
-        });
-      }
-    }
+    //     /// @brief GSF actor operation : reverse direction
+    //     ///
+    //     /// @tparam propagator_state_t is the type of Propagagor state
+    //     /// @tparam stepper_t Type of the stepper
+    //     ///
+    //     /// @param state is the mutable propagator state object
+    //     /// @param stepper The stepper in use
+    //     /// @param result is the mutable result state objecte
+    //     template <typename propagator_state_t, typename stepper_t>
+    //     void reverse(propagator_state_t& state, stepper_t& stepper,
+    //                  result_type& result) const {
+    //       // Remember the navigation direciton has been reversed
+    //       result.isReversed = true;
+    //       // The reset is used for resetting the navigation
+    //       result.doReset = true;
+    //
+    //       // Reverse navigation direction
+    //       state.stepping.navDir =
+    //           (state.stepping.navDir == forward) ? backward : forward;
+    //
+    //       // Reset propagator options
+    //       state.options.maxStepSize =
+    //           state.stepping.navDir * std::abs(state.options.maxStepSize);
+    //       // Not sure if reset of pathLimit during propagation makes any
+    //       sense state.options.pathLimit =
+    //           state.stepping.navDir * std::abs(state.options.pathLimit);
+    //
+    //       // Reset stepping&navigation state using last measurement track
+    //       state on
+    //       // sensitive surface
+    //       state.navigation = typename propagator_t::NavigatorState();
+    //
+    //       for (const auto idx : result.currentTips) {
+    //         result.fittedStates.applyBackwards(idx, [&](auto st) {
+    //           if (st.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag))
+    //           {
+    //             // Set the navigation state
+    //             state.navigation.startSurface = &st.referenceSurface();
+    //             if (state.navigation.startSurface->associatedLayer() !=
+    //             nullptr) {
+    //               state.navigation.startLayer =
+    //                   state.navigation.startSurface->associatedLayer();
+    //             }
+    //             state.navigation.startVolume =
+    //                 state.navigation.startLayer->trackingVolume();
+    //             state.navigation.targetSurface = m_config.targetSurface;
+    //             state.navigation.currentSurface =
+    //             state.navigation.startSurface; state.navigation.currentVolume
+    //             = state.navigation.startVolume;
+    //
+    //             // Update the stepping state
+    //             stepper.resetState(state.stepping, st.filtered(),
+    //                                st.filteredCovariance(),
+    //                                st.referenceSurface(),
+    //                                state.stepping.navDir,
+    //                                state.options.maxStepSize);
+    //
+    //             // For the last measurement state, smoothed is filtered
+    //             st.smoothed() = st.filtered();
+    //             st.smoothedCovariance() = st.filteredCovariance();
+    //             result.passedAgainSurfaces.push_back(&st.referenceSurface());
+    //
+    //             // Update material effects for last measurement state in
+    //             reversed
+    //             // direction
+    //             // materialInteractor(state.navigation.currentSurface,
+    //             //             state, stepper);
+    //
+    //             return false;  // abort execution
+    //           }
+    //           return true;  // continue execution
+    //         });
+    //       }
+    //     }
   };
 
   template <typename gsf_actor_t>
@@ -708,9 +755,12 @@ struct GaussianSumFitter {
     /// The call operator
     template <typename propagator_state_t, typename stepper_t,
               typename result_t>
-    bool operator()(propagator_state_t& /*state*/, const stepper_t& /*stepper*/,
+    bool operator()(propagator_state_t& state, const stepper_t& /*stepper*/,
                     const result_t& result) const {
+      const auto& logger = state.options.logger;
+
       if (result.isFinished) {
+        ACTS_VERBOSE("Terminated by GSF Aborter");
         return true;
       }
       return false;
@@ -726,10 +776,15 @@ struct GaussianSumFitter {
   Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit(
       const std::vector<source_link_t>& sourcelinks,
       const start_parameters_t& sParameters,
-      const GsfOptions<calibrator_t, outlier_finder_t>& options) const {
-    const auto& logger = options.logger;
+      const GsfOptions<calibrator_t, outlier_finder_t>& options,
+      const std::vector<const Surface*>& sSequence) const {
     static_assert(SourceLinkConcept<source_link_t>,
                   "Source link does not fulfill SourceLinkConcept");
+    static_assert(
+        std::is_same_v<DirectNavigator, typename propagator_t::Navigator>);
+
+    // The logger
+    const auto& logger = options.logger;
 
     // To be able to find measurements later, we put them into a map
     // We need to copy input SourceLinks anyways, so the map can own them.
@@ -739,6 +794,7 @@ struct GaussianSumFitter {
       inputMeasurements.emplace(sl.geometryId(), sl);
     }
 
+    ACTS_VERBOSE("Number of surfaces in sSequence: " << sSequence.size());
     ACTS_VERBOSE("Final measuerement map size: " << inputMeasurements.size());
 
     // Create the ActionList and AbortList
@@ -746,8 +802,9 @@ struct GaussianSumFitter {
                            calibrator_t, GainMatrixSmoother>;
     using GSFAborter = Aborter<GSFActor>;
 
-    using Actors = ActionList<GSFActor, MultiSteppingLogger>;
-    using Aborters = AbortList<GSFAborter, EndOfWorldReached>;
+    using Actors =
+        ActionList<DirectNavigator::Initializer, GSFActor, MultiSteppingLogger>;
+    using Aborters = AbortList<GSFAborter>;
 
     // Create relevant options for the propagation options
     PropagatorOptions<Actors, Aborters> propOptions(
@@ -756,33 +813,111 @@ struct GaussianSumFitter {
     // Catch the actor and set the measurements
     auto& actor = propOptions.actionList.template get<GSFActor>();
     actor.m_config.inputMeasurements = inputMeasurements;
-    actor.m_config.maxComponents = 16;
-    actor.m_config.targetSurface = options.referenceSurface;
+    actor.m_config.maxComponents = 4;  // for easier debugging just 4 components
     actor.m_calibrator = options.calibrator;
     actor.m_outlierFinder = options.outlierFinder;
+
+    // Set the surface sequence
+    auto& dInitializer =
+        propOptions.actionList.template get<DirectNavigator::Initializer>();
+    dInitializer.navSurfaces = sSequence;
 
     // Make Single Start Parameters to Multi Start parameters
     throw_assert(sParameters.covariance() != std::nullopt,
                  "we need a covariance here...");
+
+    ACTS_VERBOSE("Start parameters: \n" << sParameters);
+
     MultiComponentBoundTrackParameters<SinglyCharged> sMultiPars(
         sParameters.referenceSurface().getSharedPtr(), sParameters.parameters(),
         sParameters.covariance());
 
-    // Run the fitter
-    ACTS_VERBOSE("Run Propagation");
+    // Run the fitter forward
+    ACTS_VERBOSE("Start forward propagation");
     propOptions.direction = NavigationDirection::forward;
-    auto propResult = m_propagator.propagate(sMultiPars, propOptions);
+    auto propResultForward = m_propagator.propagate(sMultiPars, propOptions);
 
-    if (!propResult.ok()) {
-      return propResult.error();
+    if (!propResultForward.ok()) {
+      return propResultForward.error();
     }
 
-    GsfResult gsfResult =
-        (*propResult).template get<GsfResult<source_link_t>>();
+    GsfResult gsfForwardResult =
+        (*propResultForward).template get<GsfResult<source_link_t>>();
+
+    // Create the start parameters for the backwards run
+    std::vector<std::tuple<double, BoundVector, BoundSymMatrix>> cmps;
+    std::shared_ptr<const Surface> surf;
+
+    for (const auto idx : gsfForwardResult.currentTips) {
+      auto trackProxy = gsfForwardResult.fittedStates.getTrackState(idx);
+      cmps.push_back({gsfForwardResult.weightsOfStates.at(idx),
+                      trackProxy.filtered(), trackProxy.filteredCovariance()});
+      if (!surf) {
+        surf = trackProxy.referenceSurface().getSharedPtr();
+      } else {
+        throw_assert(
+            surf->geometryId() == trackProxy.referenceSurface().geometryId(),
+            "surfaces must match");
+      }
+    }
+
+    MultiComponentBoundTrackParameters<SinglyCharged> sMultiParsBackward(surf,
+                                                                         cmps);
+
+    // Initialize direct navigator
+    auto reverseSequence = sSequence;
+    std::reverse(reverseSequence.begin(), reverseSequence.end());
+    reverseSequence.push_back(options.referenceSurface);
+    auto& revDInitializer =
+        propOptions.actionList.template get<DirectNavigator::Initializer>();
+    revDInitializer.navSurfaces = reverseSequence;
+    
+    // Run backward
+    ACTS_VERBOSE("Start backward propagation");
+    propOptions.direction = NavigationDirection::backward;
+    auto propBackwardResult = m_propagator.propagate(
+        sMultiParsBackward, propOptions);
+
+    if (!propBackwardResult.ok()) {
+      return propBackwardResult.error();
+    }
+
+    GsfResult gsfBackwardResult =
+        (*propBackwardResult).template get<GsfResult<source_link_t>>();
+
+    // Do weighted-mean smoothing
+    std::reverse(gsfBackwardResult.combinedPars.begin(),
+                 gsfBackwardResult.combinedPars.end());
+
+    for (auto i = 0ul; i < std::max(gsfBackwardResult.combinedPars.size(),
+                                    gsfForwardResult.combinedPars.size());
+         ++i) {
+      if (i < gsfForwardResult.combinedPars.size())
+        std::cout
+            << "Fwd: "
+            << gsfForwardResult.combinedPars[i].referenceSurface().geometryId();
+      else
+        std::cout << "Fwd: "
+                  << "invalid";
+
+      std::cout << "\t<->\t";
+
+      if (i < gsfBackwardResult.combinedPars.size())
+        std::cout << "Bwd: "
+                  << gsfBackwardResult.combinedPars[i]
+                         .referenceSurface()
+                         .geometryId();
+      else
+        std::cout << "Bwd: "
+                  << "invalid";
+
+      std::cout << "\n";
+    }
 
     const auto weightedMeanSmoothed = detail::combineForwardAndBackwardPass(
-        gsfResult.combinedParsForward, gsfResult.combinedParsReverse);
+        gsfForwardResult.combinedPars, gsfBackwardResult.combinedPars);
 
+    // Create Kalman result for return
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
     kalmanResult.lastTrackIndex = SIZE_MAX;
 
@@ -792,6 +927,8 @@ struct GaussianSumFitter {
 
       auto proxy =
           kalmanResult.fittedStates.getTrackState(kalmanResult.lastTrackIndex);
+
+      std::cout << "stage pars: " << stage.parameters().transpose() << "\n";
 
       proxy.smoothed() = stage.parameters();
       if (stage.covariance()) {
@@ -803,7 +940,7 @@ struct GaussianSumFitter {
     kalmanResult.lastMeasurementIndex = kalmanResult.lastTrackIndex;
     kalmanResult.fittedParameters = weightedMeanSmoothed.front();
 
-    return Acts::KalmanFitterResult<source_link_t>{};
+    return kalmanResult;
   }
 };
 
