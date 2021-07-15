@@ -143,7 +143,7 @@ struct GaussianSumFitter {
                    << " with direction "
                    << stepper.direction(state.stepping).transpose());
 
-      if (m_config.targetSurface &&
+      if (!result.isFinished && m_config.targetSurface &&
           m_targetReachedAborter(state, stepper, *m_config.targetSurface)) {
         ACTS_VERBOSE("Gsf Actor reached target surface");
         return finalize(state, stepper, result);
@@ -202,7 +202,7 @@ struct GaussianSumFitter {
       // Reduce the number of components to a managable degree
       if (componentCache.size() > m_config.maxComponents ||
           componentCache.size() > stepper.maxComponents) {
-        reduceNumberOfComponents(
+        detail::reduceNumberOfComponents(
             componentCache, std::min(static_cast<int>(m_config.maxComponents),
                                      stepper.maxComponents));
       }
@@ -223,17 +223,19 @@ struct GaussianSumFitter {
       // Reweigth components according to measurement
       detail::reweightComponents(componentCache);
 
-      // Store the weights
+      // Store the weights TODO can we incorporate weights in MultiTrajectory?
       for (const auto& cmp : componentCache) {
-        result.weightsOfStates[cmp.trackStateProxy->index()] = cmp.weight;
+        const auto [it, success] = result.weightsOfStates.insert(
+            {cmp.trackStateProxy->index(), cmp.weight});
+        throw_assert(success, "Could not insert weight");
       }
 
       // update stepper state with the collected component caches
       stepper.updateComponents(state.stepping, componentCache, surface);
 
       // Add the combined track state to results
-//       result.combinedPars.push_back(
-//           detail::combineMultiComponentState(componentCache, surface));
+      //       result.combinedPars.push_back(
+      //           detail::combineMultiComponentState(componentCache, surface));
 
       ACTS_VERBOSE("GSF actor: " << stepper.numberComponents(state.stepping)
                                  << " at the end");
@@ -335,32 +337,6 @@ struct GaussianSumFitter {
       }
     }
 
-    /// @brief Function that reduces the number of components. at the moment,
-    /// this is just by erasing the components with the lowest weights.
-    /// Finally, the components are reweighted so the sum of the weights is
-    /// still 1
-    void reduceNumberOfComponents(
-        std::vector<ComponentCache>& components,
-        std::size_t numberOfRemainingCompoents) const {
-      // The elements should be sorted by weight (high -> low)
-      std::sort(
-          begin(components), end(components),
-          [](const auto& a, const auto& b) { return a.weight > b.weight; });
-
-      // Remove elements by resize
-      components.erase(begin(components) + numberOfRemainingCompoents,
-                       end(components));
-
-      // Reweight after removal
-      const auto sum_of_weights = std::accumulate(
-          begin(components), end(components), 0.0,
-          [](auto sum, const auto& cmp) { return sum + cmp.weight; });
-
-      for (auto& cmp : components) {
-        cmp.weight /= sum_of_weights;
-      }
-    }
-
     template <typename propagator_state_t>
     Acts::Result<void> kalmanUpdateForward(
         propagator_state_t& state, result_type& result,
@@ -452,17 +428,35 @@ struct GaussianSumFitter {
       const auto& logger = state.options.logger;
       const auto& surface = *state.navigation.currentSurface;
 
-      // Make bound state
-      std::vector<std::tuple<ActsScalar, BoundTrackParameters>> components;
+      ACTS_VERBOSE("finalize");
+
+      std::vector<
+          std::tuple<ActsScalar, BoundVector, std::optional<BoundSymMatrix>>>
+          components;
       components.reserve(stepper.numberComponents(state.stepping));
-      
+
+      bool error = false;
+
       for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
         typename stepper_t::ComponentProxy cmp(state.stepping, i);
 
-        components.push_back(std::tuple{cmp.weight(), cmp.boundState(surface, true)});
+        auto bs = cmp.boundState(surface, true);
+
+        if (not bs.ok()) {
+          error = true;
+          ACTS_ERROR("Error in boundstate conversion: " << bs.error());
+          continue;
+        }
+
+        components.push_back(std::tuple{cmp.weight(),
+                                        (std::get<0>(*bs)).parameters(),
+                                        (std::get<0>(*bs)).covariance()});
       }
-      
-      result.finalParameters = detail::combineMultiComponentState(components, surface);
+
+      throw_assert(!error, "Error occured in the bound state conversions");
+
+      result.finalParameters = detail::combineMultiComponentState(
+          components.begin(), components.end(), surface);
       result.isFinished = true;
     }
   };
@@ -515,8 +509,9 @@ struct GaussianSumFitter {
       inputMeasurements.emplace(sl.geometryId(), sl);
     }
 
-    ACTS_VERBOSE("Number of surfaces in sSequence: " << sSequence.size());
-    ACTS_VERBOSE("Final measuerement map size: " << inputMeasurements.size());
+    ACTS_VERBOSE("Gsf: Number of surfaces in sSequence: " << sSequence.size());
+    ACTS_VERBOSE(
+        "Gsf: Final measuerement map size: " << inputMeasurements.size());
 
     // Create the ActionList and AbortList
     using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
@@ -547,14 +542,14 @@ struct GaussianSumFitter {
     throw_assert(sParameters.covariance() != std::nullopt,
                  "we need a covariance here...");
 
-    ACTS_VERBOSE("Start parameters: \n" << sParameters);
+    ACTS_VERBOSE("Gsf: Start parameters: \n" << sParameters);
 
     MultiComponentBoundTrackParameters<SinglyCharged> sMultiPars(
         sParameters.referenceSurface().getSharedPtr(), sParameters.parameters(),
         sParameters.covariance());
 
     // Run the fitter forward
-    ACTS_VERBOSE("Start forward propagation");
+    ACTS_VERBOSE("Gsf: Start forward propagation");
     propOptions.direction = NavigationDirection::forward;
     auto propResultForward = m_propagator.propagate(sMultiPars, propOptions);
 
@@ -571,6 +566,9 @@ struct GaussianSumFitter {
 
     for (const auto idx : gsfForwardResult.currentTips) {
       auto trackProxy = gsfForwardResult.fittedStates.getTrackState(idx);
+      throw_assert(gsfForwardResult.weightsOfStates.find(idx) !=
+                       gsfForwardResult.weightsOfStates.end(),
+                   "weigth was not found");
       cmps.push_back({gsfForwardResult.weightsOfStates.at(idx),
                       trackProxy.filtered(), trackProxy.filteredCovariance()});
       if (!surf) {
@@ -594,7 +592,7 @@ struct GaussianSumFitter {
     revDInitializer.navSurfaces = reverseSequence;
 
     // Run backward
-    ACTS_VERBOSE("Start backward propagation");
+    ACTS_VERBOSE("Gsf: Start backward propagation");
     propOptions.direction = NavigationDirection::backward;
     actor.m_config.targetSurface = options.referenceSurface;
     auto propBackwardResult =
@@ -607,50 +605,45 @@ struct GaussianSumFitter {
     GsfResult gsfBackwardResult =
         (*propBackwardResult).template get<GsfResult<source_link_t>>();
 
-    // Do weighted-mean smoothing
-    std::reverse(gsfBackwardResult.combinedPars.begin(),
-                 gsfBackwardResult.combinedPars.end());
+    // Do the smoothing
+    ACTS_VERBOSE("Gsf: Extract states for smoothing");
+    const auto fwdStates = detail::extractMultiComponentStates(
+        gsfForwardResult.fittedStates, gsfForwardResult.currentTips,
+        gsfForwardResult.weightsOfStates, false);
+    auto bwdStates = detail::extractMultiComponentStates(
+        gsfBackwardResult.fittedStates, gsfBackwardResult.currentTips,
+        gsfBackwardResult.weightsOfStates, true);
+    std::reverse(bwdStates.begin(), bwdStates.end());
 
-    for (auto i = 0ul; i < std::max(gsfBackwardResult.combinedPars.size(),
-                                    gsfForwardResult.combinedPars.size());
-         ++i) {
-      if (i < gsfForwardResult.combinedPars.size())
-        std::cout
-            << "Fwd: "
-            << gsfForwardResult.combinedPars[i].referenceSurface().geometryId();
-      else
-        std::cout << "Fwd: "
-                  << "invalid";
-
-      std::cout << "\t<->\t";
-
-      if (i < gsfBackwardResult.combinedPars.size())
-        std::cout << "Bwd: "
-                  << gsfBackwardResult.combinedPars[i]
-                         .referenceSurface()
-                         .geometryId();
-      else
-        std::cout << "Bwd: "
-                  << "invalid";
-
-      std::cout << "\n";
+    ACTS_VERBOSE("Gsf: Start smoothing");
+    std::vector<detail::MultiComponentState> smoothed;
+    throw_assert(fwdStates.size() == bwdStates.size(), "size mismatch");
+    for (auto i = 0ul; i < fwdStates.size(); ++i) {
+      smoothed.push_back(detail::bayesianSmoothing(fwdStates[i], bwdStates[i]));
     }
 
-    const auto weightedMeanSmoothed = detail::combineForwardAndBackwardPass(
-        gsfForwardResult.combinedPars, gsfBackwardResult.combinedPars);
+    ACTS_VERBOSE("Gsf: Combine smoothed states");
+    std::vector<BoundTrackParameters> combinedSmoothed;
+    for (auto& state : smoothed) {
+      detail::normalizeMultiComponentState(state);
+      combinedSmoothed.push_back(detail::combineMultiComponentState(
+          state.second.begin(), state.second.end(), *state.first));
+    }
 
     // Create Kalman result for return
+    ACTS_VERBOSE("Gsf: Create Kalman Result");
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
     kalmanResult.lastTrackIndex = SIZE_MAX;
 
-    for (const auto& stage : weightedMeanSmoothed) {
+    // Reverse combined smoothed state again to match the output scheme of KalmanFitter
+    std::reverse(combinedSmoothed.begin(), combinedSmoothed.end());
+
+    for (const auto& stage : combinedSmoothed) {
       kalmanResult.lastTrackIndex = kalmanResult.fittedStates.addTrackState(
           TrackStatePropMask::All, kalmanResult.lastTrackIndex);
 
       auto proxy =
           kalmanResult.fittedStates.getTrackState(kalmanResult.lastTrackIndex);
-
-      std::cout << "stage pars: " << stage.parameters().transpose() << "\n";
 
       proxy.smoothed() = stage.parameters();
       if (stage.covariance()) {
@@ -660,7 +653,7 @@ struct GaussianSumFitter {
     }
 
     kalmanResult.lastMeasurementIndex = kalmanResult.lastTrackIndex;
-    kalmanResult.fittedParameters = weightedMeanSmoothed.front();
+    kalmanResult.fittedParameters = gsfBackwardResult.finalParameters.value();
 
     return kalmanResult;
   }

@@ -6,8 +6,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include "Acts/Surfaces/PerigeeSurface.hpp"
 #include "Acts/Utilities/PdgParticle.hpp"
 #include "ActsExamples/Digitization/DigitizationConfig.hpp"
+#include "ActsExamples/EventData/Trajectories.hpp"
 #include "ActsExamples/Fatras/FatrasAlgorithm.hpp"
 #include "ActsExamples/Framework/RandomNumbers.hpp"
 #include "ActsExamples/Framework/Sequencer.hpp"
@@ -27,7 +29,6 @@
 #include "ActsExamples/TruthTracking/ParticleSmearing.hpp"
 #include "ActsExamples/TruthTracking/TruthTrackFinder.hpp"
 #include "ActsExamples/Utilities/Options.hpp"
-#include "ActsExamples/EventData/Trajectories.hpp"
 #include "ActsFatras/EventData/Barcode.hpp"
 
 #include <chrono>
@@ -54,46 +55,102 @@ const char *kProtoTrackParameters = "proto-track-parameters";
 const char *kKalmanOutputTrajectories = "kalman-output";
 const char *kGsfOutputTrajectories = "gsf-output";
 
-struct ComparisonAlgorithm : public ActsExamples::BareAlgorithm
-{
-    struct Config 
-    {
-        std::string inTrajectoriesGsf;
-        std::string inTrajectoriesKalman;
-    } m_cfg;
-    
-    ComparisonAlgorithm(const Config &cfg, Acts::Logging::Level level) : ActsExamples::BareAlgorithm("Comparison Algorithm", level), m_cfg(cfg) {}
-    
-    ActsExamples::ProcessCode execute(
-      const ActsExamples::AlgorithmContext &ctx) const override
-    {
-        auto gsfTrajectory = ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(m_cfg.inTrajectoriesGsf)[0];
-        auto kalmanTrajectory = ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(m_cfg.inTrajectoriesKalman)[0];
-        
-        std::size_t gsfIdx = gsfTrajectory.tips()[0];
-        std::size_t kalmanIdx = kalmanTrajectory.tips()[0];
-        
-        std::cout << gsfIdx << std::endl;
-        std::cout << kalmanIdx << std::endl;
-        
-        // Stupid but didnt want to think about why SIZE_MAX does not work here
-        while(gsfIdx < 10000 && kalmanIdx < 10000)
-        {            
-            const auto gsfProxy = gsfTrajectory.multiTrajectory().getTrackState(gsfIdx);
-            gsfIdx = gsfProxy.previous();
-            
-            const auto kalmanProxy = kalmanTrajectory.multiTrajectory().getTrackState(kalmanIdx);
-            kalmanIdx = kalmanProxy.previous();
-            
-            std::cout << "=======================\n";
-            std::cout << "GSF:    " << gsfProxy.smoothed().transpose() << "\n";
-            std::cout << "Kalman: " << kalmanProxy.smoothed().transpose() << "\n";
-        }
-        
-        std::cout << "=======================\n";
-        
-        return ActsExamples::ProcessCode::SUCCESS;
+struct ComparisonAlgorithm : public ActsExamples::BareAlgorithm {
+  struct Config {
+    std::string inTrajectoriesGsf;
+    std::string inTrajectoriesKalman;
+    std::string inSimulatedHits;
+    std::string inSimulatedParticlesInitial;
+  } m_cfg;
+
+  ComparisonAlgorithm(const Config &cfg, Acts::Logging::Level level)
+      : ActsExamples::BareAlgorithm("Comparison Algorithm", level),
+        m_cfg(cfg) {}
+
+  ActsExamples::ProcessCode execute(
+      const ActsExamples::AlgorithmContext &ctx) const override {
+    auto gsfTrajectory =
+        ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(
+            m_cfg.inTrajectoriesGsf)[0];
+    auto kalmanTrajectory =
+        ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(
+            m_cfg.inTrajectoriesKalman)[0];
+    auto trueHits = ctx.eventStore.get<ActsExamples::SimHitContainer>(
+        m_cfg.inSimulatedHits);
+    auto trueParticles = ctx.eventStore.get<ActsExamples::SimParticleContainer>(
+        m_cfg.inSimulatedParticlesInitial);
+
+    const std::vector<ActsExamples::SimParticle> simParticleVector(
+        trueParticles.begin(), trueParticles.end());
+
+    std::size_t gsfIdx = gsfTrajectory.tips()[0];
+    std::size_t kalmanIdx = kalmanTrajectory.tips()[0];
+
+    std::cout << "*************************\n";
+    std::cout << "* GSF VS KALMAN RESULTS *\n";
+    std::cout << "*************************\n\n";
+
+    // Fitted Parameters
+    std::cout << "Fitted paramteters at start (free):\n\n";
+
+    std::cout << "\tGSF: "
+              << Acts::detail::transformBoundToFreeParameters(
+                     gsfTrajectory.trackParameters(gsfIdx).referenceSurface(),
+                     ctx.geoContext,
+                     gsfTrajectory.trackParameters(gsfIdx).parameters())
+                     .transpose()
+              << "\n";
+    std::cout
+        << "\tKalman: "
+        << Acts::detail::transformBoundToFreeParameters(
+               kalmanTrajectory.trackParameters(kalmanIdx).referenceSurface(),
+               ctx.geoContext,
+               kalmanTrajectory.trackParameters(kalmanIdx).parameters())
+               .transpose()
+        << "\n";
+    std::cout << "\tTrue: " << simParticleVector.front().fourPosition().transpose() << "\n";
+
+    std::cout << "\n\nTrack states (as free parameters): \n\n";
+    std::cout << "-----------------------------------\n";
+
+    std::vector<ActsFatras::Hit> trueHitVector(trueHits.begin(),
+                                               trueHits.end());
+    std::reverse(trueHitVector.begin(), trueHitVector.end());
+    auto trueHitIterator = trueHitVector.cbegin();
+    // Stupid but didnt want to think about why SIZE_MAX does not work here
+    while (gsfIdx != std::numeric_limits<uint16_t>::max() &&
+           kalmanIdx != std::numeric_limits<uint16_t>::max()) {
+      const auto gsfProxy =
+          gsfTrajectory.multiTrajectory().getTrackState(gsfIdx);
+      gsfIdx = gsfProxy.previous();
+
+      const auto kalmanProxy =
+          kalmanTrajectory.multiTrajectory().getTrackState(kalmanIdx);
+      kalmanIdx = kalmanProxy.previous();
+
+      std::cout << "\tGSF:      "
+                << Acts::detail::transformBoundToFreeParameters(
+                       gsfProxy.referenceSurface(), ctx.geoContext,
+                       gsfProxy.smoothed())
+                       .transpose()
+                << "\n";
+      std::cout << "\tKalman:   "
+                << Acts::detail::transformBoundToFreeParameters(
+                       kalmanProxy.referenceSurface(), ctx.geoContext,
+                       kalmanProxy.smoothed())
+                       .transpose()
+                << "\n";
+      std::cout << "\tTrue Hit: " << trueHitIterator->fourPosition().transpose()
+                << "\n";
+      std::cout << "-----------------------------------\n";
+
+      trueHitIterator++;
     }
+
+    std::cout << "\n";
+
+    return ActsExamples::ProcessCode::SUCCESS;
+  }
 };
 
 int main(int argc, char **argv) {
@@ -152,7 +209,8 @@ int main(int argc, char **argv) {
   std::vector<
       std::shared_ptr<ActsExamples::Telescope::TelescopeDetectorElement>>
       detectorElementStorage;
-  const std::vector<double> distances = {100_mm, 200_mm, 300_mm, 400_mm, 500_mm};
+  const std::vector<double> distances = {100_mm, 200_mm, 300_mm, 400_mm,
+                                         500_mm};
   const std::array<double, 2> offsets = {0.0_mm, 0.0_mm};
   const std::array<double, 2> bounds = {100._mm, 100._mm};
   const double thickness = 10._mm;
@@ -166,7 +224,7 @@ int main(int argc, char **argv) {
   // No need to put detector geometry writing in sequencer loop
   export_detector_to_obj(*detector);
 
-// Find a surface in the tgeo for some use later
+  // Find a surface in the tgeo for some use later
   std::shared_ptr<const Acts::Surface> some_surface;
 
   detector->visitSurfaces([&](auto surface) {
@@ -176,15 +234,21 @@ int main(int argc, char **argv) {
   });
 
   throw_assert(some_surface, "no valid surface found");
-  
+
   // Make a start surface
-  auto startBounds = std::make_shared<Acts::RectangleBounds>(1000,1000);
-  Acts::Transform3 trafo = Acts::Transform3::Identity() * Eigen::AngleAxisd(0.5*M_PI, Eigen::Vector3d::UnitY());
-  auto startSurface = Acts::Surface::makeShared<Acts::PlaneSurface>(trafo, startBounds);
-  
-  
-  ACTS_VERBOSE("some surface normal: " << some_surface->normal(geoCtx, Acts::Vector2{0,0}).transpose());
-  ACTS_VERBOSE("start surface normal: " << startSurface->normal(geoCtx, Acts::Vector2{0,0}).transpose());
+  auto startBounds = std::make_shared<Acts::RectangleBounds>(1000, 1000);
+  Acts::Transform3 trafo =
+      Acts::Transform3::Identity() *
+      Eigen::AngleAxisd(0.5 * M_PI, Eigen::Vector3d::UnitY());
+  auto startSurface =
+      Acts::Surface::makeShared<Acts::PlaneSurface>(trafo, startBounds);
+
+  ACTS_VERBOSE(
+      "some surface normal: "
+      << some_surface->normal(geoCtx, Acts::Vector2{0, 0}).transpose());
+  ACTS_VERBOSE(
+      "start surface normal: "
+      << startSurface->normal(geoCtx, Acts::Vector2{0, 0}).transpose());
 
   /////////////////////
   // Particle gun
@@ -320,7 +384,7 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.directNavigation = true;
     cfg.trackingGeometry = detector;
-//     cfg.targetSurface = startSurface;
+    cfg.targetSurface = startSurface;
     cfg.dFit = makeGsfFitterFunction(detector, magField);
 
     sequencer.addAlgorithm(
@@ -342,15 +406,16 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kKalmanOutputTrajectories;
     cfg.directNavigation = true;
     cfg.trackingGeometry = detector;
-//     cfg.targetSurface = startSurface;
-    cfg.dFit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(magField);
+    //     cfg.targetSurface = startSurface;
+    cfg.dFit =
+        ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(magField);
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
                                                               globalLogLevel));
   }
 #endif
-  
+
 #if 1
   //////////////////////////////////
   // Print comparison
@@ -359,11 +424,14 @@ int main(int argc, char **argv) {
     ComparisonAlgorithm::Config cfg;
     cfg.inTrajectoriesGsf = kGsfOutputTrajectories;
     cfg.inTrajectoriesKalman = kKalmanOutputTrajectories;
-    
-    sequencer.addAlgorithm(std::make_shared<ComparisonAlgorithm>(cfg, globalLogLevel));
+    cfg.inSimulatedHits = kSimulatedHits;
+    cfg.inSimulatedParticlesInitial = kSimulatedParticlesInitial;
+
+    sequencer.addAlgorithm(
+        std::make_shared<ComparisonAlgorithm>(cfg, globalLogLevel));
   }
 #endif
-  
+
 #if 0
   /////////////////////////
   // Write Obj

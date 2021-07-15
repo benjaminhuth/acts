@@ -321,28 +321,24 @@ class MultiEigenStepperLoop
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck,
       LoggerWrapper logger = getDummyLogger()) const {
-    //         std::cout << "BEFORE updateSurfaceStatus(...): " <<
-    //         outputStepSize(state)
-    //                   << std::endl;
-
     std::array<int, 4> counts = {0, 0, 0, 0};
 
     for (auto& component : state.components) {
-      component.status =
-          SingleStepper::updateSurfaceStatus(component.state, surface, bcheck, logger);
+      component.status = SingleStepper::updateSurfaceStatus(
+          component.state, surface, bcheck, logger);
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
-    //         std::cout << "COMPONENTS STATUS: ";
-    //         for (auto& component : state.components) {
-    //           std::cout << static_cast<std::size_t>(component.status) << ",
-    //           ";
-    //         }
-    //         std::cout << std::endl;
-    //
-    //         std::cout << "AFTER updateSurfaceStatus(...): " <<
-    //         outputStepSize(state)
-    //                   << std::endl;
+    constexpr static std::array<const char*, 3> s = {"missed/unreachable",
+                                                     "reachable", "onSurface"};
+
+    ACTS_INFO("COMPONENTS STATUS: " << [&]() {
+      std::stringstream ss;
+      for (auto& component : state.components) {
+        ss << s[static_cast<std::size_t>(component.status)] << ",";
+      }
+      return ss.str();
+    }());
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -528,8 +524,6 @@ class MultiEigenStepperLoop
   template <typename component_rep_t>
   void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
                         const Surface& surface) const {
-//     std::cout << "NOW UPDATE COMPONENTS IN STEPPER, " << cmps.size()
-//               << " COMPONENTS TO UPDATE\n";
     state.components.clear();
 
     for (const auto& cmp : cmps) {
@@ -549,12 +543,7 @@ class MultiEigenStepperLoop
       state.components.back().state.derivative = cmp.derivative;
       state.components.back().state.jacToGlobal = cmp.jacToGlobal;
       state.components.back().state.jacTransport = cmp.jacTransport;
-
-//       std::cout << "NEW COMPONENT HAS PARAMETERS "
-//                 << state.components.back().state.pars.transpose() << "\n";
     }
-
-//     std::cout << "DONE WITH UPDATE\n";
   }
 
   /// Method for on-demand transport of the covariance
@@ -640,4 +629,3 @@ class MultiEigenStepperLoop
 };
 
 }  // namespace Acts
-

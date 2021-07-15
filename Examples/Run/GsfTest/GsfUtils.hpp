@@ -16,6 +16,12 @@ namespace Acts {
 
 namespace detail {
 
+/// @brief A multi component state
+using MultiComponentState =
+    std::pair<std::shared_ptr<const Surface>,
+              std::vector<std::tuple<ActsScalar, BoundVector,
+                                     std::optional<BoundSymMatrix>>>>;
+
 /// @brief Struct which contains all needed information throughout the
 /// processing of the components in the GSF
 template <typename source_link_t>
@@ -45,48 +51,42 @@ struct GsfComponentCache {
   ActsScalar pathLength;
 };
 
-/// @brief iterable for the component proxys of the multi steppers
-// template<typename component_proxy_t>
-// struct ComponentIterable{
-//     using State = std::decay_t<typename component_proxy_t::m_state>;
-//     State &state;
-//     std::size_t numComponents;
-//
-//     struct Iterator
-//         {
-//             std::size_t i;
-//             State &state;
-//             bool operator != (const Iterator & other) const { return i !=
-//             other.i; } void operator ++ () { ++i; } auto operator *  () const
-//             { return component_proxy_t(state, i); }
-//         };
-//
-//     auto begin() { return Iterator{0, state}; }
-//     auto end() { return Iterator{numComponents, state}; }
-// };
+/// @brief reweight MultiComponentState
+void normalizeMultiComponentState(MultiComponentState &state)
+{
+    ActsScalar sum{0.0};
+
+    for(const auto &[weight, pars, cov] : state.second) {
+        sum += weight;
+    }
+
+    for(auto &[weight, pars, cov] : state.second) {
+        weight /= sum;
+    }
+}
 
 /// @brief Combine multiple components into one representative track state
-/// object
+/// object. The function takes iterators to allow for arbitrary ranges to be
+/// combined
+template <typename component_iterator_t>
 BoundTrackParameters combineMultiComponentState(
-    const std::vector<std::tuple<ActsScalar, BoundTrackParameters>> &cmps,
+    const component_iterator_t begin, const component_iterator_t end,
     const Surface &surface) {
   BoundVector mean = BoundVector::Zero();
   BoundSymMatrix cov = BoundSymMatrix::Zero();
   double sumOfWeights{0.0};
 
-  const double referencePhi = std::get<BoundTrackParameters>(cmps.front()).parameters()[eBoundPhi];
+  const double referencePhi = std::get<BoundVector>(*begin)[eBoundPhi];
 
   // clang-format off
   // x = \sum_{l} w_l * x_l
   // C = \sum_{l} w_l * C_l + \sum_{l} \sum_{m>l} w_l * w_m * (x_l - x_m)(x_l - x_m)^T
   // clang-format on
-  for (auto l = cmps.begin(); l != cmps.end(); ++l) {
-    const auto &bs_l = std::get<BoundTrackParameters>(*l);
-    throw_assert(bs_l.covariance(), "we require a covariance here");
-    throw_assert(surface.geometryId() == bs_l.referenceSurface().geometryId(),
-                 "surface mismatch");
+  for (auto l = begin; l != end; ++l) {
+    throw_assert(std::get<std::optional<BoundSymMatrix>>(*l),
+                 "we require a covariance here");
 
-    BoundVector pars_l = bs_l.parameters();
+    BoundVector pars_l = std::get<BoundVector>(*l);
 
     // Avoid problems with cyclic phi
     const double deltaPhi = referencePhi - pars_l[eBoundPhi];
@@ -99,25 +99,51 @@ BoundTrackParameters combineMultiComponentState(
 
     sumOfWeights += std::get<ActsScalar>(*l);
     mean += std::get<ActsScalar>(*l) * pars_l;
-    cov += std::get<ActsScalar>(*l) * *bs_l.covariance();
+    cov +=
+        std::get<ActsScalar>(*l) * *std::get<std::optional<BoundSymMatrix>>(*l);
 
-    for (auto m = std::next(l); m != cmps.end(); ++m) {
-      const auto &bs_m = std::get<BoundTrackParameters>(*m);
-      throw_assert(bs_m.covariance(), "we require a covariance here");
+    for (auto m = std::next(l); m != end; ++m) {
+      throw_assert(std::get<std::optional<BoundSymMatrix>>(*m),
+                   "we require a covariance here");
 
-      const BoundVector diff = pars_l - bs_m.parameters();
+      const BoundVector diff = pars_l - std::get<BoundVector>(*m);
 
-      cov += std::get<ActsScalar>(*l) * std::get<ActsScalar>(*m) * diff * diff.transpose();
+      cov += std::get<ActsScalar>(*l) * std::get<ActsScalar>(*m) * diff *
+             diff.transpose();
     }
-
-    throw_assert(surface.geometryId() == bs_l.referenceSurface().geometryId(),
-                 "surface mismatch");
   }
 
   throw_assert(std::abs(sumOfWeights - 1.0) < 1.e-8,
                "weights are not normalized");
 
   return BoundTrackParameters(surface.getSharedPtr(), mean, cov);
+}
+
+/// @brief Function that reduces the number of components. at the moment,
+/// this is just by erasing the components with the lowest weights.
+/// Finally, the components are reweighted so the sum of the weights is
+/// still 1
+/// TODO If we create new components here to preserve the mean or if we do some
+/// component merging, how can this be applied in the MultiTrajectory
+template <typename source_link_t>
+void reduceNumberOfComponents(
+    std::vector<GsfComponentCache<source_link_t>> &components,
+    std::size_t maxRemainingComponents) {
+  // The elements should be sorted by weight (high -> low)
+  std::sort(begin(components), end(components),
+            [](const auto &a, const auto &b) { return a.weight > b.weight; });
+
+  // Remove elements by resize
+  components.erase(begin(components) + maxRemainingComponents, end(components));
+
+  // Reweight after removal
+  const auto sum_of_weights = std::accumulate(
+      begin(components), end(components), 0.0,
+      [](auto sum, const auto &cmp) { return sum + cmp.weight; });
+
+  for (auto &cmp : components) {
+    cmp.weight /= sum_of_weights;
+  }
 }
 
 /// @brief Reweight the components according to `R. Frühwirth, "Track fitting
@@ -220,23 +246,94 @@ std::vector<BoundTrackParameters> combineForwardAndBackwardPass(
   return ret;
 }
 
-#if 0
+/// @brief Extracts a MultiComponentState from a MultiTrajectory.
+///
+/// @param usePredicted Wether to use the predicted state (true) or the
+/// filtered state (false) from the MultiTrajectory.
 template <typename source_link_t>
-auto bayesianSmoothing(const MultiTrajectory<source_link_t> &fwdTraj,
-                       const std::vector<size_t> &fwdTips,
-                       const std::map<size_t, ActsScalar> &fwdWeights,
-                       const MultiTrajectory<source_link_t> &bwdTraj,
-                       const std::vector<size_t> &bwdTips,
-                       const std::map<size_t, ActsScalar> &bwdWeights) {
-  std::vector<std::tuple<double, BoundVector, BoundSymMatrix>> smoothedState;
+auto extractMultiComponentStates(const MultiTrajectory<source_link_t> &traj,
+                                 std::vector<size_t> tips,
+                                 const std::map<size_t, ActsScalar> &weights,
+                                 bool usePredicted) {
+  std::vector<MultiComponentState> ret;
 
-  for (auto fwdIdx : fwdTips) {
-    for (auto bwdIdx : bwdTips) {
-      // some code
+  // MultiTrajectory uses uint16_t internally
+  while (std::none_of(tips.begin(), tips.end(), [](auto i) {
+    return i == std::numeric_limits<uint16_t>::max();
+  })) {
+    std::sort(tips.begin(), tips.end());
+    tips.erase(std::unique(tips.begin(), tips.end()), tips.end());
+
+    MultiComponentState state;
+    std::get<1>(state).reserve(tips.size());
+
+    for (auto &tip : tips) {
+      const auto proxy = traj.getTrackState(tip);
+
+      throw_assert(weights.find(tip) != weights.end(),
+                   "Could not find weight for idx " << tip);
+
+      if (usePredicted) {
+        std::get<1>(state).push_back(
+            {weights.at(tip), proxy.predicted(), proxy.predictedCovariance()});
+      } else {
+        std::get<1>(state).push_back(
+            {weights.at(tip), proxy.filtered(), proxy.filteredCovariance()});
+      }
+
+      if (!std::get<0>(state)) {
+        std::get<0>(state) = proxy.referenceSurface().getSharedPtr();
+      } else {
+        throw_assert(std::get<0>(state)->geometryId() ==
+                         proxy.referenceSurface().geometryId(),
+                     "surface mismatch");
+      }
+
+      tip = proxy.previous();
+    }
+
+    ret.push_back(state);
+  }
+
+  return ret;
+}
+
+/// @brief This function applies the bayesian smoothing by combining a
+/// forward MultiComponentState and a backward MultiComponentState into a new
+/// MultiComponentState. The result is not normalized, and also not component
+/// reduction is done
+auto bayesianSmoothing(const MultiComponentState &fwd,
+                       const MultiComponentState &bwd) {
+  MultiComponentState smoothedState;
+  std::get<1>(smoothedState)
+      .reserve(std::get<1>(fwd).size() + std::get<1>(bwd).size());
+
+  throw_assert(std::get<0>(fwd)->geometryId() == std::get<0>(bwd)->geometryId(),
+               "surface mismatch");
+  std::get<0>(smoothedState) = std::get<0>(fwd);
+
+  for (const auto &[weight_a, pars_a, cov_a] : std::get<1>(fwd)) {
+    throw_assert(cov_a, "for now we require a covariance here");
+
+    for (const auto &[weight_b, pars_b, cov_b] : std::get<1>(bwd)) {
+      throw_assert(cov_b, "for now we require a covariance here");
+
+      const auto summedCov = *cov_a + *cov_b;
+      const auto K = *cov_a * summedCov.inverse();
+      const auto new_pars = (pars_a + K * (pars_b - pars_a)).eval();
+      const auto new_cov = (K * *cov_b).eval();
+
+      const auto diff = pars_a - pars_b;
+      const ActsScalar exponent = diff.transpose() * summedCov.inverse() * diff;
+
+      const auto new_weight = std::exp(-0.5 * exponent) * weight_a * weight_b;
+
+      std::get<1>(smoothedState).push_back({new_weight, new_pars, new_cov});
     }
   }
+
+  return smoothedState;
 }
-#endif
 
 }  // namespace detail
 
