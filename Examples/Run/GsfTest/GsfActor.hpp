@@ -26,6 +26,7 @@
 
 #include "BetheHeitlerApprox.hpp"
 #include "GsfUtils.hpp"
+#include "KLMixtureReduction.hpp"
 #include "MultiSteppingLogger.hpp"
 
 namespace Acts {
@@ -179,7 +180,7 @@ struct GaussianSumFitter {
 
       throw_assert(
           result.currentTips.size() == stepper.numberComponents(state.stepping),
-          "component number mismatch");
+          "component number mismatch:" << result.currentTips.size() << " vs " << stepper.numberComponents(state.stepping));
 
       // Static std::vector to avoid reallocation every pass. Reserve enough
       // space to allow all possible components to be stored
@@ -202,9 +203,9 @@ struct GaussianSumFitter {
       // Reduce the number of components to a managable degree
       if (componentCache.size() > m_config.maxComponents ||
           componentCache.size() > stepper.maxComponents) {
-        detail::reduceNumberOfComponents(
-            componentCache, std::min(static_cast<int>(m_config.maxComponents),
-                                     stepper.maxComponents));
+        detail::reduceWithKLDistance(componentCache,
+                  std::min(static_cast<int>(m_config.maxComponents),
+                           stepper.maxComponents));
       }
 
       throw_assert(!componentCache.empty(),
@@ -217,6 +218,7 @@ struct GaussianSumFitter {
           kalmanUpdateForward(state, result, measurement, componentCache);
 
       if (!res.ok()) {
+        throw_assert(false, "no error should occur here");
         return res.error();
       }
 
@@ -236,9 +238,6 @@ struct GaussianSumFitter {
       // Add the combined track state to results
       //       result.combinedPars.push_back(
       //           detail::combineMultiComponentState(componentCache, surface));
-
-      ACTS_VERBOSE("GSF actor: " << stepper.numberComponents(state.stepping)
-                                 << " at the end");
 
       return Result<void>::success();
     }
@@ -445,6 +444,7 @@ struct GaussianSumFitter {
         if (not bs.ok()) {
           error = true;
           ACTS_ERROR("Error in boundstate conversion: " << bs.error());
+          ACTS_INFO("Component is at global position " << cmp.pars().template segment<3>(eFreePos0).transpose());
           continue;
         }
 
@@ -455,8 +455,11 @@ struct GaussianSumFitter {
 
       throw_assert(!error, "Error occured in the bound state conversions");
 
-      result.finalParameters = detail::combineMultiComponentState(
-          components.begin(), components.end(), surface);
+      const auto [finalPars, finalCov] = detail::combineComponentRange(
+          components.begin(), components.end(), detail::Identity{});
+
+      result.finalParameters =
+          BoundTrackParameters(surface.getSharedPtr(), finalPars, finalCov);
       result.isFinished = true;
     }
   };
@@ -529,7 +532,8 @@ struct GaussianSumFitter {
     // Catch the actor and set the measurements
     auto& actor = propOptions.actionList.template get<GSFActor>();
     actor.m_config.inputMeasurements = inputMeasurements;
-    actor.m_config.maxComponents = 4;  // for easier debugging just 4 components
+    actor.m_config.maxComponents =
+        4;  // for easier debugging just 4 components
     actor.m_calibrator = options.calibrator;
     actor.m_outlierFinder = options.outlierFinder;
 
@@ -626,8 +630,11 @@ struct GaussianSumFitter {
     std::vector<BoundTrackParameters> combinedSmoothed;
     for (auto& state : smoothed) {
       detail::normalizeMultiComponentState(state);
-      combinedSmoothed.push_back(detail::combineMultiComponentState(
-          state.second.begin(), state.second.end(), *state.first));
+      const auto [smoothedPars, smoothedCov] =
+          detail::combineComponentRange(
+              state.second.begin(), state.second.end(), detail::Identity{});
+      combinedSmoothed.push_back(
+          BoundTrackParameters(state.first, smoothedPars, smoothedCov));
     }
 
     // Create Kalman result for return
@@ -635,7 +642,8 @@ struct GaussianSumFitter {
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
     kalmanResult.lastTrackIndex = SIZE_MAX;
 
-    // Reverse combined smoothed state again to match the output scheme of KalmanFitter
+    // Reverse combined smoothed state again to match the output scheme of
+    // KalmanFitter
     std::reverse(combinedSmoothed.begin(), combinedSmoothed.end());
 
     for (const auto& stage : combinedSmoothed) {

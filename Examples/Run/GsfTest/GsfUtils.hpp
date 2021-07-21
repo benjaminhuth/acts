@@ -52,71 +52,83 @@ struct GsfComponentCache {
 };
 
 /// @brief reweight MultiComponentState
-void normalizeMultiComponentState(MultiComponentState &state)
-{
-    ActsScalar sum{0.0};
+void normalizeMultiComponentState(MultiComponentState &state) {
+  ActsScalar sum{0.0};
 
-    for(const auto &[weight, pars, cov] : state.second) {
-        sum += weight;
-    }
+  for (const auto &[weight, pars, cov] : state.second) {
+    sum += weight;
+  }
 
-    for(auto &[weight, pars, cov] : state.second) {
-        weight /= sum;
-    }
+  for (auto &[weight, pars, cov] : state.second) {
+    weight /= sum;
+  }
 }
+
+struct Identity {
+  template <typename T>
+  auto operator()(T &&v) {
+    return std::forward<T>(v);
+  }
+};
 
 /// @brief Combine multiple components into one representative track state
 /// object. The function takes iterators to allow for arbitrary ranges to be
 /// combined
-template <typename component_iterator_t>
-BoundTrackParameters combineMultiComponentState(
-    const component_iterator_t begin, const component_iterator_t end,
-    const Surface &surface) {
+/// @tparam component_iterator_t An iterator of a range of components
+/// @tparam projector_t A projector, which maps the component to a std::tuple< ActsScalar, BoundVector, std::optional< BoundSymMatrix > >
+template <typename component_iterator_t, typename projector_t>
+auto combineComponentRange(const component_iterator_t begin,
+                           const component_iterator_t end,
+                           projector_t &&projector,
+                           bool checkIfNormalized = false) {
   BoundVector mean = BoundVector::Zero();
   BoundSymMatrix cov = BoundSymMatrix::Zero();
   double sumOfWeights{0.0};
 
-  const double referencePhi = std::get<BoundVector>(*begin)[eBoundPhi];
+  const auto &[begin_weight, begin_pars, begin_cov] = projector(*begin);
+
+  if (std::distance(begin, end) == 1) {
+    return std::make_tuple(begin_pars, begin_cov);
+  }
+
+  const double referencePhi = begin_pars[eBoundPhi];
 
   // clang-format off
   // x = \sum_{l} w_l * x_l
   // C = \sum_{l} w_l * C_l + \sum_{l} \sum_{m>l} w_l * w_m * (x_l - x_m)(x_l - x_m)^T
   // clang-format on
   for (auto l = begin; l != end; ++l) {
-    throw_assert(std::get<std::optional<BoundSymMatrix>>(*l),
-                 "we require a covariance here");
+    const auto &[weight_l, pars_l, cov_l] = projector(*l);
+    throw_assert(cov_l, "we require a covariance here");
 
-    BoundVector pars_l = std::get<BoundVector>(*l);
+    sumOfWeights += weight_l;
+    mean += weight_l * pars_l;
+    cov += weight_l * *cov_l;
 
     // Avoid problems with cyclic phi
     const double deltaPhi = referencePhi - pars_l[eBoundPhi];
 
     if (deltaPhi > M_PI) {
-      pars_l[eBoundPhi] += 2 * M_PI;
+      mean[eBoundPhi] += (2 * M_PI) * weight_l;
     } else if (deltaPhi < -M_PI) {
-      pars_l[eBoundPhi] -= 2 * M_PI;
+      mean[eBoundPhi] -= (2 * M_PI) * weight_l;
     }
 
-    sumOfWeights += std::get<ActsScalar>(*l);
-    mean += std::get<ActsScalar>(*l) * pars_l;
-    cov +=
-        std::get<ActsScalar>(*l) * *std::get<std::optional<BoundSymMatrix>>(*l);
-
     for (auto m = std::next(l); m != end; ++m) {
-      throw_assert(std::get<std::optional<BoundSymMatrix>>(*m),
-                   "we require a covariance here");
+      const auto &[weight_m, pars_m, cov_m] = projector(*m);
+      throw_assert(cov_m, "we require a covariance here");
 
-      const BoundVector diff = pars_l - std::get<BoundVector>(*m);
-
-      cov += std::get<ActsScalar>(*l) * std::get<ActsScalar>(*m) * diff *
-             diff.transpose();
+      const BoundVector diff = pars_l - pars_m;
+      cov += weight_l * weight_l * diff * diff.transpose();
     }
   }
 
-  throw_assert(std::abs(sumOfWeights - 1.0) < 1.e-8,
-               "weights are not normalized");
+  if (checkIfNormalized) {
+    throw_assert(std::abs(sumOfWeights - 1.0) < 1.e-8,
+                 "weights are not normalized");
+  }
 
-  return BoundTrackParameters(surface.getSharedPtr(), mean, cov);
+  return std::make_tuple(mean, std::optional{cov});
 }
 
 /// @brief Function that reduces the number of components. at the moment,

@@ -80,8 +80,23 @@ struct ComparisonAlgorithm : public ActsExamples::BareAlgorithm {
     auto trueParticles = ctx.eventStore.get<ActsExamples::SimParticleContainer>(
         m_cfg.inSimulatedParticlesInitial);
 
-    const std::vector<ActsExamples::SimParticle> simParticleVector(
+    std::vector<ActsExamples::SimParticle> simParticleVector(
         trueParticles.begin(), trueParticles.end());
+
+    simParticleVector.erase(
+        std::remove_if(simParticleVector.begin(), simParticleVector.end(),
+                       [](const auto &p) {
+                         return p.pdg() != Acts::PdgParticle::eElectron;
+                       }),
+        simParticleVector.end());
+
+    for (const auto &p : simParticleVector) {
+      std::cout << "particle is electron? " << std::boolalpha
+                << (p.pdg() == Acts::PdgParticle::eElectron) << "\n";
+    }
+
+    throw_assert(simParticleVector.size() == 1, "more than one particle?");
+    const auto &particle = simParticleVector.front();
 
     std::size_t gsfIdx = gsfTrajectory.tips()[0];
     std::size_t kalmanIdx = kalmanTrajectory.tips()[0];
@@ -108,7 +123,9 @@ struct ComparisonAlgorithm : public ActsExamples::BareAlgorithm {
                kalmanTrajectory.trackParameters(kalmanIdx).parameters())
                .transpose()
         << "\n";
-    std::cout << "\tTrue: " << simParticleVector.front().fourPosition().transpose() << "\n";
+    std::cout << "\tTrue: " << particle.fourPosition().transpose()
+              << particle.unitDirection().transpose() << "  "
+              << particle.charge() / particle.absoluteMomentum() << "\n";
 
     std::cout << "\n\nTrack states (as free parameters): \n\n";
     std::cout << "-----------------------------------\n";
