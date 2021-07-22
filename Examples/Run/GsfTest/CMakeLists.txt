@@ -2,11 +2,14 @@ add_executable(MultiStepperTest TestMultiStepper.cpp)
 add_executable(GsfActorTest TestGsfActor.cpp GSFAlgorithmFunction.cpp)
 add_executable(TargetSurfaceTest TestTargetSurface.cpp)
 
-#set_property(TARGET GsfActorTest PROPERTY CXX_STANDARD 20)
-
 target_link_libraries(MultiStepperTest ActsCore)
 target_link_libraries(GsfActorTest ActsCore ActsExamplesFramework ActsExamplesGenerators ActsExamplesCommon ActsExamplesDigitizationCommon ActsExamplesFatras ActsExamplesDetectorTelescope ActsExamplesTrackFitting)
 target_link_libraries(TargetSurfaceTest ActsCore ActsExamplesFramework ActsExamplesGenerators ActsExamplesCommon ActsExamplesDigitizationCommon ActsExamplesFatras ActsExamplesDetectorTelescope ActsExamplesTrackFitting)
 
 add_executable(GeoIdDecoder decodeGeoId.cpp)
 target_link_libraries(GeoIdDecoder ActsCore)
+
+
+# Tests
+add_executable(TestComponentMerging TestComponentMerging.cpp)
+target_link_libraries(TestComponentMerging ActsCore Boost::unit_test_framework)

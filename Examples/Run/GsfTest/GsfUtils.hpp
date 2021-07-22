@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <numeric>
+
 #include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
 #include "Acts/EventData/MultiTrajectory.hpp"
 #include "Acts/EventData/TrackParameters.hpp"

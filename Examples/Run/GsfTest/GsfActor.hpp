@@ -203,7 +203,10 @@ struct GaussianSumFitter {
       // Reduce the number of components to a managable degree
       if (componentCache.size() > m_config.maxComponents ||
           componentCache.size() > stepper.maxComponents) {
-        detail::reduceWithKLDistance(componentCache,
+//         detail::reduceWithKLDistance(componentCache,
+//                   std::min(static_cast<int>(m_config.maxComponents),
+//                            stepper.maxComponents));
+        detail::reduceNumberOfComponents(componentCache,
                   std::min(static_cast<int>(m_config.maxComponents),
                            stepper.maxComponents));
       }

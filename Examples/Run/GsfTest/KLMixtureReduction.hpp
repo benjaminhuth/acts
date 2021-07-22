@@ -29,12 +29,16 @@ auto computeKLDistance(const GsfComponentCache<source_link_t> &a,
 
   const auto kl = covA * (1 / covB) + covB * (1 / covA) +
                   (parsA - parsB) * (1 / covA + 1 / covB) * (parsA - parsB);
+
+  throw_assert(kl >= 0.0, "kl-distance should be positive");
   return kl;
 }
 
 template <typename source_link_t>
 auto mergeComponents(const GsfComponentCache<source_link_t> &a,
                      const GsfComponentCache<source_link_t> &b) {
+  throw_assert(a.weight > 0.0 && b.weight > 0.0, "weight error");
+
   std::array range = {std::ref(a), std::ref(b)};
   auto [mergedPars, mergedCov] =
       combineComponentRange(range.begin(), range.end(), [](auto &a) {
@@ -66,10 +70,14 @@ class SymmetricKLDistanceMatrix {
     for (auto i = 1ul; i < m_N; ++i) {
       const auto indexConst = (i - 1) * i / 2;
       for (auto j = 0ul; j < i; ++j) {
-        m_mapToPair[indexConst + j] = {i, j};
+        m_mapToPair.at(indexConst + j) = {i, j};
         m_data[indexConst + j] = computeKLDistance(cmps[i], cmps[j]);
       }
     }
+  }
+
+  auto at(std::size_t i, std::size_t j) const {
+    return m_data[i * (i - 1) / 2 + j];
   }
 
   template <typename source_link_t>
@@ -149,13 +157,22 @@ void reduceWithKLDistance(
 
     // Reset removed components so that it won't have the shortest distance
     // ever, and so that we can sort them by weight in the end to remove them
-    cmpCache[minJ].weight = -1;
+    cmpCache[minJ].weight = -1.0;
     cmpCache[minJ].predictedPars[eBoundQOverP] =
         std::numeric_limits<double>::max();
     (*cmpCache[minJ].predictedCov)(eBoundQOverP, eBoundQOverP) =
         std::numeric_limits<double>::max();
     distances.resetAssociatedDistances(minJ,
                                        std::numeric_limits<double>::max());
+
+    // Print current mean
+    Acts::BoundVector mean = Acts::BoundVector::Zero();
+    for(const auto &c : cmpCache)
+    {
+        if( c.weight != -1.0 )
+            mean += c.weight * c.predictedPars;
+    }
+    std::cout << "current with " << remainingComponents << " components: " << mean.transpose() << "\n";
   }
 
   // Remove all components which are labled with weight -1
@@ -165,13 +182,9 @@ void reduceWithKLDistance(
                                 [](const auto &a) { return a.weight == -1.0; }),
                  cmpCache.end());
 
-  for (const auto cmp : cmpCache) {
-    std::cout << cmp.weight << "\n";
-  }
-
-  std::cout << "number remaining components = " << cmpCache.size() << "/"
-            << maxCmpsAfterMerge << std::endl;
-  throw_assert(cmpCache.size() == maxCmpsAfterMerge, "size mismatch");
+  throw_assert(cmpCache.size() == maxCmpsAfterMerge,
+               "size mismatch, should be " << maxCmpsAfterMerge << ", but is "
+                                           << cmpCache.size());
 }
 
 }  // namespace detail
