@@ -164,15 +164,6 @@ void reduceWithKLDistance(
         std::numeric_limits<double>::max();
     distances.resetAssociatedDistances(minJ,
                                        std::numeric_limits<double>::max());
-
-    // Print current mean
-    Acts::BoundVector mean = Acts::BoundVector::Zero();
-    for(const auto &c : cmpCache)
-    {
-        if( c.weight != -1.0 )
-            mean += c.weight * c.predictedPars;
-    }
-    std::cout << "current with " << remainingComponents << " components: " << mean.transpose() << "\n";
   }
 
   // Remove all components which are labled with weight -1

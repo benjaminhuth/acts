@@ -8,11 +8,11 @@
 
 #pragma once
 
-#include <numeric>
-
 #include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
 #include "Acts/EventData/MultiTrajectory.hpp"
 #include "Acts/EventData/TrackParameters.hpp"
+
+#include <numeric>
 
 namespace Acts {
 
@@ -76,15 +76,17 @@ struct Identity {
 /// @brief Combine multiple components into one representative track state
 /// object. The function takes iterators to allow for arbitrary ranges to be
 /// combined
+/// TODO replace Identity with std::identity on C++20
 /// @tparam component_iterator_t An iterator of a range of components
 /// @tparam projector_t A projector, which maps the component to a std::tuple< ActsScalar, BoundVector, std::optional< BoundSymMatrix > >
-template <typename component_iterator_t, typename projector_t>
+template <typename component_iterator_t, typename projector_t = Identity>
 auto combineComponentRange(const component_iterator_t begin,
                            const component_iterator_t end,
-                           projector_t &&projector,
+                           projector_t &&projector = projector_t{},
                            bool checkIfNormalized = false) {
   BoundVector mean = BoundVector::Zero();
-  BoundSymMatrix cov = BoundSymMatrix::Zero();
+  BoundSymMatrix cov1 = BoundSymMatrix::Zero();
+  BoundSymMatrix cov2 = BoundSymMatrix::Zero();
   double sumOfWeights{0.0};
 
   const auto &[begin_weight, begin_pars, begin_cov] = projector(*begin);
@@ -105,7 +107,7 @@ auto combineComponentRange(const component_iterator_t begin,
 
     sumOfWeights += weight_l;
     mean += weight_l * pars_l;
-    cov += weight_l * *cov_l;
+    cov1 += weight_l * *cov_l;
 
     // Avoid problems with cyclic phi
     const double deltaPhi = referencePhi - pars_l[eBoundPhi];
@@ -121,7 +123,7 @@ auto combineComponentRange(const component_iterator_t begin,
       throw_assert(cov_m, "we require a covariance here");
 
       const BoundVector diff = pars_l - pars_m;
-      cov += weight_l * weight_l * diff * diff.transpose();
+      cov2 += weight_l * weight_m * diff * diff.transpose();
     }
   }
 
@@ -130,7 +132,10 @@ auto combineComponentRange(const component_iterator_t begin,
                  "weights are not normalized");
   }
 
-  return std::make_tuple(mean, std::optional{cov});
+  return std::make_tuple(
+      (mean / sumOfWeights).eval(),
+      std::optional{
+          (cov1 / sumOfWeights + cov2 / (sumOfWeights * sumOfWeights)).eval()});
 }
 
 /// @brief Function that reduces the number of components. at the moment,
@@ -269,6 +274,8 @@ auto extractMultiComponentStates(const MultiTrajectory<source_link_t> &traj,
                                  std::vector<size_t> tips,
                                  const std::map<size_t, ActsScalar> &weights,
                                  bool usePredicted) {
+  throw_assert(!tips.empty(), "need at least one component");
+
   std::vector<MultiComponentState> ret;
 
   // MultiTrajectory uses uint16_t internally
