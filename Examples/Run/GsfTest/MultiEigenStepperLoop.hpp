@@ -469,10 +469,14 @@ class MultiEigenStepperLoop
   ///   - the parameters at the surface
   ///   - the stepwise jacobian towards it (from last bound)
   ///   - and the path length (from start - for ordering)
-  Result<BoundState> boundState(State& /*state*/, const Surface& /*surface*/,
-                                bool /*transportCov*/ = true) const {
-    throw std::runtime_error(
-        "'boundState' not yet implemented for MultiEigenStepper");
+  Result<BoundState> boundState(State& state, const Surface& surface,
+                                bool transportCov = true) const {
+    if (numberComponents(state) == 1) {
+      return SingleStepper::boundState(state.components.front().state, surface,
+                                       transportCov);
+    } else {
+      return MultiStepperError::StateOfMultipleComponentsRequested;
+    }
   }
 
   /// Create and return a curvilinear state at the current position
@@ -487,9 +491,18 @@ class MultiEigenStepperLoop
   ///   - the curvilinear parameters at given position
   ///   - the stepweise jacobian towards it (from last bound)
   ///   - and the path length (from start - for ordering)
-  /// TODO only returns curvilinear state at front at the moment
   CurvilinearState curvilinearState(State& state,
                                     bool transportCov = true) const {
+    // TODO how to handle this. A correct result will be likely not needed
+    // anywhere, but could be expensive to compute
+    if (numberComponents(state) != 1) {
+      auto loggerInstance =
+          Acts::getDefaultLogger("MultiEigenStepperLoop", Acts::Logging::INFO);
+      Acts::LoggerWrapper logger(*loggerInstance);
+      ACTS_WARNING(
+          "Curvilinear State of a MultiComponentState is computed, the result "
+          "will be not represenative");
+    }
     return SingleStepper::curvilinearState(state.components.front().state,
                                            transportCov);
   }

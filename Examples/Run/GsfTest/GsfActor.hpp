@@ -406,113 +406,6 @@ struct GaussianSumFitter {
 
       return Acts::Result<void>::success();
     }
-
-    /// @brief Compute the combined bound track parameters at the current surface and mark result as finished
-    template <typename propagator_state_t, typename stepper_t>
-    void finalize(propagator_state_t& state, const stepper_t& stepper,
-                  result_type& result) const {
-      const auto& logger = state.options.logger;
-      const auto& surface = *state.navigation.currentSurface;
-
-      ACTS_VERBOSE("finalize");
-
-      std::vector<
-          std::tuple<ActsScalar, BoundVector, std::optional<BoundSymMatrix>>>
-          components;
-      components.reserve(stepper.numberComponents(state.stepping));
-
-      bool error = false;
-
-      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-        typename stepper_t::ComponentProxy cmp(state.stepping, i);
-
-        auto bs = cmp.boundState(surface, true);
-
-        if (not bs.ok()) {
-          error = true;
-          ACTS_ERROR("Error in boundstate conversion: " << bs.error());
-          ACTS_INFO("Component is at global position "
-                    << cmp.pars().template segment<3>(eFreePos0).transpose());
-          continue;
-        }
-
-        components.push_back(std::tuple{cmp.weight(),
-                                        (std::get<0>(*bs)).parameters(),
-                                        (std::get<0>(*bs)).covariance()});
-      }
-
-      throw_assert(!error, "Error occured in the bound state conversions");
-
-      const auto [finalPars, finalCov] = detail::combineComponentRange(
-          components.begin(), components.end(), detail::Identity{});
-
-      result.finalParameters =
-          BoundTrackParameters(surface.getSharedPtr(), finalPars, finalCov);
-      result.isFinished = true;
-    }
-  };
-
-  struct GsfFinalizerResult {};
-
-  struct GsfFinalizer {
-    /// Enforce default construction
-    GsfFinalizer() = default;
-
-    /// Broadcast the result_type
-    //     using result_type =
-    //     std::optional<Acts::Result<BoundTrackParameters>>;
-    using result_type = std::optional<BoundTrackParameters>;
-
-    const Surface* targetSurface = nullptr;
-
-    /// @brief Only acts if we are on the last surface
-    template <typename propagator_state_t, typename stepper_t>
-    void operator()(propagator_state_t& state, const stepper_t& stepper,
-                    result_type& result) const {
-      throw_assert(targetSurface, "we need a target surface");
-      const auto& logger = state.options.logger;
-
-      ACTS_VERBOSE("Finalizer step at mean position "
-                   << stepper.position(state.stepping).transpose()
-                   << " with direction "
-                   << stepper.direction(state.stepping).transpose());
-
-      if (state.navigation.currentSurface == targetSurface) {
-        throw_assert(stepper.numberComponents(state.stepping) == 1,
-                     "we expect single component state here");
-        typename stepper_t::ComponentProxy cmp(state.stepping, 0);
-
-        // TODO get the correct bool value here later...
-        ACTS_VERBOSE("Evaluate final track parameters");
-        auto boundRes = cmp.boundState(*targetSurface, true);
-
-        // Propagate result error to the outside
-        throw_assert(boundRes.ok(), "bound result must be ok");
-
-        result = std::get<BoundTrackParameters>(*boundRes);
-      }
-    }
-  };
-
-  template <typename gsf_actor_t>
-  class Aborter {
-   public:
-    /// Broadcast the result_type
-    using action_type = gsf_actor_t;
-
-    /// The call operator
-    template <typename propagator_state_t, typename stepper_t,
-              typename result_t>
-    bool operator()(propagator_state_t& /*state*/, const stepper_t& /*stepper*/,
-                    const result_t& /*result*/) const {
-      //       const auto& logger = state.options.logger;
-
-      //       if (result.isFinished) {
-      //         ACTS_VERBOSE("Terminated by GSF Aborter");
-      //         return true;
-      //       }
-      return false;
-    }
   };
 
   /// The propagator instance used by the fit function
@@ -545,10 +438,12 @@ struct GaussianSumFitter {
 
     GsfResult gsfForwardResult =
         (*propResult).template get<GsfResult<source_link_t>>();
+        
+    const bool usePredicted = navDir == Acts::forward ? false : true;
 
     auto states = detail::extractMultiComponentStates(
         gsfForwardResult.fittedStates, gsfForwardResult.currentTips,
-        gsfForwardResult.weightsOfStates, false);
+        gsfForwardResult.weightsOfStates, usePredicted);
 
     if (navDir == Acts::NavigationDirection::backward)
       std::reverse(states.begin(), states.end());
@@ -632,7 +527,14 @@ struct GaussianSumFitter {
       return bwdResult.error();
     }
 
-    const auto& bwdStates = *bwdResult;
+    // TODO here we in principle need the predicted state and not the filtered state of the last forward state. But for now just do this since it is easier
+    auto& bwdStates = *bwdResult;
+    detail::MultiComponentState bwdFirstState;
+    bwdFirstState.first = sMultiParsBwd.referenceSurface().getSharedPtr();
+    for(const auto &cmp : sMultiParsBwd.components()){
+        bwdFirstState.second.push_back({std::get<double>(cmp), std::get<BoundTrackParameters>(cmp).parameters(), std::get<BoundTrackParameters>(cmp).covariance()});
+    }
+    bwdStates.insert(bwdStates.begin(), bwdFirstState);
 
     // Do the last part to the reference surface
     const auto [lastPars, lastCov] = detail::combineComponentRange(
@@ -641,29 +543,26 @@ struct GaussianSumFitter {
         bwdStates.back().first, lastPars, lastCov);
 
     PropagatorOptions<
-        Acts::ActionList<DirectNavigator::Initializer, GsfFinalizer>, Aborters>
+        Acts::ActionList<DirectNavigator::Initializer>, Aborters>
         lastPropOptions(options.geoContext, options.magFieldContext, logger);
 
     lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
         .navSurfaces = {options.referenceSurface};
-    lastPropOptions.actionList.template get<GsfFinalizer>()
-        .targetSurface = options.referenceSurface;
     lastPropOptions.direction = NavigationDirection::backward;
 
     ACTS_VERBOSE("Gsf: Do last steps back to reference surface");
-    std::cout << "surface sequence size = " << lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
-        .navSurfaces.size() << "\n";
-    auto propLastResult = m_propagator.propagate(
+    auto lastPropRes = m_propagator.propagate(
         lastMultiPars, *options.referenceSurface, lastPropOptions);
 
-    if (!propLastResult.ok()) {
-      return propLastResult.error();
+    if (!lastPropRes.ok()) {
+      return lastPropRes.error();
     }
 
     // Do the smoothing
     ACTS_VERBOSE("Gsf: Start smoothing");
+    throw_assert(fwdStates.size() == bwdStates.size(), "size mismatch: fwd: " << fwdStates.size() << ", bwd: " << bwdStates.size());
+    
     std::vector<detail::MultiComponentState> smoothed;
-    throw_assert(fwdStates.size() == bwdStates.size(), "size mismatch");
     for (auto i = 0ul; i < fwdStates.size(); ++i) {
       smoothed.push_back(detail::bayesianSmoothing(fwdStates[i], bwdStates[i]));
     }
@@ -702,7 +601,7 @@ struct GaussianSumFitter {
     }
 
     kalmanResult.lastMeasurementIndex = kalmanResult.lastTrackIndex;
-    kalmanResult.fittedParameters = (*propLastResult).template get<typename GsfFinalizer::result_type>().value();
+    kalmanResult.fittedParameters = *((*lastPropRes).endParameters);
 
     return kalmanResult;
   }

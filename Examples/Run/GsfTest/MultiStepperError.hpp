@@ -14,7 +14,8 @@ namespace Acts {
 
 enum class MultiStepperError {
   // ensure all values are non-zero
-  ComponentNotOnSurface = 1
+  ComponentNotOnSurface = 1,
+  StateOfMultipleComponentsRequested = 2
 };
 
 std::error_code make_error_code(Acts::MultiStepperError e);
@@ -42,6 +43,8 @@ class MultiStepperErrorCategory : public std::error_category {
     switch (static_cast<MultiStepperError>(c)) {
       case MultiStepperError::ComponentNotOnSurface:
         return "Component is not on a surface";
+      case MultiStepperError::StateOfMultipleComponentsRequested:
+        return "The global BoundState/CurvilinearState can only be computed if only one component exists";
       default:
         return "unknown";
     }
