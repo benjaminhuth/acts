@@ -12,6 +12,13 @@
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
-ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction makeGsfFitterFunction(
-      std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
-      std::shared_ptr<const Acts::MagneticFieldProvider> magneticField);
+ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction
+makeGsfFitterFunction(
+    std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
+    std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
+    Acts::LoggerWrapper logger);
+
+
+
+void setGsfAbortOnError();
+void unsetGsfThrowOnAbort();

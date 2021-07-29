@@ -20,14 +20,23 @@
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/KalmanFitter.hpp"
+#include "Acts/TrackFitting/KalmanFitterError.hpp"
 
 #include <map>
 #include <numeric>
 
 #include "BetheHeitlerApprox.hpp"
+#include "GsfError.hpp"
 #include "GsfUtils.hpp"
 #include "KLMixtureReduction.hpp"
 #include "MultiSteppingLogger.hpp"
+
+#define RETURN_OR_ABORT(error) \
+  if (m_config.abortOnError) { \
+    std::abort();              \
+  } else {                     \
+    return error;              \
+  }
 
 namespace Acts {
 
@@ -45,6 +54,8 @@ struct GsfOptions {
   const Surface* referenceSurface = nullptr;
 
   LoggerWrapper logger;
+
+  bool throwOnError = true;
 };
 
 template <typename source_link_t>
@@ -59,6 +70,9 @@ struct GsfResult {
   /// The number of measurement states created
   std::size_t measurementStates = 0;
   std::size_t processedStates = 0;
+
+  // Propagate potential errors to the outside
+  Result<void> result{Result<void>::success()};
 };
 
 template <typename propagator_t>
@@ -105,6 +119,9 @@ struct GaussianSumFitter {
 
       /// Whether to consider energy loss.
       bool energyLoss = true;
+
+      /// Whether to abort immediately when an error occurs
+      bool abortOnError = false;
     } m_config;
 
     /// Configurable components:
@@ -132,10 +149,22 @@ struct GaussianSumFitter {
                    << " with direction "
                    << stepper.direction(state.stepping).transpose());
 
+      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
+        typename stepper_t::ComponentProxy cmp(state.stepping, i);
+
+        ACTS_VERBOSE(
+            "  #" << i << " pos: "
+                  << cmp.pars().template segment<3>(eFreePos0).transpose()
+                  << ", dir: "
+                  << cmp.pars().template segment<3>(eFreeDir0).transpose());
+      }
+
       // TODO handle surfaces without material
       if (state.navigation.currentSurface &&
           state.navigation.currentSurface->surfaceMaterial()) {
         const auto& surface = *state.navigation.currentSurface;
+
+        ACTS_VERBOSE("Step is at surface " << surface.geometryId());
 
         const auto source_link =
             m_config.inputMeasurements.find(surface.geometryId())->second;
@@ -148,7 +177,7 @@ struct GaussianSumFitter {
         std::string_view direction =
             (state.stepping.navDir == forward) ? "forward" : "backward";
         ACTS_VERBOSE("Perform " << direction << " filter step");
-        filter(state, stepper, result, source_link);
+        result.result = filter(state, stepper, result, source_link);
       }
     }
 
@@ -160,11 +189,14 @@ struct GaussianSumFitter {
       const auto& logger = state.options.logger;
       const auto& surface = *state.navigation.currentSurface;
 
-      throw_assert(
-          result.currentTips.size() == stepper.numberComponents(state.stepping),
-          "component number mismatch:"
-              << result.currentTips.size() << " vs "
-              << stepper.numberComponents(state.stepping));
+      if (result.currentTips.size() !=
+          stepper.numberComponents(state.stepping)) {
+        ACTS_ERROR("component number mismatch:"
+                   << result.currentTips.size() << " vs "
+                   << stepper.numberComponents(state.stepping));
+
+        RETURN_OR_ABORT(GsfError::ComponentNumberMismatch);
+      }
 
       // Static std::vector to avoid reallocation every pass. Reserve enough
       // space to allow all possible components to be stored
@@ -179,8 +211,11 @@ struct GaussianSumFitter {
       create_new_components(state, stepper, componentCache, result.currentTips,
                             surface);
 
-      throw_assert(!componentCache.empty(),
-                   "components are empty after creation");
+      if (componentCache.empty()) {
+        ACTS_ERROR("No component created");
+        RETURN_OR_ABORT(GsfError::NoComponentCreated);
+      }
+
       ACTS_VERBOSE("GSF actor: " << componentCache.size()
                                  << " components candidates");
 
@@ -195,8 +230,6 @@ struct GaussianSumFitter {
         //                            stepper.maxComponents));
       }
 
-      throw_assert(!componentCache.empty(),
-                   "components are empty after reduction");
       ACTS_VERBOSE("GSF actor: " << componentCache.size()
                                  << " after component reduction");
 
@@ -205,8 +238,7 @@ struct GaussianSumFitter {
           kalmanUpdateForward(state, result, measurement, componentCache);
 
       if (!res.ok()) {
-        throw_assert(false, "no error should occur here");
-        return res.error();
+        RETURN_OR_ABORT(res.error());
       }
 
       // Reweigth components according to measurement
@@ -259,8 +291,13 @@ struct GaussianSumFitter {
 
         auto boundState = old_cmp.boundState(surface, m_config.doCovTransport);
 
+        if (old_cmp.status() != Intersection3D::Status::onSurface) {
+          ACTS_WARNING("component not on surface anymore, ignore it");
+          continue;
+        }
+
         if (!boundState.ok()) {
-          ACTS_ERROR("Error with boundstate: " << boundState.error());
+          ACTS_ERROR("Failed to compute boundState: " << boundState.error());
           continue;
         }
 
@@ -384,7 +421,7 @@ struct GaussianSumFitter {
 
           if (!updateRes.ok()) {
             ACTS_ERROR("Update step failed: " << updateRes.error());
-            return updateRes.error();
+            RETURN_OR_ABORT(updateRes.error());
           }
 
           trackProxy.typeFlags().set(TrackStateFlag::MeasurementFlag);
@@ -408,6 +445,21 @@ struct GaussianSumFitter {
     }
   };
 
+  struct FinalizePositionPrinter {
+    using result_type = char;
+
+    template <typename propagator_state_t, typename stepper_t>
+    void operator()(propagator_state_t& state, const stepper_t& stepper,
+                    result_type&) const {
+      const auto& logger = state.options.logger;
+
+      ACTS_VERBOSE("Finalizer step at mean position "
+                   << stepper.position(state.stepping).transpose()
+                   << " with direction "
+                   << stepper.direction(state.stepping).transpose());
+    }
+  };
+
   /// The propagator instance used by the fit function
   propagator_t m_propagator;
 
@@ -417,17 +469,26 @@ struct GaussianSumFitter {
       propagator_options_t& propOptions,
       const MultiComponentBoundTrackParameters<SinglyCharged>& params,
       const std::vector<const Surface*>& surfaceSequence,
-      Acts::NavigationDirection navDir) const {
+      NavigationDirection navDir, detail::StatesType type) const {
     propOptions.direction = navDir;
 
     if (navDir == Acts::forward) {
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = surfaceSequence;
     } else {
-      std::vector<const Surface *> backwardSequence(std::next(surfaceSequence.rbegin()), surfaceSequence.rend());
-      std::cout << "size of backward Sequence " << backwardSequence.size() << std::endl;
+      std::vector<const Surface*> backwardSequence(
+          std::next(surfaceSequence.rbegin()), surfaceSequence.rend());
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = std::move(backwardSequence);
+    }
+
+    if (propOptions.actionList.template get<DirectNavigator::Initializer>()
+            .navSurfaces.empty()) {
+      if (navDir == Acts::forward) {
+        return KalmanFitterError::ForwardUpdateFailed;
+      } else {
+        return KalmanFitterError::BackwardUpdateFailed;
+      }
     }
 
     auto propResult = m_propagator.propagate(params, propOptions);
@@ -436,17 +497,20 @@ struct GaussianSumFitter {
       return propResult.error();
     }
 
-    GsfResult gsfForwardResult =
+    GsfResult gsfResult =
         (*propResult).template get<GsfResult<source_link_t>>();
-        
-    const bool usePredicted = navDir == Acts::forward ? false : true;
+
+    if (!gsfResult.result.ok()) {
+      return gsfResult.result.error();
+    }
+
+    if (gsfResult.processedStates == 0) {
+      return GsfError::NoStatesCreated;
+    }
 
     auto states = detail::extractMultiComponentStates(
-        gsfForwardResult.fittedStates, gsfForwardResult.currentTips,
-        gsfForwardResult.weightsOfStates, usePredicted);
-
-    if (navDir == Acts::NavigationDirection::backward)
-      std::reverse(states.begin(), states.end());
+        gsfResult.fittedStates, gsfResult.currentTips,
+        gsfResult.weightsOfStates, type);
 
     return states;
   }
@@ -475,12 +539,16 @@ struct GaussianSumFitter {
       inputMeasurements.emplace(sl.geometryId(), sl);
     }
 
+    ACTS_VERBOSE("Run Gsf with start parameters: \n" << sParameters);
     ACTS_VERBOSE("Gsf: Number of surfaces in sSequence: " << sSequence.size());
     ACTS_VERBOSE(
         "Gsf: Final measuerement map size: " << inputMeasurements.size());
     throw_assert(sParameters.covariance() != std::nullopt,
                  "we need a covariance here...");
-    ACTS_VERBOSE("Gsf: Start parameters: \n" << sParameters);
+
+    ////////////////////
+    // Common Settings
+    ////////////////////
 
     // Create the ActionList and AbortList
     using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
@@ -499,58 +567,87 @@ struct GaussianSumFitter {
     actor.m_config.maxComponents = 4;  // for easier debugging just 4 components
     actor.m_calibrator = options.calibrator;
     actor.m_outlierFinder = options.outlierFinder;
+    actor.m_config.abortOnError = options.throwOnError;
 
-    // Run the fitter forward
+    // TODO This seems so solve some issues in the navigation
+    //     propOptions.tolerance = 1e-5;
+    
+
+    /////////////////
+    // Forward pass
+    /////////////////
+
     MultiComponentBoundTrackParameters<SinglyCharged> sMultiParsFwd(
         sParameters.referenceSurface().getSharedPtr(), sParameters.parameters(),
         sParameters.covariance());
 
-    ACTS_VERBOSE("Gsf: Do forward propagation");
+    ACTS_VERBOSE("+-----------------------------+");
+    ACTS_VERBOSE("| Gsf: Do forward propagation |");
+    ACTS_VERBOSE("+-----------------------------+");
     auto fwdResult = gsfPropagationPass<source_link_t>(
-        propOptions, sMultiParsFwd, sSequence, Acts::forward);
+        propOptions, sMultiParsFwd, sSequence, Acts::forward,
+        detail::StatesType::ePredicted);
 
     if (!fwdResult.ok()) {
       return fwdResult.error();
     }
 
-    const auto& fwdStates = *fwdResult;
+    auto& fwdPredicted = *fwdResult;
+    std::reverse(fwdPredicted.begin(), fwdPredicted.end());
 
-    // Run backward
+    //////////////////
+    // Backward pass
+    //////////////////
+
     MultiComponentBoundTrackParameters<SinglyCharged> sMultiParsBwd(
-        fwdStates.front().first, fwdStates.front().second);
+        fwdPredicted.back().first, fwdPredicted.back().second);
 
-    ACTS_VERBOSE("Gsf: Do backward propagation");
+    ACTS_VERBOSE("+------------------------------+");
+    ACTS_VERBOSE("| Gsf: Do backward propagation |");
+    ACTS_VERBOSE("+------------------------------+");
     auto bwdResult = gsfPropagationPass<source_link_t>(
-        propOptions, sMultiParsBwd, sSequence, Acts::backward);
+        propOptions, sMultiParsBwd, sSequence, Acts::backward,
+        detail::StatesType::eFiltered);
 
     if (!bwdResult.ok()) {
       return bwdResult.error();
     }
 
-    // TODO here we in principle need the predicted state and not the filtered state of the last forward state. But for now just do this since it is easier
-    auto& bwdStates = *bwdResult;
+    // TODO here we in principle need the predicted state and not the filtered
+    // state of the last forward state. But for now just do this since it is
+    // easier
+    auto& bwdFiltered = *bwdResult;
     detail::MultiComponentState bwdFirstState;
     bwdFirstState.first = sMultiParsBwd.referenceSurface().getSharedPtr();
-    for(const auto &cmp : sMultiParsBwd.components()){
-        bwdFirstState.second.push_back({std::get<double>(cmp), std::get<BoundTrackParameters>(cmp).parameters(), std::get<BoundTrackParameters>(cmp).covariance()});
+    for (const auto& cmp : sMultiParsBwd.components()) {
+      bwdFirstState.second.push_back(
+          {std::get<double>(cmp),
+           std::get<BoundTrackParameters>(cmp).parameters(),
+           std::get<BoundTrackParameters>(cmp).covariance()});
     }
-    bwdStates.insert(bwdStates.begin(), bwdFirstState);
+    bwdFiltered.push_back(bwdFirstState);
 
-    // Do the last part to the reference surface
+    //////////////////////////////
+    // Last part towards perigee
+    //////////////////////////////
+
     const auto [lastPars, lastCov] = detail::combineComponentRange(
-        bwdStates.back().second.begin(), bwdStates.back().second.end());
+        bwdFiltered.back().second.begin(), bwdFiltered.back().second.end());
     MultiComponentBoundTrackParameters<SinglyCharged> lastMultiPars(
-        bwdStates.back().first, lastPars, lastCov);
+        bwdFiltered.back().first, lastPars, lastCov);
 
     PropagatorOptions<
-        Acts::ActionList<DirectNavigator::Initializer>, Aborters>
+        Acts::ActionList<DirectNavigator::Initializer, FinalizePositionPrinter>,
+        Aborters>
         lastPropOptions(options.geoContext, options.magFieldContext, logger);
 
     lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
         .navSurfaces = {options.referenceSurface};
     lastPropOptions.direction = NavigationDirection::backward;
 
-    ACTS_VERBOSE("Gsf: Do last steps back to reference surface");
+    ACTS_VERBOSE("+-------------------+");
+    ACTS_VERBOSE("| Gsf: Do Last Part |");
+    ACTS_VERBOSE("+-------------------+");
     auto lastPropRes = m_propagator.propagate(
         lastMultiPars, *options.referenceSurface, lastPropOptions);
 
@@ -558,46 +655,98 @@ struct GaussianSumFitter {
       return lastPropRes.error();
     }
 
-    // Do the smoothing
+    ////////////////////////////////////
+    // Smooth and create Kalman Result
+    ////////////////////////////////////
+
     ACTS_VERBOSE("Gsf: Start smoothing");
-    throw_assert(fwdStates.size() == bwdStates.size(), "size mismatch: fwd: " << fwdStates.size() << ", bwd: " << bwdStates.size());
-    
-    std::vector<detail::MultiComponentState> smoothed;
-    for (auto i = 0ul; i < fwdStates.size(); ++i) {
-      smoothed.push_back(detail::bayesianSmoothing(fwdStates[i], bwdStates[i]));
+
+    ACTS_VERBOSE(
+        "Forward and Backward surfaces:\n"
+        << [&]() {
+             std::stringstream ss;
+             for (auto i = 0ul;
+                  i < std::max(fwdPredicted.size(), bwdFiltered.size()); ++i) {
+               if (i < fwdPredicted.size()) {
+                 ss << fwdPredicted[i].first->geometryId();
+               } else {
+                 ss << "no surface anymore";
+               }
+               ss << "\t";
+               if (i < bwdFiltered.size()) {
+                 ss << bwdFiltered[i].first->geometryId();
+               } else {
+                 ss << "no surface anymore";
+               }
+               ss << "\n";
+             }
+             return ss.str();
+           }());
+
+    // Consistency check
+    if (fwdPredicted.size() != bwdFiltered.size()) {
+      ACTS_ERROR("size mismatch: fwd: " << fwdPredicted.size()
+                                        << ", bwd: " << bwdFiltered.size());
+      if (options.throwOnError) {
+        std::abort();
+      } else {
+        return GsfError::NavigationFailed;
+      }
     }
 
-    ACTS_VERBOSE("Gsf: Combine smoothed states");
-    std::vector<BoundTrackParameters> combinedSmoothed;
-    for (auto& state : smoothed) {
-      detail::normalizeMultiComponentState(state);
-      const auto [smoothedPars, smoothedCov] = detail::combineComponentRange(
-          state.second.begin(), state.second.end(), detail::Identity{});
-      combinedSmoothed.push_back(
-          BoundTrackParameters(state.first, smoothedPars, smoothedCov));
-    }
-
-    // Create Kalman result for return
-    ACTS_VERBOSE("Gsf: Create Kalman Result");
+    // Create and prepare Kalman Result
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
     kalmanResult.lastTrackIndex = SIZE_MAX;
 
-    // Reverse combined smoothed state again to match the output scheme of
-    // KalmanFitter
-    std::reverse(combinedSmoothed.begin(), combinedSmoothed.end());
+    for (auto i = 0ul; i < fwdPredicted.size(); ++i) {
+      // Consistency check
+      if (fwdPredicted[i].first->geometryId() !=
+          bwdFiltered[i].first->geometryId()) {
+        ACTS_ERROR("surface mismatch - fwd-predicted: "
+                   << fwdPredicted[i].first->geometryId()
+                   << ", bwd-filtered: " << bwdFiltered[i].first->geometryId());
+        if (options.throwOnError) {
+          std::abort();
+        } else {
+          return GsfError::NavigationFailed;
+        }
+      }
 
-    for (const auto& stage : combinedSmoothed) {
+      // Do the smoothing
+      const auto smoothed =
+          detail::bayesianSmoothing(fwdPredicted[i], bwdFiltered[i]);
+
+      // Combine the things
+      const auto smoothedCombined = detail::combineComponentRange(
+          smoothed.second.begin(), smoothed.second.end(), detail::Identity{});
+      const auto predictedCombined = detail::combineComponentRange(
+          fwdPredicted[i].second.begin(), fwdPredicted[i].second.end(),
+          detail::Identity{});
+      const auto filteredCombined = detail::combineComponentRange(
+          bwdFiltered[i].second.begin(), bwdFiltered[i].second.end(),
+          detail::Identity{});
+
+      // Add to MultiTrajectory
       kalmanResult.lastTrackIndex = kalmanResult.fittedStates.addTrackState(
           TrackStatePropMask::All, kalmanResult.lastTrackIndex);
 
       auto proxy =
           kalmanResult.fittedStates.getTrackState(kalmanResult.lastTrackIndex);
 
-      proxy.smoothed() = stage.parameters();
-      if (stage.covariance()) {
-        proxy.smoothedCovariance() = *stage.covariance();
+      proxy.predicted() = std::get<BoundVector>(predictedCombined);
+      proxy.filtered() = std::get<BoundVector>(filteredCombined);
+      proxy.smoothed() = std::get<BoundVector>(smoothedCombined);
+      if (std::get<std::optional<BoundSymMatrix>>(smoothedCombined)) {
+        proxy.predictedCovariance() =
+            *std::get<std::optional<BoundSymMatrix>>(predictedCombined);
+        proxy.filteredCovariance() =
+            *std::get<std::optional<BoundSymMatrix>>(filteredCombined);
+        proxy.smoothedCovariance() =
+            *std::get<std::optional<BoundSymMatrix>>(smoothedCombined);
       }
-      proxy.setReferenceSurface(stage.referenceSurface().getSharedPtr());
+
+      proxy.typeFlags().set(TrackStateFlag::MeasurementFlag);
+      proxy.setReferenceSurface(fwdPredicted[i].first->getSharedPtr());
     }
 
     kalmanResult.lastMeasurementIndex = kalmanResult.lastTrackIndex;

@@ -109,6 +109,8 @@ template <typename extensionlist_t,
           typename auctioneer_t = detail::VoidAuctioneer>
 class MultiEigenStepperLoop
     : public EigenStepper<extensionlist_t, auctioneer_t> {
+  const LoggerWrapper logger;
+
  public:
   /// @brief Typedef to the Single-Component Eigen Stepper
   using SingleStepper = EigenStepper<extensionlist_t, auctioneer_t>;
@@ -200,6 +202,8 @@ class MultiEigenStepperLoop
    public:
     ComponentProxy(State& s, std::size_t i) : m_state(s), m_idx(i) {}
 
+    auto& status() { return cmp().status; }
+    auto status() const { return cmp().status; }
     auto& weight() { return cmp().weight; }
     auto weight() const { return cmp().weight; }
     auto& pars() { return cmp().state.pars; }
@@ -249,8 +253,13 @@ class MultiEigenStepperLoop
   }
 
   /// Constructor
-  MultiEigenStepperLoop(std::shared_ptr<const MagneticFieldProvider> bField)
-      : EigenStepper<extensionlist_t, auctioneer_t>(bField) {}
+  MultiEigenStepperLoop(std::shared_ptr<const MagneticFieldProvider> bField,
+                        LoggerWrapper l = getDummyLogger())
+      : EigenStepper<extensionlist_t, auctioneer_t>(bField), logger(l) {}
+      
+  void setOverstepLimit(double oLimit) {
+      SingleStepper::m_overstepLimit = oLimit;
+  }
 
   /// Get the field for the stepping, it checks first if the access is still
   /// within the Cell, and updates the cell if necessary.
@@ -320,25 +329,29 @@ class MultiEigenStepperLoop
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck,
-      LoggerWrapper logger = getDummyLogger()) const {
+      LoggerWrapper = getDummyLogger()) const {
     std::array<int, 4> counts = {0, 0, 0, 0};
 
     for (auto& component : state.components) {
       component.status = SingleStepper::updateSurfaceStatus(
-          component.state, surface, bcheck, logger);
+          component.state, surface, bcheck, getDummyLogger());
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
-    constexpr static std::array<const char*, 3> s = {"missed/unreachable",
-                                                     "reachable", "onSurface"};
+    constexpr static std::array s = {"missed/unreachable", "reachable",
+                                     "onSurface"};
 
-    ACTS_INFO("COMPONENTS STATUS: " << [&]() {
-      std::stringstream ss;
-      for (auto& component : state.components) {
-        ss << s[static_cast<std::size_t>(component.status)] << ",";
-      }
-      return ss.str();
-    }());
+    ACTS_VERBOSE("Component status wrt "
+                 << surface.geometryId() << " at {"
+                 << surface.center(state.geoContext).transpose() << "}:\t"
+                 << [&]() {
+                      std::stringstream ss;
+                      for (auto& component : state.components) {
+                        ss << s[static_cast<std::size_t>(component.status)]
+                           << "\t";
+                      }
+                      return ss.str();
+                    }());
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -493,16 +506,7 @@ class MultiEigenStepperLoop
   ///   - and the path length (from start - for ordering)
   CurvilinearState curvilinearState(State& state,
                                     bool transportCov = true) const {
-    // TODO how to handle this. A correct result will be likely not needed
-    // anywhere, but could be expensive to compute
-    if (numberComponents(state) != 1) {
-      auto loggerInstance =
-          Acts::getDefaultLogger("MultiEigenStepperLoop", Acts::Logging::INFO);
-      Acts::LoggerWrapper logger(*loggerInstance);
-      ACTS_WARNING(
-          "Curvilinear State of a MultiComponentState is computed, the result "
-          "will be not represenative");
-    }
+    // TODO this is not correct, but not needed right now somewhere...
     return SingleStepper::curvilinearState(state.components.front().state,
                                            transportCov);
   }
@@ -605,14 +609,25 @@ class MultiEigenStepperLoop
       decltype(state.navigation)& navigation;
       SingleState& stepping;
     };
+    
+    
+    std::stringstream ss;
 
     for (auto& component : state.stepping.components) {
-      if (component.status != Intersection3D::Status::reachable)
+      if (component.status != Intersection3D::Status::reachable) {
+        ss << "cmp skipped\t";
         continue;
-
+      }
+      
       SinglePropState single_state{state.options, state.navigation,
                                    component.state};
       results.push_back(SingleStepper::step(single_state));
+      
+      if( results.back().ok() ) {
+          ss << *results.back() << "\t";
+      } else {
+          ss << "step error: " << results.back().error() << "\t";
+      }
     }
 
     if (results.empty())
@@ -622,10 +637,7 @@ class MultiEigenStepperLoop
     for (auto& res : results)
       ok_results.push_back(&res);
 
-    //     std::cout << "h array = ";
-    //     for(auto r : ok_results)
-    //         std::cout << r->value() << " ";
-    //     std::cout << '\n';
+    ACTS_VERBOSE("Performed steps: " << ss.str());
 
     if (ok_results.empty())
       return results.front().error();

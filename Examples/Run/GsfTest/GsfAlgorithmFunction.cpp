@@ -6,16 +6,27 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include "GsfAlgorithmFunction.hpp"
+
+#include "Acts/Propagator/Navigator.hpp"
+#include "Acts/Propagator/Propagator.hpp"
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
-#include "Acts/Propagator/Navigator.hpp"
-#include "Acts/Propagator/Propagator.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
 
-#include "GsfActor.hpp"
+#include "GaussianSumFitter.hpp"
 #include "MultiEigenStepperLoop.hpp"
-#include "GSFAlgorithmFunction.hpp"
+
+bool gsfThrowOnAbort = false;
+
+void setGsfAbortOnError() {
+  gsfThrowOnAbort = true;
+}
+
+void unsetGsfThrowOnAbort() {
+  gsfThrowOnAbort = false;
+}
 
 // Kalman Components
 using Updater = Acts::GainMatrixUpdater;
@@ -40,28 +51,32 @@ struct GsfFitterFunction {
   ActsExamples::TrackFittingAlgorithm::TrackFitterResult operator()(
       const std::vector<ActsExamples::IndexSourceLink>& sourceLinks,
       const ActsExamples::TrackParameters& initialParameters,
-      const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions& kalmanOptions,
-      const std::vector<const Acts::Surface*>& sSequence)
-      const {
-
+      const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions&
+          kalmanOptions,
+      const std::vector<const Acts::Surface*>& sSequence) const {
     Acts::GsfOptions<Calibrator, OutlierFinder> gsfOptions{
         kalmanOptions.calibrator,
         kalmanOptions.outlierFinder,
         kalmanOptions.geoContext,
         kalmanOptions.magFieldContext,
         kalmanOptions.referenceSurface,
-        kalmanOptions.logger
-    };
+        kalmanOptions.logger,
+        gsfThrowOnAbort};
 
-    return trackFitter.fit(sourceLinks, initialParameters, gsfOptions, sSequence);
+    return trackFitter.fit(sourceLinks, initialParameters, gsfOptions,
+                           sSequence);
   };
 };
 
-ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction makeGsfFitterFunction(
-      std::shared_ptr<const Acts::TrackingGeometry> /*trackingGeometry*/,
-      std::shared_ptr<const Acts::MagneticFieldProvider> magneticField)
-{
-  Stepper stepper(std::move(magneticField));
+ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction
+makeGsfFitterFunction(
+    std::shared_ptr<const Acts::TrackingGeometry> /*trackingGeometry*/,
+    std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
+    Acts::LoggerWrapper logger) {
+  using namespace Acts::UnitLiterals;
+    
+  Stepper stepper(std::move(magneticField), logger);
+  stepper.setOverstepLimit(1_mm);
   Acts::DirectNavigator navigator;
   Propagator propagator(std::move(stepper), std::move(navigator));
   Fitter trackFitter(std::move(propagator));

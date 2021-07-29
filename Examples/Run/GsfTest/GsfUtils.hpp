@@ -265,6 +265,15 @@ std::vector<BoundTrackParameters> combineForwardAndBackwardPass(
   return ret;
 }
 
+/// Enumeration type used in extractMultiComponentStates(...)
+enum class StatesType { ePredicted, eFiltered, eSmoothed };
+
+std::ostream &operator<<(std::ostream &os, StatesType type) {
+  constexpr static std::array names = {"predicted", "filtered", "smoothed"};
+  os << names[static_cast<int>(type)];
+  return os;
+}
+
 /// @brief Extracts a MultiComponentState from a MultiTrajectory.
 ///
 /// @param usePredicted Wether to use the predicted state (true) or the
@@ -273,8 +282,8 @@ template <typename source_link_t>
 auto extractMultiComponentStates(const MultiTrajectory<source_link_t> &traj,
                                  std::vector<size_t> tips,
                                  const std::map<size_t, ActsScalar> &weights,
-                                 bool usePredicted) {
-  throw_assert(!tips.empty(), "need at least one component");
+                                 StatesType type) {
+  throw_assert(!tips.empty(), "need at least one component to extract trajectory of type " << type);
 
   std::vector<MultiComponentState> ret;
 
@@ -294,12 +303,18 @@ auto extractMultiComponentStates(const MultiTrajectory<source_link_t> &traj,
       throw_assert(weights.find(tip) != weights.end(),
                    "Could not find weight for idx " << tip);
 
-      if (usePredicted) {
-        std::get<1>(state).push_back(
-            {weights.at(tip), proxy.predicted(), proxy.predictedCovariance()});
-      } else {
-        std::get<1>(state).push_back(
-            {weights.at(tip), proxy.filtered(), proxy.filteredCovariance()});
+      switch (type) {
+        case StatesType::ePredicted:
+          std::get<1>(state).push_back({weights.at(tip), proxy.predicted(),
+                                        proxy.predictedCovariance()});
+          break;
+        case StatesType::eFiltered:
+          std::get<1>(state).push_back(
+              {weights.at(tip), proxy.filtered(), proxy.filteredCovariance()});
+          break;
+        case StatesType::eSmoothed:
+          std::get<1>(state).push_back(
+              {weights.at(tip), proxy.smoothed(), proxy.smoothedCovariance()});
       }
 
       if (!std::get<0>(state)) {

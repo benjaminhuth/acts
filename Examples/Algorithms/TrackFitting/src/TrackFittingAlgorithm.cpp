@@ -106,6 +106,9 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     // Clear & reserve the right size
     trackSourceLinks.clear();
     trackSourceLinks.reserve(protoTrack.size());
+    
+    // TODO why is this not here for now?
+    surfSequence.clear();
 
     // Fill the source links via their indices from the container
     for (auto hitIndex : protoTrack) {

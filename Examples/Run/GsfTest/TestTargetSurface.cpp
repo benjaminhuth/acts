@@ -67,7 +67,7 @@ int main() {
   std::vector<
       std::shared_ptr<ActsExamples::Telescope::TelescopeDetectorElement>>
       detectorElementStorage;
-  const std::vector<double> distances = {0_mm, 100_mm, 200_mm};
+  const std::vector<double> distances = {100_mm, 200_mm, 300_mm};
   const std::array<double, 2> offsets = {0.0_mm, 0.0_mm};
   const std::array<double, 2> bounds = {100._mm, 100._mm};
   const double thickness = 10._mm;
