@@ -20,5 +20,8 @@ makeGsfFitterFunction(
 
 
 
-void setGsfAbortOnError();
-void unsetGsfThrowOnAbort();
+void setGsfAbortOnError(bool);
+bool getGsfAbortOnError();
+
+void setGsfMaxComponents(std::size_t);
+std::size_t getGsfMaxComponents();

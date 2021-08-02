@@ -56,6 +56,8 @@ struct GsfOptions {
   LoggerWrapper logger;
 
   bool throwOnError = true;
+
+  std::size_t maxComponents = 4;
 };
 
 template <typename source_link_t>
@@ -292,7 +294,7 @@ struct GaussianSumFitter {
         auto boundState = old_cmp.boundState(surface, m_config.doCovTransport);
 
         if (old_cmp.status() != Intersection3D::Status::onSurface) {
-          ACTS_WARNING("component not on surface anymore, ignore it");
+          ACTS_VERBOSE("component not on surface anymore, ignore it");
           continue;
         }
 
@@ -564,7 +566,7 @@ struct GaussianSumFitter {
     // Catch the actor and set the measurements
     auto& actor = propOptions.actionList.template get<GSFActor>();
     actor.m_config.inputMeasurements = inputMeasurements;
-    actor.m_config.maxComponents = 4;  // for easier debugging just 4 components
+    actor.m_config.maxComponents = options.maxComponents;
     actor.m_calibrator = options.calibrator;
     actor.m_outlierFinder = options.outlierFinder;
     actor.m_config.abortOnError = options.throwOnError;

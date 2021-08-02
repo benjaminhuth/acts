@@ -188,13 +188,18 @@ int main(int argc, char **argv) {
               << "Number of simulated particles (default: 1)\n";
     std::cout << "\t -s <val>         \t"
               << "Seed for the RNG (default: std::random_device{}()\n";
-    std::cout << "\t --no-gsf         \t" << "Disable the GSF\n";
-    std::cout << "\t --no-kalman      \t" << "Disable the Kalman Filter\n";
+    std::cout << "\t -c <val>         \t"
+              << "Max number of GSF components (default: 4)\n";
+    std::cout << "\t --no-gsf         \t"
+              << "Disable the GSF\n";
+    std::cout << "\t --no-kalman      \t"
+              << "Disable the Kalman Filter\n";
     std::cout << "\t -v-gsf           \t"
               << "GSF algorithm verbose\n";
     std::cout << "\t -v               \t"
               << "All algorithms verbose (except the GSF)\n";
-    std::cout << "\t --gsf-abort-error\t" << "Call std::abort on some GSF errors\n";
+    std::cout << "\t --gsf-abort-error\t"
+              << "Call std::abort on some GSF errors\n";
     return EXIT_SUCCESS;
   }
 
@@ -230,13 +235,20 @@ int main(int argc, char **argv) {
     }
     return std::random_device{}();
   }();
-  
-  if( std::find(begin(args), end(args), "--gsf-abort-error") != args.end()){
-      setGsfAbortOnError();
+
+  if (std::find(begin(args), end(args), "--gsf-abort-error") != args.end()) {
+    setGsfAbortOnError(true);
   }
-  
-  const bool doGsf = std::find(begin(args), end(args), "--no-gsf") == args.end();
-  const bool doKalman = std::find(begin(args), end(args), "--no-kalman") == args.end();
+
+  if (auto found = std::find(begin(args), end(args), "-c");
+      found != args.end() && std::next(found) != args.end()) {
+    setGsfMaxComponents(std::stoi(*std::next(found)));
+  }
+
+  const bool doGsf =
+      std::find(begin(args), end(args), "--no-gsf") == args.end();
+  const bool doKalman =
+      std::find(begin(args), end(args), "--no-kalman") == args.end();
 
   // Export the seed for reproducibility
   {
@@ -248,6 +260,16 @@ int main(int argc, char **argv) {
   auto mainLogger = Acts::getDefaultLogger("main logger", globalLogLevel);
   auto multiStepperLogger = Acts::getDefaultLogger("MultiStepper", gsfLogLevel);
   ACTS_LOCAL_LOGGER(std::move(mainLogger));
+
+  ACTS_INFO("Parameters: numParticles = " << numParticles);
+  ACTS_INFO("Parameters: B-Field = " << bfValue * Acts::UnitConstants::T
+                                     << "T");
+  ACTS_INFO("Parameters: RNG seed = " << seed);
+  ACTS_INFO("Parameters: " << (doGsf ? "do GSF" : "no Gsf") << ", "
+                           << (doKalman ? "do Kalman" : "no Kalman"));
+  ACTS_INFO("Parameters: Abort on error: " << std::boolalpha
+                                           << getGsfAbortOnError());
+  ACTS_INFO("Parameters: GSF max components: " << getGsfMaxComponents());
 
   // Setup the sequencer
   ActsExamples::Sequencer::Config seqCfg;
@@ -452,8 +474,7 @@ int main(int argc, char **argv) {
   ////////////////////////
   // Gaussian Sum Filter
   ////////////////////////
-  if( doGsf )
-  {
+  if (doGsf) {
     ActsExamples::TrackFittingAlgorithm::Config cfg;
 
     cfg.inputMeasurements = kMeasurements;
@@ -476,8 +497,7 @@ int main(int argc, char **argv) {
   //////////////////////////////////
   // Kalman Fitter for comparison //
   //////////////////////////////////
-  if( doKalman )
-  {
+  if (doKalman) {
     ActsExamples::TrackFittingAlgorithm::Config cfg;
 
     cfg.inputMeasurements = kMeasurements;
@@ -516,8 +536,7 @@ int main(int argc, char **argv) {
   ////////////////////////////////////////////
   // Track Fitter Performance Writer for GSF
   ////////////////////////////////////////////
-  if( doGsf )
-  {
+  if (doGsf) {
     ActsExamples::TrackFitterPerformanceWriter::Config cfg;
     cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
     cfg.inputParticles = kGeneratedParticles;
@@ -528,26 +547,26 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::TrackFitterPerformanceWriter>(
             cfg, globalLogLevel));
   }
-  
-  if( doGsf )
-  {
-      ActsExamples::RootTrajectoryStatesWriter::Config cfg;
-      cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
-      cfg.inputMeasurementSimHitsMap = kMeasurementSimHitMap;
-      cfg.inputParticles = kGeneratedParticles;
-      cfg.inputSimHits = kSimulatedHits;
-      cfg.inputTrajectories = kGsfOutputTrajectories;
-      cfg.outputFilename = "gsf_trackstates.root";
-      cfg.outputTreename = "gsf_trackstates_tree.root";
-      
-      sequencer.addWriter(std::make_shared<ActsExamples::RootTrajectoryStatesWriter>(cfg, globalLogLevel));
+
+  if (doGsf) {
+    ActsExamples::RootTrajectoryStatesWriter::Config cfg;
+    cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
+    cfg.inputMeasurementSimHitsMap = kMeasurementSimHitMap;
+    cfg.inputParticles = kGeneratedParticles;
+    cfg.inputSimHits = kSimulatedHits;
+    cfg.inputTrajectories = kGsfOutputTrajectories;
+    cfg.outputFilename = "gsf_trackstates.root";
+    cfg.outputTreename = "tree";
+
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::RootTrajectoryStatesWriter>(
+            cfg, globalLogLevel));
   }
 
   //////////////////////////////////////////////////////
   // Track Fitter Performance Writer for Kalman Fitter
   //////////////////////////////////////////////////////
-  if( doKalman )
-  {
+  if (doKalman) {
     ActsExamples::TrackFitterPerformanceWriter::Config cfg;
     cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
     cfg.inputParticles = kGeneratedParticles;
@@ -558,19 +577,20 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::TrackFitterPerformanceWriter>(
             cfg, globalLogLevel));
   }
-  
-  if( doKalman )
-  {
-      ActsExamples::RootTrajectoryStatesWriter::Config cfg;
-      cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
-      cfg.inputMeasurementSimHitsMap = kMeasurementSimHitMap;
-      cfg.inputParticles = kGeneratedParticles;
-      cfg.inputSimHits = kSimulatedHits;
-      cfg.inputTrajectories = kKalmanOutputTrajectories;
-      cfg.outputFilename = "kalman_trackstates.root";
-      cfg.outputTreename = "kalman_trackstates_tree.root";
-      
-      sequencer.addWriter(std::make_shared<ActsExamples::RootTrajectoryStatesWriter>(cfg, globalLogLevel));
+
+  if (doKalman) {
+    ActsExamples::RootTrajectoryStatesWriter::Config cfg;
+    cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
+    cfg.inputMeasurementSimHitsMap = kMeasurementSimHitMap;
+    cfg.inputParticles = kGeneratedParticles;
+    cfg.inputSimHits = kSimulatedHits;
+    cfg.inputTrajectories = kKalmanOutputTrajectories;
+    cfg.outputFilename = "kalman_trackstates.root";
+    cfg.outputTreename = "tree";
+
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::RootTrajectoryStatesWriter>(
+            cfg, globalLogLevel));
   }
 
 #if 0

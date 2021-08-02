@@ -18,14 +18,25 @@
 #include "GaussianSumFitter.hpp"
 #include "MultiEigenStepperLoop.hpp"
 
+namespace {
 bool gsfThrowOnAbort = false;
+std::size_t maxComponents = 4;
+}  // namespace
 
-void setGsfAbortOnError() {
-  gsfThrowOnAbort = true;
+void setGsfAbortOnError(bool aoe) {
+  gsfThrowOnAbort = aoe;
 }
 
-void unsetGsfThrowOnAbort() {
-  gsfThrowOnAbort = false;
+bool getGsfAbortOnError() {
+  return gsfThrowOnAbort;
+}
+
+void setGsfMaxComponents(std::size_t c) {
+  maxComponents = c;
+}
+
+std::size_t getGsfMaxComponents() {
+  return maxComponents;
 }
 
 // Kalman Components
@@ -61,7 +72,8 @@ struct GsfFitterFunction {
         kalmanOptions.magFieldContext,
         kalmanOptions.referenceSurface,
         kalmanOptions.logger,
-        gsfThrowOnAbort};
+        gsfThrowOnAbort,
+        maxComponents};
 
     return trackFitter.fit(sourceLinks, initialParameters, gsfOptions,
                            sSequence);
@@ -74,7 +86,7 @@ makeGsfFitterFunction(
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
     Acts::LoggerWrapper logger) {
   using namespace Acts::UnitLiterals;
-    
+
   Stepper stepper(std::move(magneticField), logger);
   stepper.setOverstepLimit(1_mm);
   Acts::DirectNavigator navigator;
