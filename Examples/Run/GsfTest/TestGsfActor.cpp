@@ -61,120 +61,6 @@ const char *kProtoTrackParameters = "proto-track-parameters";
 const char *kKalmanOutputTrajectories = "kalman-output";
 const char *kGsfOutputTrajectories = "gsf-output";
 
-struct ComparisonAlgorithm : public ActsExamples::BareAlgorithm {
-  struct Config {
-    std::string inTrajectoriesGsf;
-    std::string inTrajectoriesKalman;
-    std::string inSimulatedHits;
-    std::string inSimulatedParticlesInitial;
-  } m_cfg;
-
-  ComparisonAlgorithm(const Config &cfg, Acts::Logging::Level level)
-      : ActsExamples::BareAlgorithm("Comparison Algorithm", level),
-        m_cfg(cfg) {}
-
-  ActsExamples::ProcessCode execute(
-      const ActsExamples::AlgorithmContext &ctx) const override {
-    auto gsfTrajectory =
-        ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(
-            m_cfg.inTrajectoriesGsf)[0];
-    auto kalmanTrajectory =
-        ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(
-            m_cfg.inTrajectoriesKalman)[0];
-    auto trueHits = ctx.eventStore.get<ActsExamples::SimHitContainer>(
-        m_cfg.inSimulatedHits);
-    auto trueParticles = ctx.eventStore.get<ActsExamples::SimParticleContainer>(
-        m_cfg.inSimulatedParticlesInitial);
-
-    std::vector<ActsExamples::SimParticle> simParticleVector(
-        trueParticles.begin(), trueParticles.end());
-
-    simParticleVector.erase(
-        std::remove_if(simParticleVector.begin(), simParticleVector.end(),
-                       [](const auto &p) {
-                         return p.pdg() != Acts::PdgParticle::eElectron;
-                       }),
-        simParticleVector.end());
-
-    for (const auto &p : simParticleVector) {
-      std::cout << "particle is electron? " << std::boolalpha
-                << (p.pdg() == Acts::PdgParticle::eElectron) << "\n";
-    }
-
-    throw_assert(simParticleVector.size() == 1, "more than one particle?");
-    const auto &particle = simParticleVector.front();
-
-    std::size_t gsfIdx = gsfTrajectory.tips()[0];
-    std::size_t kalmanIdx = kalmanTrajectory.tips()[0];
-
-    std::cout << "*************************\n";
-    std::cout << "* GSF VS KALMAN RESULTS *\n";
-    std::cout << "*************************\n\n";
-
-    // Fitted Parameters
-    std::cout << "Fitted paramteters at start (free):\n\n";
-
-    std::cout << "\tGSF: "
-              << Acts::detail::transformBoundToFreeParameters(
-                     gsfTrajectory.trackParameters(gsfIdx).referenceSurface(),
-                     ctx.geoContext,
-                     gsfTrajectory.trackParameters(gsfIdx).parameters())
-                     .transpose()
-              << "\n";
-    std::cout
-        << "\tKalman: "
-        << Acts::detail::transformBoundToFreeParameters(
-               kalmanTrajectory.trackParameters(kalmanIdx).referenceSurface(),
-               ctx.geoContext,
-               kalmanTrajectory.trackParameters(kalmanIdx).parameters())
-               .transpose()
-        << "\n";
-    std::cout << "\tTrue: " << particle.fourPosition().transpose()
-              << particle.unitDirection().transpose() << "  "
-              << particle.charge() / particle.absoluteMomentum() << "\n";
-
-    std::cout << "\n\nTrack states (as free parameters): \n\n";
-    std::cout << "-----------------------------------\n";
-
-    std::vector<ActsFatras::Hit> trueHitVector(trueHits.begin(),
-                                               trueHits.end());
-    std::reverse(trueHitVector.begin(), trueHitVector.end());
-    auto trueHitIterator = trueHitVector.cbegin();
-    // Stupid but didnt want to think about why SIZE_MAX does not work here
-    while (gsfIdx != std::numeric_limits<uint16_t>::max() &&
-           kalmanIdx != std::numeric_limits<uint16_t>::max()) {
-      const auto gsfProxy =
-          gsfTrajectory.multiTrajectory().getTrackState(gsfIdx);
-      gsfIdx = gsfProxy.previous();
-
-      const auto kalmanProxy =
-          kalmanTrajectory.multiTrajectory().getTrackState(kalmanIdx);
-      kalmanIdx = kalmanProxy.previous();
-
-      std::cout << "\tGSF:      "
-                << Acts::detail::transformBoundToFreeParameters(
-                       gsfProxy.referenceSurface(), ctx.geoContext,
-                       gsfProxy.smoothed())
-                       .transpose()
-                << "\n";
-      std::cout << "\tKalman:   "
-                << Acts::detail::transformBoundToFreeParameters(
-                       kalmanProxy.referenceSurface(), ctx.geoContext,
-                       kalmanProxy.smoothed())
-                       .transpose()
-                << "\n";
-      std::cout << "\tTrue Hit: " << trueHitIterator->fourPosition().transpose()
-                << "\n";
-      std::cout << "-----------------------------------\n";
-
-      trueHitIterator++;
-    }
-
-    std::cout << "\n";
-
-    return ActsExamples::ProcessCode::SUCCESS;
-  }
-};
 
 int main(int argc, char **argv) {
   const std::vector<std::string> args(argv, argv + argc);
@@ -200,6 +86,7 @@ int main(int argc, char **argv) {
               << "All algorithms verbose (except the GSF)\n";
     std::cout << "\t --gsf-abort-error\t"
               << "Call std::abort on some GSF errors\n";
+    std::cout << "\t --help\t" << "Print the help message\n";
     return EXIT_SUCCESS;
   }
 
@@ -285,9 +172,7 @@ int main(int argc, char **argv) {
   auto magField =
       std::make_shared<MagneticField>(Acts::Vector3(0.0, 0.0, bfValue));
 
-  // Tracking Geometry
-  //   auto [start_surface, detector] = build_tracking_geometry();
-
+  // Make the telescope detector
   const typename ActsExamples::Telescope::TelescopeDetectorElement::ContextType
       detectorContext;
   std::vector<
@@ -318,21 +203,20 @@ int main(int argc, char **argv) {
   });
 
   throw_assert(some_surface, "no valid surface found");
-
-  // Make a start surface
-  auto startBounds = std::make_shared<Acts::RectangleBounds>(1000, 1000);
-  Acts::Transform3 trafo =
-      Acts::Transform3::Identity() *
-      Eigen::AngleAxisd(0.5 * M_PI, Eigen::Vector3d::UnitY());
-  auto startSurface =
-      Acts::Surface::makeShared<Acts::PlaneSurface>(trafo, startBounds);
-
   ACTS_VERBOSE(
       "some surface normal: "
       << some_surface->normal(geoCtx, Acts::Vector2{0, 0}).transpose());
-  ACTS_VERBOSE(
-      "start surface normal: "
-      << startSurface->normal(geoCtx, Acts::Vector2{0, 0}).transpose());
+
+  // Make a start surface
+//   auto startBounds = std::make_shared<Acts::RectangleBounds>(1000, 1000);
+//   Acts::Transform3 trafo =
+//       Acts::Transform3::Identity() *
+//       Eigen::AngleAxisd(0.5 * M_PI, Eigen::Vector3d::UnitY());
+//   auto startSurface =
+//       Acts::Surface::makeShared<Acts::PlaneSurface>(trafo, startBounds);
+//   ACTS_VERBOSE(
+//       "start surface normal: "
+//       << startSurface->normal(geoCtx, Acts::Vector2{0, 0}).transpose());
 
   /////////////////////
   // Particle gun
@@ -455,7 +339,7 @@ int main(int argc, char **argv) {
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::ParticleSmearing>(cfg, globalLogLevel));
   }
-#if 1
+  
   /////////////////
   // Select Tracks
   /////////////////
@@ -469,8 +353,7 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::ProtoTrackLengthSelector>(
             cfg, globalLogLevel));
   }
-#endif
-#if 1
+  
   ////////////////////////
   // Gaussian Sum Filter
   ////////////////////////
@@ -484,7 +367,7 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.directNavigation = true;
     cfg.trackingGeometry = detector;
-    cfg.targetSurface = startSurface;
+//     cfg.targetSurface = startSurface;
     cfg.dFit = makeGsfFitterFunction(detector, magField,
                                      Acts::LoggerWrapper(*multiStepperLogger));
 
@@ -492,8 +375,7 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
                                                               gsfLogLevel));
   }
-#endif
-#if 1
+  
   //////////////////////////////////
   // Kalman Fitter for comparison //
   //////////////////////////////////
@@ -515,23 +397,6 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
                                                               globalLogLevel));
   }
-#endif
-
-#if 0
-  ////////////////////////
-  // Print comparison
-  ////////////////////////
-  {
-    ComparisonAlgorithm::Config cfg;
-    cfg.inTrajectoriesGsf = kGsfOutputTrajectories;
-    cfg.inTrajectoriesKalman = kKalmanOutputTrajectories;
-    cfg.inSimulatedHits = kSimulatedHits;
-    cfg.inSimulatedParticlesInitial = kSimulatedParticlesInitial;
-
-    sequencer.addAlgorithm(
-        std::make_shared<ComparisonAlgorithm>(cfg, globalLogLevel));
-  }
-#endif
 
   ////////////////////////////////////////////
   // Track Fitter Performance Writer for GSF

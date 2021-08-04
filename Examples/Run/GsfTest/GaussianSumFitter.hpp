@@ -510,6 +510,13 @@ struct GaussianSumFitter {
       return GsfError::NoStatesCreated;
     }
 
+    //// THIS IS JUST A TEST FOR COMPILING ////
+    detail::smoothAndCombineTrajectories(gsfResult.fittedStates, gsfResult.currentTips,
+                                 gsfResult.weightsOfStates,
+                                 gsfResult.fittedStates, gsfResult.currentTips,
+                                 gsfResult.weightsOfStates);
+    //////////////////////////////////////////
+
     auto states = detail::extractMultiComponentStates(
         gsfResult.fittedStates, gsfResult.currentTips,
         gsfResult.weightsOfStates, type);
@@ -573,7 +580,6 @@ struct GaussianSumFitter {
 
     // TODO This seems so solve some issues in the navigation
     //     propOptions.tolerance = 1e-5;
-    
 
     /////////////////
     // Forward pass

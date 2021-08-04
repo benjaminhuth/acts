@@ -26,9 +26,9 @@ class PredictedFilteredSmoothed:
         self.flt = BoundCollection()
         self.smt = BoundCollection()
 
-def importTree(tree):
-    totalPulls = PredictedFilteredSmoothed()
-    surfacePulls = dict()
+def importTree(tree, prefix):
+    totalResults = PredictedFilteredSmoothed()
+    surfaceResults = dict()
 
     for particle in tree:
         volume_ids = tree.volume_id
@@ -36,24 +36,24 @@ def importTree(tree):
 
         for trackType in trackTypes():
             for coor in boundNames():
-                composed = "pull_e" + coor + "_" + trackType
+                composed = prefix + "_e" + coor + "_" + trackType
 
                 vec = getattr(particle, composed)
 
                 for x in vec:
-                    getattr(getattr(totalPulls,trackType),coor).append(x)
+                    getattr(getattr(totalResults,trackType),coor).append(x)
 
                 for i, (vol_id, lay_id) in enumerate(zip(particle.volume_id, particle.layer_id)):
-                    if not vol_id in surfacePulls:
-                        surfacePulls[vol_id] = dict()
-                    if not lay_id in surfacePulls[vol_id]:
-                        surfacePulls[vol_id][lay_id] = PredictedFilteredSmoothed()
+                    if not vol_id in surfaceResults:
+                        surfaceResults[vol_id] = dict()
+                    if not lay_id in surfaceResults[vol_id]:
+                        surfaceResults[vol_id][lay_id] = PredictedFilteredSmoothed()
 
-                    getattr(getattr(surfacePulls[vol_id][lay_id],trackType),coor).append(vec[i])
+                    getattr(getattr(surfaceResults[vol_id][lay_id],trackType),coor).append(vec[i])
 
-    return totalPulls, surfacePulls
+    return totalResults, surfaceResults 
 
-def plotPullsAllCoords(pullCollection, title):
+def plotCollectionAllCoords(Collection, title):
     fig, ax = plt.subplots(2,3)
 
     axes = [ ax[0,0], ax[0,1], ax[0,2], ax[1,0], ax[1,1], ax[1,2] ]
@@ -63,7 +63,7 @@ def plotPullsAllCoords(pullCollection, title):
     for ax, coor in zip(axes, boundNames()):
         legend = []
         for trackType in trackTypes():
-            values = getattr(getattr(pullCollection,trackType),coor)
+            values = getattr(getattr(Collection,trackType),coor)
 
             mu, sigma = norm.fit(values)
             ax.hist(values, 20, histtype='step', stacked=False, fill=False, density=True)
@@ -91,12 +91,12 @@ def getSubplotsSize(n):
     return nRows, nCols
 
 
-def plotPullsOneCoord(volLayerDict, volLayerList, coor, fitterType):
+def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, resultType):
     nPlots = len(volLayerList)
     nRows, nCols = getSubplotsSize(nPlots)
 
     fig, ax = plt.subplots(nRows, nCols)
-    fig.suptitle("{} surface pulls: {}".format(fitterType,coor))
+    fig.suptitle("{} surface {}: {}".format(fitterType,resultType,coor))
 
     axes = [ ax[i//nCols, i%nCols] for i in range(nPlots) ]
 
@@ -154,13 +154,15 @@ assert os.path.exists(filename)
 inFile = ROOT.TFile.Open(filename)
 tree = inFile.Get("tree")
 
-totalPulls, surfacePulls = importTree(tree)
+resultType = "res"
 
-plotPullsAllCoords(totalPulls, "Total Pulls ({})".format(fitterType))
+totalResults, surfaceResults = importTree(tree, resultType)
+
+plotCollectionAllCoords (totalResults, "Total {} ({})".format(resultType,fitterType))
 plt.show()
 
 for coor in boundNames():
-    plotPullsOneCoord(surfacePulls, [(1,2), (1,4), (1,6), (1,8), (1,10)], coor, fitterType)
+    plotCollectionOneCoord(surfaceResults, [(1,2), (1,4), (1,6), (1,8), (1,10)], coor, fitterType, resultType)
     plt.show()
 
 #for vol_id in surfacePulls:

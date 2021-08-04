@@ -84,6 +84,7 @@ auto combineComponentRange(const component_iterator_t begin,
                            const component_iterator_t end,
                            projector_t &&projector = projector_t{},
                            bool checkIfNormalized = false) {
+  using ret_type = std::tuple<BoundVector, std::optional<BoundSymMatrix>>;
   BoundVector mean = BoundVector::Zero();
   BoundSymMatrix cov1 = BoundSymMatrix::Zero();
   BoundSymMatrix cov2 = BoundSymMatrix::Zero();
@@ -92,7 +93,7 @@ auto combineComponentRange(const component_iterator_t begin,
   const auto &[begin_weight, begin_pars, begin_cov] = projector(*begin);
 
   if (std::distance(begin, end) == 1) {
-    return std::make_tuple(begin_pars, begin_cov);
+    return ret_type{begin_pars, *begin_cov};
   }
 
   const double referencePhi = begin_pars[eBoundPhi];
@@ -132,10 +133,7 @@ auto combineComponentRange(const component_iterator_t begin,
                  "weights are not normalized");
   }
 
-  return std::make_tuple(
-      (mean / sumOfWeights).eval(),
-      std::optional{
-          (cov1 / sumOfWeights + cov2 / (sumOfWeights * sumOfWeights)).eval()});
+  return ret_type{mean / sumOfWeights, cov1 / sumOfWeights + cov2 / (sumOfWeights * sumOfWeights)};
 }
 
 /// @brief Function that reduces the number of components. at the moment,
@@ -283,7 +281,9 @@ auto extractMultiComponentStates(const MultiTrajectory<source_link_t> &traj,
                                  std::vector<size_t> tips,
                                  const std::map<size_t, ActsScalar> &weights,
                                  StatesType type) {
-  throw_assert(!tips.empty(), "need at least one component to extract trajectory of type " << type);
+  throw_assert(
+      !tips.empty(),
+      "need at least one component to extract trajectory of type " << type);
 
   std::vector<MultiComponentState> ret;
 
@@ -369,6 +369,91 @@ auto bayesianSmoothing(const MultiComponentState &fwd,
   }
 
   return smoothedState;
+}
+
+
+template <typename component_iterator_t, typename projector_t = Identity>
+auto MultiTrajectory<source_link_t> bayesianSmoothing(
+    component_iterator_t fwdBegin, component_iterator_t fwdEnd, component_iterator_t bwdBegin, component_iterator_t bwdEnd,
+    projector_t fwdProjector = projector_t{}, projector_t bwdProjector = projector_t{}) {
+  std::vector<std::tuple<double, BoundVector, std::optional<BoundSymMatrix>>> smoothedState;
+  
+
+  for (const auto &[weight_a, pars_a, cov_a] : std::get<1>(fwd)) {
+    throw_assert(cov_a, "for now we require a covariance here");
+
+    for (const auto &[weight_b, pars_b, cov_b] : std::get<1>(bwd)) {
+      throw_assert(cov_b, "for now we require a covariance here");
+
+      const auto summedCov = *cov_a + *cov_b;
+      const auto K = *cov_a * summedCov.inverse();
+      const auto new_pars = (pars_a + K * (pars_b - pars_a)).eval();
+      const auto new_cov = (K * *cov_b).eval();
+
+      const auto diff = pars_a - pars_b;
+      const ActsScalar exponent = diff.transpose() * summedCov.inverse() * diff;
+
+      const auto new_weight = std::exp(-0.5 * exponent) * weight_a * weight_b;
+
+      std::get<1>(smoothedState).push_back({new_weight, new_pars, new_cov});
+    }
+  }
+
+  return smoothedState;
+}
+
+
+template <typename source_link_t>
+MultiTrajectory<source_link_t> smoothAndCombineTrajectories(
+    const MultiTrajectory<source_link_t> &fwd,
+    const std::vector<std::size_t> &fwdStartTips,
+    const std::map<std::size_t, double> &fwdWeights,
+    const MultiTrajectory<source_link_t> bwd,
+    const std::vector<std::size_t> &bwdStartTips,
+    const std::map<std::size_t, double> &bwdWeights) {
+  // Use backward trajectory as basic trajectory, so that final trajectory is
+  // ordered correctly
+  std::vector<std::size_t> bwdTips = bwdStartTips;
+  MultiTrajectory<source_link_t> finalTrajectory;
+
+  // MultiTrajectory uses uint16_t internally
+  while (std::none_of(bwdTips.begin(), bwdTips.end(), [](auto i) {
+    return i == std::numeric_limits<uint16_t>::max();
+  })) {
+    const auto firstBwdState = bwd.getTrackState(bwdTips.front());
+
+    // Search corresponding forward tips
+    std::vector<std::size_t> fwdTips;
+
+    for (const auto tip : fwdStartTips) {
+      fwd.visitBackwards(tip, [&](const auto &state) {
+        if (state.referenceSurface().geometryId() ==
+            firstBwdState.referenceSurface().geometryId()) {
+          fwdTips.push_back(state.index());
+        }
+      });
+    }
+
+    throw_assert(fwdTips.size() == bwdTips.size(), "size mismatch");
+
+    const auto [fwdMeanPred, fwdCovPred] = combineComponentRange(
+        fwdTips.begin(), fwdTips.end(), [&](std::size_t idx) {
+          const auto proxy = fwd.getTrackState(idx);
+          return std::make_tuple(fwdWeights.at(idx), proxy.predicted(),
+                          std::optional{proxy.predictedCovariance()});
+        });
+    
+    const auto [bwdMeanFilt, bwdCovFilt] = combineComponentRange(
+        bwdTips.begin(), bwdTips.end(), [&](std::size_t idx) {
+          const auto proxy = bwd.getTrackState(idx);
+          return std::make_tuple(bwdWeights.at(idx), proxy.predicted(),
+                          std::optional{proxy.predictedCovariance()});
+        });
+    
+    
+  }
+
+  return finalTrajectory;
 }
 
 }  // namespace detail

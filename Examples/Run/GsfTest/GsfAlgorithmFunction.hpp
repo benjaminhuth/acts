@@ -18,8 +18,6 @@ makeGsfFitterFunction(
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
     Acts::LoggerWrapper logger);
 
-
-
 void setGsfAbortOnError(bool);
 bool getGsfAbortOnError();
 
