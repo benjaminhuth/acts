@@ -133,7 +133,8 @@ auto combineComponentRange(const component_iterator_t begin,
                  "weights are not normalized");
   }
 
-  return ret_type{mean / sumOfWeights, cov1 / sumOfWeights + cov2 / (sumOfWeights * sumOfWeights)};
+  return ret_type{mean / sumOfWeights,
+                  cov1 / sumOfWeights + cov2 / (sumOfWeights * sumOfWeights)};
 }
 
 /// @brief Function that reduces the number of components. at the moment,
@@ -272,66 +273,49 @@ std::ostream &operator<<(std::ostream &os, StatesType type) {
   return os;
 }
 
-/// @brief Extracts a MultiComponentState from a MultiTrajectory.
-///
-/// @param usePredicted Wether to use the predicted state (true) or the
-/// filtered state (false) from the MultiTrajectory.
+/// @brief Extracts a MultiComponentState from a MultiTrajectory and a given list of indices
 template <typename source_link_t>
-auto extractMultiComponentStates(const MultiTrajectory<source_link_t> &traj,
-                                 std::vector<size_t> tips,
-                                 const std::map<size_t, ActsScalar> &weights,
-                                 StatesType type) {
+auto extractMultiComponentState(const MultiTrajectory<source_link_t> &traj,
+                                const std::vector<size_t> &tips,
+                                const std::map<size_t, ActsScalar> &weights,
+                                StatesType type) {
   throw_assert(
       !tips.empty(),
       "need at least one component to extract trajectory of type " << type);
 
-  std::vector<MultiComponentState> ret;
+  std::vector<std::tuple<double, BoundVector, BoundSymMatrix>> cmps;
+  std::shared_ptr<const Surface> surface;
 
-  // MultiTrajectory uses uint16_t internally
-  while (std::none_of(tips.begin(), tips.end(), [](auto i) {
-    return i == std::numeric_limits<uint16_t>::max();
-  })) {
-    std::sort(tips.begin(), tips.end());
-    tips.erase(std::unique(tips.begin(), tips.end()), tips.end());
+  for (auto &tip : tips) {
+    const auto proxy = traj.getTrackState(tip);
 
-    MultiComponentState state;
-    std::get<1>(state).reserve(tips.size());
+    throw_assert(weights.find(tip) != weights.end(),
+                 "Could not find weight for idx " << tip);
 
-    for (auto &tip : tips) {
-      const auto proxy = traj.getTrackState(tip);
-
-      throw_assert(weights.find(tip) != weights.end(),
-                   "Could not find weight for idx " << tip);
-
-      switch (type) {
-        case StatesType::ePredicted:
-          std::get<1>(state).push_back({weights.at(tip), proxy.predicted(),
-                                        proxy.predictedCovariance()});
-          break;
-        case StatesType::eFiltered:
-          std::get<1>(state).push_back(
-              {weights.at(tip), proxy.filtered(), proxy.filteredCovariance()});
-          break;
-        case StatesType::eSmoothed:
-          std::get<1>(state).push_back(
-              {weights.at(tip), proxy.smoothed(), proxy.smoothedCovariance()});
-      }
-
-      if (!std::get<0>(state)) {
-        std::get<0>(state) = proxy.referenceSurface().getSharedPtr();
-      } else {
-        throw_assert(std::get<0>(state)->geometryId() ==
-                         proxy.referenceSurface().geometryId(),
-                     "surface mismatch");
-      }
-
-      tip = proxy.previous();
+    switch (type) {
+      case StatesType::ePredicted:
+        cmps.push_back(
+            {weights.at(tip), proxy.predicted(), proxy.predictedCovariance()});
+        break;
+      case StatesType::eFiltered:
+        cmps.push_back(
+            {weights.at(tip), proxy.filtered(), proxy.filteredCovariance()});
+        break;
+      case StatesType::eSmoothed:
+        cmps.push_back(
+            {weights.at(tip), proxy.smoothed(), proxy.smoothedCovariance()});
     }
 
-    ret.push_back(state);
+    if (!surface) {
+      surface = proxy.referenceSurface().getSharedPtr();
+    } else {
+      throw_assert(
+          surface->geometryId() == proxy.referenceSurface().geometryId(),
+          "surface mismatch");
+    }
   }
 
-  return ret;
+  return MultiComponentBoundTrackParameters<SinglyCharged>(surface, cmps);
 }
 
 /// @brief This function applies the bayesian smoothing by combining a
@@ -371,18 +355,25 @@ auto bayesianSmoothing(const MultiComponentState &fwd,
   return smoothedState;
 }
 
+/// @brief Smoothing function, which takes two ranges of
+/// MultiTrajectory-indices and the corresponding projectors.
+template <typename component_iterator_t, typename fwd_projector_t = Identity,
+          typename bwd_projector_t = Identity>
+auto bayesianSmoothing(component_iterator_t fwdBegin,
+                       component_iterator_t fwdEnd,
+                       component_iterator_t bwdBegin,
+                       component_iterator_t bwdEnd,
+                       fwd_projector_t fwdProjector = fwd_projector_t{},
+                       bwd_projector_t bwdProjector = bwd_projector_t{}) {
+  std::vector<std::tuple<double, BoundVector, std::optional<BoundSymMatrix>>>
+      smoothedState;
 
-template <typename component_iterator_t, typename projector_t = Identity>
-auto MultiTrajectory<source_link_t> bayesianSmoothing(
-    component_iterator_t fwdBegin, component_iterator_t fwdEnd, component_iterator_t bwdBegin, component_iterator_t bwdEnd,
-    projector_t fwdProjector = projector_t{}, projector_t bwdProjector = projector_t{}) {
-  std::vector<std::tuple<double, BoundVector, std::optional<BoundSymMatrix>>> smoothedState;
-  
-
-  for (const auto &[weight_a, pars_a, cov_a] : std::get<1>(fwd)) {
+  for (auto fwd = fwdBegin; fwd != fwdEnd; ++fwd) {
+    const auto &[weight_a, pars_a, cov_a] = fwdProjector(*fwd);
     throw_assert(cov_a, "for now we require a covariance here");
 
-    for (const auto &[weight_b, pars_b, cov_b] : std::get<1>(bwd)) {
+    for (auto bwd = bwdBegin; bwd != bwdEnd; ++bwd) {
+      const auto &[weight_b, pars_b, cov_b] = bwdProjector(*bwd);
       throw_assert(cov_b, "for now we require a covariance here");
 
       const auto summedCov = *cov_a + *cov_b;
@@ -395,16 +386,42 @@ auto MultiTrajectory<source_link_t> bayesianSmoothing(
 
       const auto new_weight = std::exp(-0.5 * exponent) * weight_a * weight_b;
 
-      std::get<1>(smoothedState).push_back({new_weight, new_pars, new_cov});
+      smoothedState.push_back({new_weight, new_pars, new_cov});
     }
   }
 
   return smoothedState;
 }
 
+/// @brief Projector type which maps a MultiTrajectory-Index to a tuple of
+/// [weight, parameters, covariance]. Therefore, it contains a MultiTrajectory
+/// and for now a std::map for the weights
+template <StatesType type, typename source_link_t>
+struct MultiTrajectoryProjector {
+  const MultiTrajectory<source_link_t> &mt;
+  const std::map<std::size_t, double> &weights;
 
+  auto operator()(std::size_t idx) const {
+    const auto proxy = mt.getTrackState(idx);
+    switch (type) {
+      case StatesType::ePredicted:
+        return std::make_tuple(weights.at(idx), proxy.predicted(),
+                               std::optional{proxy.predictedCovariance()});
+      case StatesType::eFiltered:
+        return std::make_tuple(weights.at(idx), proxy.filtered(),
+                               std::optional{proxy.filteredCovariance()});
+      case StatesType::eSmoothed:
+        return std::make_tuple(weights.at(idx), proxy.smoothed(),
+                               std::optional{proxy.smoothedCovariance()});
+    }
+  }
+};
+
+/// @brief This function takes two MultiTrajectory objects and corresponding
+/// index lists (one of the backward pass, one of the forward pass), combines
+/// them, applies smoothing, and returns a new, single-component MultiTrajectory
 template <typename source_link_t>
-MultiTrajectory<source_link_t> smoothAndCombineTrajectories(
+auto smoothAndCombineTrajectories(
     const MultiTrajectory<source_link_t> &fwd,
     const std::vector<std::size_t> &fwdStartTips,
     const std::map<std::size_t, double> &fwdWeights,
@@ -412,15 +429,26 @@ MultiTrajectory<source_link_t> smoothAndCombineTrajectories(
     const std::vector<std::size_t> &bwdStartTips,
     const std::map<std::size_t, double> &bwdWeights) {
   // Use backward trajectory as basic trajectory, so that final trajectory is
-  // ordered correctly
+  // ordered correctly. We ensure also that they are unique.
   std::vector<std::size_t> bwdTips = bwdStartTips;
+  std::sort(bwdTips.begin(), bwdTips.end());
+  bwdTips.erase(std::unique(bwdTips.begin(), bwdTips.end()), bwdTips.end());
+
   MultiTrajectory<source_link_t> finalTrajectory;
 
-  // MultiTrajectory uses uint16_t internally
+  std::size_t lastTip = SIZE_MAX;
+
+  // MultiTrajectory uses uint16_t internally TODO is none_of here correct?
   while (std::none_of(bwdTips.begin(), bwdTips.end(), [](auto i) {
     return i == std::numeric_limits<uint16_t>::max();
   })) {
     const auto firstBwdState = bwd.getTrackState(bwdTips.front());
+
+    lastTip = finalTrajectory.addTrackState(TrackStatePropMask::All, lastTip);
+    auto proxy = finalTrajectory.getTrackState(lastTip);
+
+    // This way I hope we copy all relevant flags and the calibrated field
+    proxy.copyFrom(firstBwdState);
 
     // Search corresponding forward tips
     std::vector<std::size_t> fwdTips;
@@ -434,26 +462,46 @@ MultiTrajectory<source_link_t> smoothAndCombineTrajectories(
       });
     }
 
+    std::sort(fwdTips.begin(), fwdTips.end());
+    fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()), fwdTips.end());
+
     throw_assert(fwdTips.size() == bwdTips.size(), "size mismatch");
 
+    // Evaluate the predicted, filtered and smoothed state
+    using PredProjector =
+        MultiTrajectoryProjector<StatesType::ePredicted, source_link_t>;
+    using FiltProjector =
+        MultiTrajectoryProjector<StatesType::eFiltered, source_link_t>;
+
     const auto [fwdMeanPred, fwdCovPred] = combineComponentRange(
-        fwdTips.begin(), fwdTips.end(), [&](std::size_t idx) {
-          const auto proxy = fwd.getTrackState(idx);
-          return std::make_tuple(fwdWeights.at(idx), proxy.predicted(),
-                          std::optional{proxy.predictedCovariance()});
-        });
-    
+        fwdTips.begin(), fwdTips.end(), PredProjector{fwd, fwdWeights});
+    proxy.predicted() = fwdMeanPred;
+    proxy.predictedCovariance() = fwdCovPred.value();
+
     const auto [bwdMeanFilt, bwdCovFilt] = combineComponentRange(
-        bwdTips.begin(), bwdTips.end(), [&](std::size_t idx) {
-          const auto proxy = bwd.getTrackState(idx);
-          return std::make_tuple(bwdWeights.at(idx), proxy.predicted(),
-                          std::optional{proxy.predictedCovariance()});
-        });
-    
-    
+        bwdTips.begin(), bwdTips.end(), FiltProjector{bwd, bwdWeights});
+    proxy.filtered() = bwdMeanFilt;
+    proxy.filteredCovariance() = bwdCovFilt.value();
+
+    const auto smoothedState = bayesianSmoothing(
+        fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
+        PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
+    const auto [smoothedMean, smoothedCov] =
+        combineComponentRange(smoothedState.begin(), smoothedState.end());
+    proxy.smoothed() = smoothedMean;
+    proxy.smoothedCovariance() = smoothedCov.value();
+
+    // Update bwdTips to the next state
+    for (auto &tip : bwdTips) {
+      const auto p = bwd.getTrackState(tip);
+      tip = p.previous();
+    }
+
+    std::sort(bwdTips.begin(), bwdTips.end());
+    bwdTips.erase(std::unique(bwdTips.begin(), bwdTips.end()), bwdTips.end());
   }
 
-  return finalTrajectory;
+  return std::make_tuple(finalTrajectory, lastTip);
 }
 
 }  // namespace detail
