@@ -28,6 +28,8 @@
 #include "ActsExamples/Plugins/Obj/ObjSpacePointWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjTrackingGeometryWriter.hpp"
 #include "ActsExamples/TelescopeDetector/BuildTelescopeDetector.hpp"
+#include "ActsExamples/TrackFinding/SpacePointMaker.hpp"
+#include "ActsExamples/TrackFinding/TrackParamsEstimationAlgorithm.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 #include "ActsExamples/TruthTracking/ParticleSmearing.hpp"
 #include "ActsExamples/TruthTracking/TruthTrackFinder.hpp"
@@ -61,32 +63,34 @@ const char *kProtoTrackParameters = "proto-track-parameters";
 const char *kKalmanOutputTrajectories = "kalman-output";
 const char *kGsfOutputTrajectories = "gsf-output";
 
-
 int main(int argc, char **argv) {
   const std::vector<std::string> args(argv, argv + argc);
 
   if (std::find(begin(args), end(args), "--help") != args.end()) {
     std::cout << "Usage: " << args[0] << " <options>\n";
     std::cout << "Options:\n";
-    std::cout << "\t --bf-value <val> \t"
+    std::cout << "\t --bf-value <val>   \t"
               << "Magnetic field value (in tesla)\n";
-    std::cout << "\t -n <val>         \t"
+    std::cout << "\t -n <val>           \t"
               << "Number of simulated particles (default: 1)\n";
-    std::cout << "\t -s <val>         \t"
+    std::cout << "\t -s <val>           \t"
               << "Seed for the RNG (default: std::random_device{}()\n";
-    std::cout << "\t -c <val>         \t"
+    std::cout << "\t -c <val>           \t"
               << "Max number of GSF components (default: 4)\n";
-    std::cout << "\t --no-gsf         \t"
+    std::cout << "\t --no-gsf           \t"
               << "Disable the GSF\n";
-    std::cout << "\t --no-kalman      \t"
+    std::cout << "\t --no-kalman        \t"
               << "Disable the Kalman Filter\n";
-    std::cout << "\t -v-gsf           \t"
+    std::cout << "\t -v-gsf             \t"
               << "GSF algorithm verbose\n";
-    std::cout << "\t -v               \t"
+    std::cout << "\t -v                 \t"
               << "All algorithms verbose (except the GSF)\n";
-    std::cout << "\t --gsf-abort-error\t"
+    std::cout << "\t --gsf-abort-error  \t"
               << "Call std::abort on some GSF errors\n";
-    std::cout << "\t --help\t" << "Print the help message\n";
+    std::cout << "\t --pars-from-seed   \t" << "Estimate the start parameters from seeds\n";
+    std::cout << "\t --inflate-cov <val>\t" << "Inflate the covariance of esimated start parameters (default: 1.0)\n";
+    std::cout << "\t --help             \t"
+              << "Print the help message\n";
     return EXIT_SUCCESS;
   }
 
@@ -137,6 +141,18 @@ int main(int argc, char **argv) {
   const bool doKalman =
       std::find(begin(args), end(args), "--no-kalman") == args.end();
 
+  const bool estimateParsFromSeed =
+      std::find(begin(args), end(args), "--pars-from-seed") != args.end();
+
+
+  const auto inflation = [&]() -> double {
+    const auto found = std::find(begin(args), end(args), "--inflate-cov");
+    if (found != args.end() && std::next(found) != args.end()) {
+      return std::stod(*std::next(found));
+    }
+    return 1.0;
+  }();
+
   // Export the seed for reproducibility
   {
     std::ofstream seedFile("seed.txt", std::ios_base::trunc);
@@ -157,6 +173,8 @@ int main(int argc, char **argv) {
   ACTS_INFO("Parameters: Abort on error: " << std::boolalpha
                                            << getGsfAbortOnError());
   ACTS_INFO("Parameters: GSF max components: " << getGsfMaxComponents());
+  ACTS_INFO("Parameters: Estimate start parameters from seeds: " << std::boolalpha << estimateParsFromSeed);
+  ACTS_INFO("Parameters: Covariance inflation factor: " << inflation);
 
   // Setup the sequencer
   ActsExamples::Sequencer::Config seqCfg;
@@ -206,17 +224,6 @@ int main(int argc, char **argv) {
   ACTS_VERBOSE(
       "some surface normal: "
       << some_surface->normal(geoCtx, Acts::Vector2{0, 0}).transpose());
-
-  // Make a start surface
-//   auto startBounds = std::make_shared<Acts::RectangleBounds>(1000, 1000);
-//   Acts::Transform3 trafo =
-//       Acts::Transform3::Identity() *
-//       Eigen::AngleAxisd(0.5 * M_PI, Eigen::Vector3d::UnitY());
-//   auto startSurface =
-//       Acts::Surface::makeShared<Acts::PlaneSurface>(trafo, startBounds);
-//   ACTS_VERBOSE(
-//       "start surface normal: "
-//       << startSurface->normal(geoCtx, Acts::Vector2{0, 0}).transpose());
 
   /////////////////////
   // Particle gun
@@ -317,29 +324,66 @@ int main(int argc, char **argv) {
     sequencer.addAlgorithm(createDigitizationAlgorithm(cfg, globalLogLevel));
   }
 
-  ////////////////////
-  // Truth Tracking //
-  ////////////////////
-  {
-    ActsExamples::TruthTrackFinder::Config cfg;
-    cfg.inputParticles = kGeneratedParticles;
-    cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
-    cfg.outputProtoTracks = kProtoTracks;
+  ///////////////////////////
+  // Prepare Track fitting //
+  ///////////////////////////
+  if (!estimateParsFromSeed) {
+    ActsExamples::TruthTrackFinder::Config ttf_cfg;
+    ttf_cfg.inputParticles = kGeneratedParticles;
+    ttf_cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
+    ttf_cfg.outputProtoTracks = kProtoTracks;
 
     sequencer.addAlgorithm(
-        std::make_shared<ActsExamples::TruthTrackFinder>(cfg, globalLogLevel));
+        std::make_shared<ActsExamples::TruthTrackFinder>(ttf_cfg, globalLogLevel));
+
+    ActsExamples::ParticleSmearing::Config ps_cfg;
+    ps_cfg.inputParticles = kGeneratedParticles;
+    ps_cfg.outputTrackParameters = kProtoTrackParameters;
+    ps_cfg.randomNumbers = rnd;
+
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::ParticleSmearing>(
+        ps_cfg, globalLogLevel));
   }
 
-  {
-    ActsExamples::ParticleSmearing::Config cfg;
-    cfg.inputParticles = kGeneratedParticles;
-    cfg.outputTrackParameters = kProtoTrackParameters;
-    cfg.randomNumbers = rnd;
+  /////////////////////////////
+  // Seed - Estimation chain //
+  /////////////////////////////
+  else {
+    const char *kSpacePoints = "space-points";
+    const char *kIntermediateProtoTracks = "intermediate-proto-tracks";
 
-    sequencer.addAlgorithm(
-        std::make_shared<ActsExamples::ParticleSmearing>(cfg, globalLogLevel));
+    ActsExamples::TruthTrackFinder::Config ttf_cfg;
+    ttf_cfg.inputParticles = kGeneratedParticles;
+    ttf_cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
+    ttf_cfg.outputProtoTracks = kIntermediateProtoTracks;
+
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::TruthTrackFinder>(
+        ttf_cfg, globalLogLevel));
+
+    ActsExamples::SpacePointMaker::Config spm_cfg;
+    spm_cfg.inputMeasurements = kMeasurements;
+    spm_cfg.inputSourceLinks = kSourceLinks;
+    spm_cfg.outputSpacePoints = kSpacePoints;
+    spm_cfg.trackingGeometry = detector;
+    spm_cfg.geometrySelection = { detector->highestTrackingVolume()->geometryId() };
+
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::SpacePointMaker>(
+        spm_cfg, globalLogLevel));
+
+    ActsExamples::TrackParamsEstimationAlgorithm::Config tpe_cfg;
+    tpe_cfg.inputSpacePoints = {kSpacePoints};
+    tpe_cfg.inputProtoTracks = kIntermediateProtoTracks;
+    tpe_cfg.inputSourceLinks = kSourceLinks;
+    tpe_cfg.outputProtoTracks = kProtoTracks;
+    tpe_cfg.outputTrackParameters = kProtoTrackParameters;
+    tpe_cfg.trackingGeometry = detector;
+    tpe_cfg.magneticField = magField;
+    tpe_cfg.initialVarInflation = { inflation, inflation, inflation, inflation, inflation, inflation };
+
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::TrackParamsEstimationAlgorithm>(
+        tpe_cfg, globalLogLevel));
   }
-  
+
   /////////////////
   // Select Tracks
   /////////////////
@@ -353,7 +397,7 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::ProtoTrackLengthSelector>(
             cfg, globalLogLevel));
   }
-  
+
   ////////////////////////
   // Gaussian Sum Filter
   ////////////////////////
@@ -367,7 +411,7 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.directNavigation = true;
     cfg.trackingGeometry = detector;
-//     cfg.targetSurface = startSurface;
+    //     cfg.targetSurface = startSurface;
     cfg.dFit = makeGsfFitterFunction(detector, magField,
                                      Acts::LoggerWrapper(*multiStepperLogger));
 
@@ -375,7 +419,7 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
                                                               gsfLogLevel));
   }
-  
+
   //////////////////////////////////
   // Kalman Fitter for comparison //
   //////////////////////////////////
@@ -530,3 +574,4 @@ int main(int argc, char **argv) {
 
   return sequencer.run();
 }
+

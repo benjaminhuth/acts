@@ -465,8 +465,6 @@ auto smoothAndCombineTrajectories(
     std::sort(fwdTips.begin(), fwdTips.end());
     fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()), fwdTips.end());
 
-    throw_assert(fwdTips.size() == bwdTips.size(), "size mismatch");
-
     // Evaluate the predicted, filtered and smoothed state
     using PredProjector =
         MultiTrajectoryProjector<StatesType::ePredicted, source_link_t>;
@@ -490,6 +488,8 @@ auto smoothAndCombineTrajectories(
         combineComponentRange(smoothedState.begin(), smoothedState.end());
     proxy.smoothed() = smoothedMean;
     proxy.smoothedCovariance() = smoothedCov.value();
+
+    throw_assert(proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag), "must be a measurment");
 
     // Update bwdTips to the next state
     for (auto &tip : bwdTips) {

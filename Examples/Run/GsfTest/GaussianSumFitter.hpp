@@ -75,6 +75,9 @@ struct GsfResult {
 
   // Propagate potential errors to the outside
   Result<void> result{Result<void>::success()};
+
+  // Used for workaround to initialize MT correctly
+  bool haveInitializedMT = false;
 };
 
 template <typename propagator_t>
@@ -124,6 +127,13 @@ struct GaussianSumFitter {
 
       /// Whether to abort immediately when an error occurs
       bool abortOnError = false;
+
+      /// A not so nice workaround to get the first backward state in the
+      /// MultiTrajectory for the DirectNavigator
+      std::optional<std::tuple<std::reference_wrapper<const MultiTrajectory<source_link_t>>,
+                               std::reference_wrapper<const std::vector<std::size_t>>,
+                               std::reference_wrapper<const std::map<std::size_t, double>>>>
+          initInfoForMT;
     } m_config;
 
     /// Configurable components:
@@ -133,7 +143,7 @@ struct GaussianSumFitter {
     smoother_t m_smoother;
     SurfaceReached m_targetReachedAborter;
 
-    /// @brief Kalman actor operation
+    /// @brief GSF actor operation
     ///
     /// @tparam propagator_state_t is the type of Propagagor state
     /// @tparam stepper_t Type of the stepper
@@ -159,6 +169,31 @@ struct GaussianSumFitter {
                   << cmp.pars().template segment<3>(eFreePos0).transpose()
                   << ", dir: "
                   << cmp.pars().template segment<3>(eFreeDir0).transpose());
+      }
+
+      // Workaround to initialize MT in backward mode
+      if (m_config.initInfoForMT && !result.haveInitializedMT) {
+        const auto& [mt, idxs, weights] = *m_config.initInfoForMT;
+        result.currentTips.clear();
+
+        ACTS_VERBOSE(
+            "Initialize the MultiTrajectory with information provided to the "
+            "Actor");
+
+        for (const auto idx : idxs.get()) {
+          result.currentTips.push_back(
+              result.fittedStates.addTrackState(TrackStatePropMask::All));
+          auto proxy =
+              result.fittedStates.getTrackState(result.currentTips.back());
+          proxy.copyFrom(mt.get().getTrackState(idx));
+          result.weightsOfStates[result.currentTips.back()] = weights.get().at(idx);
+
+          // Because we are backwards, we use forward filtered as predicted
+          proxy.predicted() = proxy.filtered();
+          proxy.predictedCovariance() = proxy.filteredCovariance();
+        }
+
+        result.haveInitializedMT = true;
       }
 
       // TODO handle surfaces without material
@@ -462,43 +497,6 @@ struct GaussianSumFitter {
     }
   };
 
-  struct BwdPassInitializer {
-    Acts::DirectNavigator::SurfaceSequence navSurfaces = {};
-    const Acts::Curr // TODO cann we set the current surface beforehand to trick the navigator?
-
-    /// Actor result / state
-    struct this_result {
-      bool initialized = false;
-    };
-    using result_type = this_result;
-
-    /// Defaulting the constructor
-    BwdPassInitializer() = default;
-
-    /// Actor operator call
-    /// @tparam statet Type of the full propagator state
-    /// @tparam stepper_t Type of the stepper
-    ///
-    /// @param state the entire propagator state
-    /// @param r the result of this Actor
-    template <typename propagator_state_t, typename stepper_t>
-    void operator()(propagator_state_t& state, const stepper_t& /*unused*/,
-                    result_type& r) const {
-      // Only act once
-      if (not r.initialized) {
-        // Initialize the surface sequence
-        state.navigation.navSurfaces = navSurfaces;
-        state.navigation.navSurfaceIter = state.navigation.navSurfaces.begin();
-        r.initialized = true;
-      }
-    }
-
-    /// Actor operator call - resultless, unused
-    template <typename propagator_state_t, typename stepper_t>
-    void operator()(propagator_state_t& /*unused*/,
-                    const stepper_t& /*unused*/) const {}
-  };
-
   /// The propagator instance used by the fit function
   propagator_t m_propagator;
 
@@ -565,7 +563,7 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("+-----------------------------+");
     ACTS_VERBOSE("| Gsf: Do forward propagation |");
     ACTS_VERBOSE("+-----------------------------+");
-    auto fwdResult = [&]() {
+    auto fwdResult = [&]() -> Result<GsfResult<source_link_t>> {
       MultiComponentBoundTrackParameters<SinglyCharged> params(
           sParameters.referenceSurface().getSharedPtr(),
           sParameters.parameters(), sParameters.covariance());
@@ -607,53 +605,45 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("+------------------------------+");
     ACTS_VERBOSE("| Gsf: Do backward propagation |");
     ACTS_VERBOSE("+------------------------------+");
-    auto bwdResult = [&](){
+    auto bwdResult = [&]() -> Result<GsfResult<source_link_t>> {
+      const auto params = detail::extractMultiComponentState(
+          fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+          fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
 
-    const auto sMultiParsBwd = detail::extractMultiComponentState(
-        fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-        fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
-
-
-
-    auto bwdPropOptions = propOptions.extend
-
-    propOptions.direction = Acts::backward;
+      propOptions.direction = Acts::backward;
 
       // TODO here we start with the second last surface, so we don't get
       // navigation problems. this should get fixed
       std::vector<const Surface*> backwardSequence(
-          std::next(surfaceSequence.rbegin()), surfaceSequence.rend());
+          std::next(sSequence.rbegin()), sSequence.rend());
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = std::move(backwardSequence);
-    }
 
-    if (propOptions.actionList.template get<DirectNavigator::Initializer>()
-            .navSurfaces.empty()) {
-      if (navDir == Acts::forward) {
-        return KalmanFitterError::ForwardUpdateFailed;
-      } else {
-        return KalmanFitterError::BackwardUpdateFailed;
+      // Workaround to get the first state into the MultiTrajectory
+      actor.m_config.initInfoForMT =
+          typename decltype(actor.m_config.initInfoForMT)::value_type{
+              std::ref(fwdGsfResult.fittedStates), std::ref(fwdGsfResult.currentTips), std::ref(fwdGsfResult.weightsOfStates)};
+
+      auto propResult = m_propagator.propagate(params, propOptions);
+
+      actor.m_config.initInfoForMT.reset();
+
+      if (!propResult.ok()) {
+        return propResult.error();
       }
-    }
 
-    auto propResult = m_propagator.propagate(params, propOptions);
+      GsfResult gsfResult =
+          (*propResult).template get<GsfResult<source_link_t>>();
 
-    if (!propResult.ok()) {
-      return propResult.error();
-    }
+      if (!gsfResult.result.ok()) {
+        return gsfResult.result.error();
+      }
 
-    GsfResult gsfResult =
-        (*propResult).template get<GsfResult<source_link_t>>();
+      if (gsfResult.processedStates == 0) {
+        return GsfError::NoStatesCreated;
+      }
 
-    if (!gsfResult.result.ok()) {
-      return gsfResult.result.error();
-    }
-
-    if (gsfResult.processedStates == 0) {
-      return GsfError::NoStatesCreated;
-    }
-
-    return gsfResult;
+      return gsfResult;
     }();
 
     if (!bwdResult.ok()) {
@@ -724,7 +714,10 @@ struct GaussianSumFitter {
 
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
     kalmanResult.lastTrackIndex = lastTip;
-
+    kalmanResult.fittedStates = std::move(combinedTraj);
+    kalmanResult.smoothed = true;
+    kalmanResult.reversed = true;
+    kalmanResult.finished = true;
     kalmanResult.lastMeasurementIndex = lastTip;
     kalmanResult.fittedParameters = *((*lastPropRes).endParameters);
 

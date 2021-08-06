@@ -1,8 +1,10 @@
 import os
 import time
+import datetime
 import math
 import ROOT
 import matplotlib.pyplot as plt
+import matplotlib.backends.backend_pdf
 from scipy.stats import norm
 
 def boundNames():
@@ -53,12 +55,18 @@ def importTree(tree, prefix):
 
     return totalResults, surfaceResults 
 
-def plotCollectionAllCoords(Collection, title):
+
+def format_figure(fig):
+    fig.set_size_inches(18,10)
+    fig.tight_layout(pad=2.4, w_pad=2.5, h_pad=2.0)
+    return fig
+
+
+def plotCollectionAllCoords(Collection, fitterType, resultType, pdf=None):
     fig, ax = plt.subplots(2,3)
 
     axes = [ ax[0,0], ax[0,1], ax[0,2], ax[1,0], ax[1,1], ax[1,2] ]
 
-    fig.suptitle(title)
 
     for ax, coor in zip(axes, boundNames()):
         legend = []
@@ -68,10 +76,16 @@ def plotCollectionAllCoords(Collection, title):
             mu, sigma = norm.fit(values)
             ax.hist(values, 20, histtype='step', stacked=False, fill=False, density=True)
             legend.append("{} (µ={:.2f}, s={:.2f})".format(trackType, mu, sigma))
-            print("# samples in {}.{}: {}".format(coor,trackType,len(values),flush=True))
 
         ax.legend(legend, loc=2)
         ax.set_title(coor)
+
+
+    fig.suptitle("Total ({}, {}, {} samples)".format(fitterType, resultType, len(values)), fontweight='bold')
+    fig = format_figure(fig)
+
+    if pdf:
+        pdf.savefig(fig)
 
 
 def getSubplotsSize(n):
@@ -91,12 +105,11 @@ def getSubplotsSize(n):
     return nRows, nCols
 
 
-def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, resultType):
+def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, resultType, pdf=None):
     nPlots = len(volLayerList)
     nRows, nCols = getSubplotsSize(nPlots)
 
     fig, ax = plt.subplots(nRows, nCols)
-    fig.suptitle("{} surface {}: {}".format(fitterType,resultType,coor))
 
     axes = [ ax[i//nCols, i%nCols] for i in range(nPlots) ]
 
@@ -112,7 +125,6 @@ def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, result
             mu, sigma = norm.fit(values)
             axx.hist(values, 20, histtype='step', stacked=False, fill=False, density=True)
             legend.append("{} (µ={:.2f}, s={:.2f})".format(trackType, mu, sigma))
-            #print("# samples in {}.{}: {}".format(coor,trackType,len(values),flush=True))
 
             mus[trackType].append(mu)
             sigmas[trackType].append(sigma)
@@ -120,25 +132,31 @@ def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, result
         axx.legend(legend, loc=2)
         axx.set_title("Vol{}.Lay{}".format(vol_id, lay_id))
 
-    # Make evolution plots
-    fig2, ax2 = plt.subplots(1,2)
-    fig2.suptitle("{} mean and sigma evolution: {}".format(fitterType,coor))
+    fig.suptitle("{} ({}, {}, {} samples)".format(coor,fitterType,resultType,len(values)), fontweight='bold')
+    fig = format_figure(fig)
 
-    # Mean evolution
-    for trackType in trackTypes():
-        ax2[0].plot(mus[trackType])
-    ax2[0].legend(trackTypes())
-    ax2[0].set_title("Mean evolution")
-    ax2[0].set_xticks([ i for i in range(len(volLayerList)) ])
-    ax2[0].set_xticklabels([ "V{}-L{}".format(v, l) for (v, l) in volLayerList ])
+    if pdf:
+        pdf.savefig(fig)
 
-    # Sigma evolution
-    for trackType in trackTypes():
-        ax2[1].plot(sigmas[trackType])
-    ax2[1].legend(trackTypes())
-    ax2[1].set_title("Sigma evolution")
-    ax2[1].set_xticks([ i for i in range(len(volLayerList)) ])
-    ax2[1].set_xticklabels([ "V{}-L{}".format(v, l) for (v, l) in volLayerList ])
+    ## Make evolution plots
+    #fig2, ax2 = plt.subplots(1,2)
+    #fig2.suptitle("{} mean and sigma evolution: {}".format(fitterType,coor))
+
+    ## Mean evolution
+    #for trackType in trackTypes():
+        #ax2[0].plot(mus[trackType])
+    #ax2[0].legend(trackTypes())
+    #ax2[0].set_title("Mean evolution")
+    #ax2[0].set_xticks([ i for i in range(len(volLayerList)) ])
+    #ax2[0].set_xticklabels([ "V{}-L{}".format(v, l) for (v, l) in volLayerList ])
+
+    ## Sigma evolution
+    #for trackType in trackTypes():
+        #ax2[1].plot(sigmas[trackType])
+    #ax2[1].legend(trackTypes())
+    #ax2[1].set_title("Sigma evolution")
+    #ax2[1].set_xticks([ i for i in range(len(volLayerList)) ])
+    #ax2[1].set_xticklabels([ "V{}-L{}".format(v, l) for (v, l) in volLayerList ])
 
 
 
@@ -158,11 +176,13 @@ resultType = "res"
 
 totalResults, surfaceResults = importTree(tree, resultType)
 
-plotCollectionAllCoords (totalResults, "Total {} ({})".format(resultType,fitterType))
+pdf = matplotlib.backends.backend_pdf.PdfPages("analysis_{}_{}_{}.pdf".format(fitterType, resultType, datetime.datetime.now().strftime("%Y%m%d-%H%M%S")))
+
+plotCollectionAllCoords(totalResults, fitterType, resultType, pdf)
 plt.show()
 
 for coor in boundNames():
-    plotCollectionOneCoord(surfaceResults, [(1,2), (1,4), (1,6), (1,8), (1,10)], coor, fitterType, resultType)
+    plotCollectionOneCoord(surfaceResults, [(1,2), (1,4), (1,6), (1,8), (1,10)], coor, fitterType, resultType, pdf)
     plt.show()
 
 #for vol_id in surfacePulls:
@@ -170,4 +190,4 @@ for coor in boundNames():
         #plotPullsAllCoords(surfacePulls[vol_id][lay_id], "Vol{}.Lay{} ({})".format(vol_id, lay_id, fitterType))
         #plt.show()
 
-
+pdf.close()
