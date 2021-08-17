@@ -1,11 +1,17 @@
 import os
+import sys
 import time
 import datetime
 import math
+import logging
 import ROOT
 import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf
+import pandas as pd
 from scipy.stats import norm
+
+def resultTypeTranslation():
+    return {"res" : "residual", "pull": "pull" }
 
 def boundNames():
     return ["LOC0", "LOC1", "PHI", "THETA", "QOP", "T"]
@@ -62,7 +68,7 @@ def format_figure(fig):
     return fig
 
 
-def plotCollectionAllCoords(Collection, fitterType, resultType, pdf=None):
+def plotCollectionAllCoords(Collection, fitterType, resultType, pdf=None, nBins=20):
     fig, ax = plt.subplots(2,3)
 
     axes = [ ax[0,0], ax[0,1], ax[0,2], ax[1,0], ax[1,1], ax[1,2] ]
@@ -74,14 +80,14 @@ def plotCollectionAllCoords(Collection, fitterType, resultType, pdf=None):
             values = getattr(getattr(Collection,trackType),coor)
 
             mu, sigma = norm.fit(values)
-            ax.hist(values, 20, histtype='step', stacked=False, fill=False, density=True)
+            ax.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
             legend.append("{} (µ={:.2f}, s={:.2f})".format(trackType, mu, sigma))
 
         ax.legend(legend, loc=2)
         ax.set_title(coor)
 
 
-    fig.suptitle("Total ({}, {}, {} samples)".format(fitterType, resultType, len(values)), fontweight='bold')
+    fig.suptitle("Total ({}, {}, {} samples)".format(fitterType.upper(), resultTypeTranslation()[resultType], len(values)), fontweight='bold')
     fig = format_figure(fig)
 
     if pdf:
@@ -105,7 +111,7 @@ def getSubplotsSize(n):
     return nRows, nCols
 
 
-def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, resultType, pdf=None):
+def plotCollectionOneCoord(volLayerDict, volLayerList, coor, fitterType, resultType, pdf=None, nBins=20):
     nPlots = len(volLayerList)
     nRows, nCols = getSubplotsSize(nPlots)
 
@@ -120,10 +126,14 @@ def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, result
         legend = []
 
         for trackType in trackTypes():
-            values = getattr(getattr(volLayerDict[vol_id][lay_id],trackType),coor)
+            try:
+                values = getattr(getattr(volLayerDict[vol_id][lay_id],trackType),coor)
+            except KeyError:
+                logging.warning("KeyError with vol-id {} and lay-id {}".format(vol_id, lay_id), flush=True)
+                continue
 
             mu, sigma = norm.fit(values)
-            axx.hist(values, 20, histtype='step', stacked=False, fill=False, density=True)
+            axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
             legend.append("{} (µ={:.2f}, s={:.2f})".format(trackType, mu, sigma))
 
             mus[trackType].append(mu)
@@ -132,62 +142,114 @@ def plotCollectionOneCoord (volLayerDict, volLayerList, coor, fitterType, result
         axx.legend(legend, loc=2)
         axx.set_title("Vol{}.Lay{}".format(vol_id, lay_id))
 
-    fig.suptitle("{} ({}, {}, {} samples)".format(coor,fitterType,resultType,len(values)), fontweight='bold')
+    fig.suptitle("{} ({}, {}, {} samples)".format(coor,fitterType.upper(),resultTypeTranslation()[resultType],len(values)), fontweight='bold')
     fig = format_figure(fig)
 
     if pdf:
         pdf.savefig(fig)
 
-    ## Make evolution plots
-    #fig2, ax2 = plt.subplots(1,2)
-    #fig2.suptitle("{} mean and sigma evolution: {}".format(fitterType,coor))
 
-    ## Mean evolution
-    #for trackType in trackTypes():
-        #ax2[0].plot(mus[trackType])
-    #ax2[0].legend(trackTypes())
-    #ax2[0].set_title("Mean evolution")
-    #ax2[0].set_xticks([ i for i in range(len(volLayerList)) ])
-    #ax2[0].set_xticklabels([ "V{}-L{}".format(v, l) for (v, l) in volLayerList ])
+def plotStartParameterResiduals(pdf=None, nBins=20):
+    filename = "event000000000-start-bound-residuals.csv"
 
-    ## Sigma evolution
-    #for trackType in trackTypes():
-        #ax2[1].plot(sigmas[trackType])
-    #ax2[1].legend(trackTypes())
-    #ax2[1].set_title("Sigma evolution")
-    #ax2[1].set_xticks([ i for i in range(len(volLayerList)) ])
-    #ax2[1].set_xticklabels([ "V{}-L{}".format(v, l) for (v, l) in volLayerList ])
+    if not os.path.exists(filename):
+        logging.warning("could not find '{}', continue...".format(filename))
+        return
 
+    data = pd.read_csv(filename)
+
+    nCols = 4
+    nRows = 2
+
+    fig, ax = plt.subplots(nRows, nCols)
+    axes = [ ax[i//nCols, i%nCols] for i in range(nRows*nCols) ]
+
+    for coor, axx in zip(["X","Y","Z","T","DX","DY","DZ","QOP"], axes):
+        values = data[coor]
+        assert len(values) > 0
+
+        mu, sigma = norm.fit(values)
+        axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
+        axx.set_title(coor)
+        axx.legend(["{} (µ={:.2f}, s={:.2f})".format(coor, mu, sigma)], loc=2)
+
+    fig.suptitle("Track Parameters Estimate Residuals ({} samples)".format(len(values)), fontweight='bold')
+    fig = format_figure(fig)
+
+    if pdf:
+        pdf.savefig(fig)
+
+
+def plotFinalPrediction(fitterType, pdf, nBins=20):
+    filename = "event000000000-fitted-residuals-{}.csv".format(fitterType)
+
+    if not os.path.exists(filename):
+        logging.warning("could not find '{}', continue...".format(filename))
+        return
+
+    data = pd.read_csv(filename)
+
+    nCols = 3
+    nRows = 2
+
+    fig, ax = plt.subplots(nRows, nCols)
+    axes = [ ax[i//nCols, i%nCols] for i in range(nRows*nCols) ]
+
+    for coor, axx in zip(boundNames(), axes):
+        values = data[coor]
+        assert len(values) > 0
+
+        mu, sigma = norm.fit(values)
+        axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
+        axx.set_title(coor)
+        axx.legend(["{} (µ={:.2f}, s={:.2f})".format(coor, mu, sigma)], loc=2)
+
+    fig.suptitle("Fittet parameters at perigee ({}, {} samples)".format(fitterType.upper(), len(values)), fontweight='bold')
+    fig = format_figure(fig)
+
+    if pdf:
+        pdf.savefig(fig)
 
 
 ################
 # Main Routine #
 ################
 
-#fitterType = "kalman"
-fitterType = "gsf"
-
-filename = fitterType + "_trackstates.root"
-assert os.path.exists(filename)
-inFile = ROOT.TFile.Open(filename)
-tree = inFile.Get("tree")
+logging.basicConfig(format='[%(levelname)s] %(asctime)s: %(message)s',level=logging.INFO)
 
 resultType = "res"
+doSurfacePlots = False
+nBins = 40
 
-totalResults, surfaceResults = importTree(tree, resultType)
+pdf_filename = "analysis_{}_{}.pdf".format(resultType, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+pdf = matplotlib.backends.backend_pdf.PdfPages(pdf_filename)
 
-pdf = matplotlib.backends.backend_pdf.PdfPages("analysis_{}_{}_{}.pdf".format(fitterType, resultType, datetime.datetime.now().strftime("%Y%m%d-%H%M%S")))
+logging.info("Plot start parameter estimation residuals...")
+plotStartParameterResiduals(pdf, nBins)
 
-plotCollectionAllCoords(totalResults, fitterType, resultType, pdf)
-plt.show()
+for fitterType in ["gsf", "kalman"]:
+    logging.info("Plot {} of {}...".format(resultTypeTranslation()[resultType], fitterType))
 
-for coor in boundNames():
-    plotCollectionOneCoord(surfaceResults, [(1,2), (1,4), (1,6), (1,8), (1,10)], coor, fitterType, resultType, pdf)
-    plt.show()
 
-#for vol_id in surfacePulls:
-    #for lay_id in surfacePulls[vol_id]:
-        #plotPullsAllCoords(surfacePulls[vol_id][lay_id], "Vol{}.Lay{} ({})".format(vol_id, lay_id, fitterType))
-        #plt.show()
+    plotFinalPrediction(fitterType, pdf, nBins)
+
+    surfacesFilename = fitterType + "_trackstates.root"
+    if not os.path.exists(surfacesFilename):
+        logging.warning("could not find '{}', continue...".format(surfacesFilename))
+        continue
+
+    surfacesFile = ROOT.TFile.Open(surfacesFilename)
+    tree = surfacesFile.Get("tree")
+
+    totalResults, surfaceResults = importTree(tree, resultType)
+
+    plotCollectionAllCoords(totalResults, fitterType, resultType, pdf, nBins)
+    #plt.show()
+
+    if doSurfacePlots:
+        for coor in boundNames():
+            plotCollectionOneCoord(surfaceResults, [(1,2), (1,4), (1,6), (1,8), (1,10)], coor, fitterType, resultType, pdf)
+            #plt.show()
 
 pdf.close()
+os.system("okular {}".format(pdf_filename))

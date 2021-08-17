@@ -43,6 +43,8 @@
 #include "GsfAlgorithmFunction.hpp"
 #include "ObjHitWriter.hpp"
 #include "ProtoTrackLengthSelector.hpp"
+#include "ParameterEstimationPerformanceWriter.hpp"
+#include "TrackFittingPerformanceWriterCsv.hpp"
 #include "TestHelpers.hpp"
 
 using namespace Acts::UnitLiterals;
@@ -209,7 +211,9 @@ int main(int argc, char **argv) {
       thickness, type, detectorDirection));
 
   // No need to put detector geometry writing in sequencer loop
+#if 0
   export_detector_to_obj(*detector);
+#endif
 
   // Find a surface in the tgeo for some use later
   std::shared_ptr<const Acts::Surface> some_surface;
@@ -472,6 +476,18 @@ int main(int argc, char **argv) {
             cfg, globalLogLevel));
   }
 
+  if (doGsf) {
+    ActsExamples::TrackFittingPerformanceWriterCsv::Config cfg;
+    cfg.inTrajectories = kGsfOutputTrajectories;
+    cfg.inParticles = kGeneratedParticles;
+    cfg.inMeasurementParticlesMap = kMeasurementParticleMap;
+    cfg.outputStem += "-gsf";
+
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::TrackFittingPerformanceWriterCsv>(
+            cfg, globalLogLevel));
+  }
+
   //////////////////////////////////////////////////////
   // Track Fitter Performance Writer for Kalman Fitter
   //////////////////////////////////////////////////////
@@ -500,6 +516,31 @@ int main(int argc, char **argv) {
     sequencer.addWriter(
         std::make_shared<ActsExamples::RootTrajectoryStatesWriter>(
             cfg, globalLogLevel));
+  }
+
+  if (doKalman) {
+    ActsExamples::TrackFittingPerformanceWriterCsv::Config cfg;
+    cfg.inTrajectories = kKalmanOutputTrajectories;
+    cfg.inParticles = kGeneratedParticles;
+    cfg.inMeasurementParticlesMap = kMeasurementParticleMap;
+    cfg.outputStem += "-kalman";
+
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::TrackFittingPerformanceWriterCsv>(
+            cfg, globalLogLevel));
+  }
+
+  //////////////////////////////////////////
+  // Start parameter estimation residuals
+  //////////////////////////////////////////
+  {
+      ActsExamples::ParameterEstimationPerformanceWriter::Config cfg;
+      cfg.inMeasurementParticlesMap = kMeasurementParticleMap;
+      cfg.inParticles = kGeneratedParticles;
+      cfg.inProtoTrackParameters = kProtoTrackParameters;
+      cfg.inProtoTracks = kProtoTracks;
+
+      sequencer.addWriter(std::make_shared<ActsExamples::ParameterEstimationPerformanceWriter>(cfg, globalLogLevel));
   }
 
 #if 0
