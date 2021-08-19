@@ -130,9 +130,10 @@ struct GaussianSumFitter {
 
       /// A not so nice workaround to get the first backward state in the
       /// MultiTrajectory for the DirectNavigator
-      std::optional<std::tuple<std::reference_wrapper<const MultiTrajectory<source_link_t>>,
-                               std::reference_wrapper<const std::vector<std::size_t>>,
-                               std::reference_wrapper<const std::map<std::size_t, double>>>>
+      std::optional<std::tuple<
+          std::reference_wrapper<const MultiTrajectory<source_link_t>>,
+          std::reference_wrapper<const std::vector<std::size_t>>,
+          std::reference_wrapper<const std::map<std::size_t, double>>>>
           initInfoForMT;
     } m_config;
 
@@ -186,7 +187,8 @@ struct GaussianSumFitter {
           auto proxy =
               result.fittedStates.getTrackState(result.currentTips.back());
           proxy.copyFrom(mt.get().getTrackState(idx));
-          result.weightsOfStates[result.currentTips.back()] = weights.get().at(idx);
+          result.weightsOfStates[result.currentTips.back()] =
+              weights.get().at(idx);
 
           // Because we are backwards, we use forward filtered as predicted
           proxy.predicted() = proxy.filtered();
@@ -322,6 +324,44 @@ struct GaussianSumFitter {
       new_components.reserve(parentTrajectoryIdxs.size() *
                              m_config.bethe_heitler_approx.numComponents());
 
+      // Adjust qop to account for lost energy due to lost components
+      // TODO do we need to adjust variance?
+      double sumW_loss = 0.0, sumWeightedQOverP_loss = 0.0;
+      double initialQOverP = 0.0;
+
+      for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
+        typename stepper_t::ComponentProxy cmp(stepping, i);
+
+        if (cmp.status() != Intersection3D::Status::onSurface) {
+          sumW_loss += cmp.weight();
+          sumWeightedQOverP_loss += cmp.weight() * cmp.pars()[eFreeQOverP];
+        }
+        
+        initialQOverP += cmp.weight() * cmp.pars()[eFreeQOverP];
+      }
+
+      double checkWeightSum = 0.0;
+      double checkQOverPSum = 0.0;
+
+      for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
+        typename stepper_t::ComponentProxy cmp(stepping, i);
+
+        if (cmp.status() == Intersection3D::Status::onSurface) {
+          auto& weight = cmp.weight();
+          auto& qop = cmp.pars()[eFreeQOverP];
+
+          weight /= (1.0 - sumW_loss);
+          qop = qop * (1.0 - sumW_loss) + sumWeightedQOverP_loss;
+
+          checkWeightSum += weight;
+          checkQOverPSum += weight * qop;
+        }
+      }
+
+      
+      throw_assert(std::abs(checkQOverPSum - initialQOverP) < 1.e-8, "momentum mismatch, initial: " << initialQOverP << ", final: " << checkQOverPSum);
+      throw_assert(std::abs(checkWeightSum - 1.0) < 1.e-8, "must sum up to 1 but is " << checkWeightSum);
+
       // Approximate bethe-heitler distribution as gaussian mixture
       for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
         typename stepper_t::ComponentProxy old_cmp(stepping, i);
@@ -329,7 +369,6 @@ struct GaussianSumFitter {
         auto boundState = old_cmp.boundState(surface, m_config.doCovTransport);
 
         if (old_cmp.status() != Intersection3D::Status::onSurface) {
-          ACTS_VERBOSE("component not on surface anymore, ignore it");
           continue;
         }
 
@@ -622,7 +661,9 @@ struct GaussianSumFitter {
       // Workaround to get the first state into the MultiTrajectory
       actor.m_config.initInfoForMT =
           typename decltype(actor.m_config.initInfoForMT)::value_type{
-              std::ref(fwdGsfResult.fittedStates), std::ref(fwdGsfResult.currentTips), std::ref(fwdGsfResult.weightsOfStates)};
+              std::ref(fwdGsfResult.fittedStates),
+              std::ref(fwdGsfResult.currentTips),
+              std::ref(fwdGsfResult.weightsOfStates)};
 
       auto propResult = m_propagator.propagate(params, propOptions);
 
@@ -690,6 +731,7 @@ struct GaussianSumFitter {
     lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
         .navSurfaces = {options.referenceSurface};
     lastPropOptions.direction = NavigationDirection::backward;
+    lastPropOptions.targetTolerance *= 1000.0;
 
     ACTS_VERBOSE("+-------------------+");
     ACTS_VERBOSE("| Gsf: Do Last Part |");

@@ -41,11 +41,12 @@
 #include <random>
 
 #include "GsfAlgorithmFunction.hpp"
-#include "ObjHitWriter.hpp"
-#include "ProtoTrackLengthSelector.hpp"
-#include "ParameterEstimationPerformanceWriter.hpp"
-#include "TrackFittingPerformanceWriterCsv.hpp"
 #include "TestHelpers.hpp"
+#include "AlgorithmsAndWriters/ObjHitWriter.hpp"
+#include "AlgorithmsAndWriters/ParameterEstimationPerformanceWriter.hpp"
+#include "AlgorithmsAndWriters/ProtoTrackLengthSelector.hpp"
+#include "AlgorithmsAndWriters/TrackFittingPerformanceWriterCsv.hpp"
+#include "AlgorithmsAndWriters/SeedsFromProtoTracks.hpp"
 
 using namespace Acts::UnitLiterals;
 
@@ -60,10 +61,53 @@ const char *kSourceLinks = "source-links";
 const char *kMultiSteppingLogAverageLoop = "average-track-loop-stepper";
 const char *kMultiSteppingLogComponentsLoop = "component-tracks-loop-stepper";
 const char *kProtoTracks = "proto-tracks";
-const char *kSelectedProtoTracks = "selected-proto-tracks";
 const char *kProtoTrackParameters = "proto-track-parameters";
 const char *kKalmanOutputTrajectories = "kalman-output";
 const char *kGsfOutputTrajectories = "gsf-output";
+
+struct PrintSomeStuff : ActsExamples::BareAlgorithm {
+  PrintSomeStuff()
+      : ActsExamples::BareAlgorithm("PrintTrackParameters",
+                                    Acts::Logging::INFO) {}
+
+  ActsExamples::ProcessCode execute(
+      const ActsExamples::AlgorithmContext &ctx) const override {
+    const auto &trckPars =
+        ctx.eventStore.get<ActsExamples::TrackParametersContainer>(
+            kProtoTrackParameters);
+    const auto &protoTracks =
+        ctx.eventStore.get<ActsExamples::ProtoTrackContainer>(kProtoTracks);
+
+    std::vector<int> layerCounts(5);
+
+    std::cout << "# Proto Tracks: " << protoTracks.size() << "\n";
+    for (std::size_t i = 0; i <= 5; ++i) {
+      std::cout << "# Proto Tracks with size " << i << ": "
+                << std::count_if(protoTracks.begin(), protoTracks.end(),
+                                 [&](const auto &t) { return t.size() == i; })
+                << "\n";
+    }
+
+    std::cout << "# parameters:   " << trckPars.size() << "\n";
+
+    for (const auto &par : trckPars) {
+      Acts::FreeVector free;
+      free << par.fourPosition(ctx.geoContext), par.unitDirection(),
+          par.charge() / par.absoluteMomentum();
+
+      //             std::cout << "-- " << free.transpose() << "\t|\t" << par.referenceSurface().geometryId() << "\n";
+
+      layerCounts[par.referenceSurface().geometryId().layer() / 2 - 1]++;
+    }
+
+    for (int i = 0; i < 5; ++i)
+      std::cout << "layer " << i * 2 + 2 << ": " << layerCounts[i] << "\n";
+
+    std::exit(1);
+  }
+};
+
+
 
 int main(int argc, char **argv) {
   const std::vector<std::string> args(argv, argv + argc);
@@ -89,8 +133,11 @@ int main(int argc, char **argv) {
               << "All algorithms verbose (except the GSF)\n";
     std::cout << "\t --gsf-abort-error  \t"
               << "Call std::abort on some GSF errors\n";
-    std::cout << "\t --pars-from-seed   \t" << "Estimate the start parameters from seeds\n";
-    std::cout << "\t --inflate-cov <val>\t" << "Inflate the covariance of esimated start parameters (default: 1.0)\n";
+    std::cout << "\t --pars-from-seed   \t"
+              << "Estimate the start parameters from seeds\n";
+    std::cout << "\t --inflate-cov <val>\t"
+              << "Inflate the covariance of esimated start parameters "
+                 "(default: 1.0)\n";
     std::cout << "\t --help             \t"
               << "Print the help message\n";
     return EXIT_SUCCESS;
@@ -121,10 +168,10 @@ int main(int argc, char **argv) {
     return 2.0_T;
   }();
 
-  const auto seed = [&]() -> unsigned {
+  const auto seed = [&]() -> uint64_t {
     const auto found = std::find(begin(args), end(args), "-s");
     if (found != args.end() && std::next(found) != args.end()) {
-      return std::stoi(*std::next(found));
+      return std::stoul(*std::next(found));
     }
     return std::random_device{}();
   }();
@@ -145,7 +192,6 @@ int main(int argc, char **argv) {
 
   const bool estimateParsFromSeed =
       std::find(begin(args), end(args), "--pars-from-seed") != args.end();
-
 
   const auto inflation = [&]() -> double {
     const auto found = std::find(begin(args), end(args), "--inflate-cov");
@@ -175,7 +221,8 @@ int main(int argc, char **argv) {
   ACTS_INFO("Parameters: Abort on error: " << std::boolalpha
                                            << getGsfAbortOnError());
   ACTS_INFO("Parameters: GSF max components: " << getGsfMaxComponents());
-  ACTS_INFO("Parameters: Estimate start parameters from seeds: " << std::boolalpha << estimateParsFromSeed);
+  ACTS_INFO("Parameters: Estimate start parameters from seeds: "
+            << std::boolalpha << estimateParsFromSeed);
   ACTS_INFO("Parameters: Covariance inflation factor: " << inflation);
 
   // Setup the sequencer
@@ -337,8 +384,8 @@ int main(int argc, char **argv) {
     ttf_cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
     ttf_cfg.outputProtoTracks = kProtoTracks;
 
-    sequencer.addAlgorithm(
-        std::make_shared<ActsExamples::TruthTrackFinder>(ttf_cfg, globalLogLevel));
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::TruthTrackFinder>(
+        ttf_cfg, globalLogLevel));
 
     ActsExamples::ParticleSmearing::Config ps_cfg;
     ps_cfg.inputParticles = kGeneratedParticles;
@@ -355,6 +402,7 @@ int main(int argc, char **argv) {
   else {
     const char *kSpacePoints = "space-points";
     const char *kIntermediateProtoTracks = "intermediate-proto-tracks";
+    const char *kSeeds = "seeds";
 
     ActsExamples::TruthTrackFinder::Config ttf_cfg;
     ttf_cfg.inputParticles = kGeneratedParticles;
@@ -369,25 +417,36 @@ int main(int argc, char **argv) {
     spm_cfg.inputSourceLinks = kSourceLinks;
     spm_cfg.outputSpacePoints = kSpacePoints;
     spm_cfg.trackingGeometry = detector;
-    spm_cfg.geometrySelection = { detector->highestTrackingVolume()->geometryId() };
+    spm_cfg.geometrySelection = {
+        detector->highestTrackingVolume()->geometryId()};
 
     sequencer.addAlgorithm(std::make_shared<ActsExamples::SpacePointMaker>(
         spm_cfg, globalLogLevel));
+    
+    ActsExamples::SeedsFromProtoTracks::Config sfp_cfg;
+    sfp_cfg.inProtoTracks = kIntermediateProtoTracks;
+    sfp_cfg.inSpacePoints = kSpacePoints;
+    sfp_cfg.outProtoTracks = kProtoTracks;
+    sfp_cfg.outSeedCollection = kSeeds;
+    
+    sequencer.addAlgorithm(std::make_shared<ActsExamples::SeedsFromProtoTracks>(sfp_cfg, globalLogLevel));
 
     ActsExamples::TrackParamsEstimationAlgorithm::Config tpe_cfg;
-    tpe_cfg.inputSpacePoints = {kSpacePoints};
-    tpe_cfg.inputProtoTracks = kIntermediateProtoTracks;
+    tpe_cfg.inputSeeds = kSeeds;
     tpe_cfg.inputSourceLinks = kSourceLinks;
-    tpe_cfg.outputProtoTracks = kProtoTracks;
+    tpe_cfg.outputProtoTracks = "not-needed";
     tpe_cfg.outputTrackParameters = kProtoTrackParameters;
     tpe_cfg.trackingGeometry = detector;
     tpe_cfg.magneticField = magField;
-    tpe_cfg.initialVarInflation = { inflation, inflation, inflation, inflation, inflation, inflation };
+    tpe_cfg.initialVarInflation = {inflation, inflation, inflation,
+                                   inflation, inflation, inflation};
 
-    sequencer.addAlgorithm(std::make_shared<ActsExamples::TrackParamsEstimationAlgorithm>(
-        tpe_cfg, globalLogLevel));
+    sequencer.addAlgorithm(
+        std::make_shared<ActsExamples::TrackParamsEstimationAlgorithm>(
+            tpe_cfg, globalLogLevel));
   }
 
+#if 0
   /////////////////
   // Select Tracks
   /////////////////
@@ -401,6 +460,9 @@ int main(int argc, char **argv) {
         std::make_shared<ActsExamples::ProtoTrackLengthSelector>(
             cfg, globalLogLevel));
   }
+#endif
+
+//   sequencer.addAlgorithm(std::make_shared<PrintSomeStuff>());
 
   ////////////////////////
   // Gaussian Sum Filter
@@ -410,7 +472,7 @@ int main(int argc, char **argv) {
 
     cfg.inputMeasurements = kMeasurements;
     cfg.inputSourceLinks = kSourceLinks;
-    cfg.inputProtoTracks = kSelectedProtoTracks;
+    cfg.inputProtoTracks = kProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
     cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.directNavigation = true;
@@ -418,6 +480,7 @@ int main(int argc, char **argv) {
     //     cfg.targetSurface = startSurface;
     cfg.dFit = makeGsfFitterFunction(detector, magField,
                                      Acts::LoggerWrapper(*multiStepperLogger));
+    cfg.fitterType = "GSF";
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
@@ -432,7 +495,7 @@ int main(int argc, char **argv) {
 
     cfg.inputMeasurements = kMeasurements;
     cfg.inputSourceLinks = kSourceLinks;
-    cfg.inputProtoTracks = kSelectedProtoTracks;
+    cfg.inputProtoTracks = kProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
     cfg.outputTrajectories = kKalmanOutputTrajectories;
     cfg.directNavigation = true;
@@ -440,6 +503,7 @@ int main(int argc, char **argv) {
     //     cfg.targetSurface = startSurface;
     cfg.dFit =
         ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(magField);
+    cfg.fitterType = "Kalman";
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(cfg,
@@ -534,13 +598,15 @@ int main(int argc, char **argv) {
   // Start parameter estimation residuals
   //////////////////////////////////////////
   {
-      ActsExamples::ParameterEstimationPerformanceWriter::Config cfg;
-      cfg.inMeasurementParticlesMap = kMeasurementParticleMap;
-      cfg.inParticles = kGeneratedParticles;
-      cfg.inProtoTrackParameters = kProtoTrackParameters;
-      cfg.inProtoTracks = kProtoTracks;
+    ActsExamples::ParameterEstimationPerformanceWriter::Config cfg;
+    cfg.inMeasurementParticlesMap = kMeasurementParticleMap;
+    cfg.inParticles = kGeneratedParticles;
+    cfg.inProtoTrackParameters = kProtoTrackParameters;
+    cfg.inProtoTracks = kProtoTracks;
 
-      sequencer.addWriter(std::make_shared<ActsExamples::ParameterEstimationPerformanceWriter>(cfg, globalLogLevel));
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::ParameterEstimationPerformanceWriter>(
+            cfg, globalLogLevel));
   }
 
 #if 0
@@ -615,4 +681,3 @@ int main(int argc, char **argv) {
 
   return sequencer.run();
 }
-

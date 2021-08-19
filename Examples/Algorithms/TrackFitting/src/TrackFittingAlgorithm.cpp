@@ -40,6 +40,12 @@ ActsExamples::TrackFittingAlgorithm::TrackFittingAlgorithm(
   }
 }
 
+ActsExamples::TrackFittingAlgorithm::~TrackFittingAlgorithm() {
+  ACTS_INFO(name() << "(" << m_cfg.fitterType << "): " << m_failedFits << " / "
+                   << m_totalFits << " failed ("
+                   << (100. * m_failedFits) / m_totalFits << "%)");
+}
+
 ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     const ActsExamples::AlgorithmContext& ctx) const {
   // Read input data
@@ -64,12 +70,12 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
 
   // Construct a perigee surface as the target surface
   std::shared_ptr<const Acts::Surface> targetSurface;
-  
-  if( not m_cfg.targetSurface ) {
-      targetSurface = Acts::Surface::makeShared<Acts::PerigeeSurface>(
-      Acts::Vector3{0., 0., 0.});
+
+  if (not m_cfg.targetSurface) {
+    targetSurface = Acts::Surface::makeShared<Acts::PerigeeSurface>(
+        Acts::Vector3{0., 0., 0.});
   } else {
-      targetSurface = m_cfg.targetSurface;
+    targetSurface = m_cfg.targetSurface;
   }
 
   // Set the KalmanFitter options
@@ -106,7 +112,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     // Clear & reserve the right size
     trackSourceLinks.clear();
     trackSourceLinks.reserve(protoTrack.size());
-    
+
     // TODO why is this not here for now?
     surfSequence.clear();
 
@@ -126,6 +132,8 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     ACTS_DEBUG("Invoke fitter");
     auto result =
         fitTrack(trackSourceLinks, initialParams, kfOptions, surfSequence);
+
+    m_totalFits++;
 
     if (result.ok()) {
       // Get the fit output object
@@ -152,6 +160,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     } else {
       ACTS_WARNING("Fit failed for track " << itrack << " with error"
                                            << result.error());
+      m_failedFits++;
       // Fit failed. Add an empty result so the output container has
       // the same number of entries as the input.
       trajectories.push_back(Trajectories());

@@ -82,6 +82,9 @@ class TrackFittingAlgorithm final : public BareAlgorithm {
     int pickTrack = -1;
     /// Optionally provide an external target surface
     std::shared_ptr<const Acts::Surface> targetSurface = nullptr;
+
+    /// Fitter Type (Gsf, Kalman, ...)
+    std::string fitterType = "";
   };
 
   /// Constructor of the fitting algorithm
@@ -89,6 +92,9 @@ class TrackFittingAlgorithm final : public BareAlgorithm {
   /// @param cfg is the config struct to configure the algorihtm
   /// @param level is the logging level
   TrackFittingAlgorithm(Config cfg, Acts::Logging::Level lvl);
+
+  /// Destructor for some info printing on destruction
+  ~TrackFittingAlgorithm();
 
   /// Framework execute method of the fitting algorithm
   ///
@@ -105,6 +111,8 @@ class TrackFittingAlgorithm final : public BareAlgorithm {
       const std::vector<const Acts::Surface*>& surfSequence) const;
 
   Config m_cfg;
+  mutable int m_totalFits = 0;
+  mutable int m_failedFits = 0;
 };
 
 inline ActsExamples::TrackFittingAlgorithm::TrackFitterResult

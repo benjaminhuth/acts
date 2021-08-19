@@ -7,6 +7,7 @@ import logging
 import ROOT
 import matplotlib.pyplot as plt
 import matplotlib.backends.backend_pdf
+import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
@@ -74,17 +75,22 @@ def plotCollectionAllCoords(Collection, fitterType, resultType, pdf=None, nBins=
     axes = [ ax[0,0], ax[0,1], ax[0,2], ax[1,0], ax[1,1], ax[1,2] ]
 
 
-    for ax, coor in zip(axes, boundNames()):
+    for axx, coor in zip(axes, boundNames()):
         legend = []
         for trackType in trackTypes():
             values = getattr(getattr(Collection,trackType),coor)
+            
+            if not np.isfinite(values).all():
+                logging.warning("Data for {}, {} contain non finite values".format(fitterType, coor))
+                values = np.asarray(values)[np.isfinite(values)]
+                assert np.isfinite(values).all()
 
             mu, sigma = norm.fit(values)
-            ax.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
+            axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
             legend.append("{} (µ={:.2f}, s={:.2f})".format(trackType, mu, sigma))
 
-        ax.legend(legend, loc=2)
-        ax.set_title(coor)
+        axx.legend(legend, loc=2)
+        axx.set_title(coor)
 
 
     fig.suptitle("Total ({}, {}, {} samples)".format(fitterType.upper(), resultTypeTranslation()[resultType], len(values)), fontweight='bold')
@@ -131,6 +137,8 @@ def plotCollectionOneCoord(volLayerDict, volLayerList, coor, fitterType, resultT
             except KeyError:
                 logging.warning("KeyError with vol-id {} and lay-id {}".format(vol_id, lay_id), flush=True)
                 continue
+            
+            checkFinite(values)
 
             mu, sigma = norm.fit(values)
             axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
