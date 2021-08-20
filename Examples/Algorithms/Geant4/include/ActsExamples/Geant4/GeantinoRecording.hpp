@@ -45,14 +45,17 @@ class GeantinoRecording final : public BareAlgorithm {
     /// The number of tracks per event.
     size_t tracksPerEvent = 0;
     /// Configuration of the generator action
-    PrimaryGeneratorAction::Config generationConfig;
+    Geant4::PrimaryGeneratorAction::Config generationConfig;
   };
 
-  GeantinoRecording(Config&& cfg, Acts::Logging::Level lvl);
+  GeantinoRecording(Config config, Acts::Logging::Level level);
   ~GeantinoRecording();
 
   ActsExamples::ProcessCode execute(
       const ActsExamples::AlgorithmContext& ctx) const final override;
+
+  /// Readonly access to the configuration
+  const Config& config() const { return m_cfg; }
 
  private:
   Config m_cfg;
