@@ -135,10 +135,13 @@ def plotCollectionOneCoord(volLayerDict, volLayerList, coor, fitterType, resultT
             try:
                 values = getattr(getattr(volLayerDict[vol_id][lay_id],trackType),coor)
             except KeyError:
-                logging.warning("KeyError with vol-id {} and lay-id {}".format(vol_id, lay_id), flush=True)
+                logging.warning("KeyError with vol-id {} and lay-id {}".format(vol_id, lay_id))
                 continue
-            
-            checkFinite(values)
+
+            if not np.isfinite(values).all():
+                logging.warning("Data for {}, {} contain non finite values".format(fitterType, coor))
+                values = np.asarray(values)[np.isfinite(values)]
+                assert np.isfinite(values).all()
 
             mu, sigma = norm.fit(values)
             axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
@@ -226,7 +229,7 @@ def plotFinalPrediction(fitterType, pdf, nBins=20):
 logging.basicConfig(format='[%(levelname)s] %(asctime)s: %(message)s',level=logging.INFO)
 
 resultType = "res"
-doSurfacePlots = False
+doSurfacePlots = True
 nBins = 40
 
 pdf_filename = "analysis_{}_{}.pdf".format(resultType, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
