@@ -58,6 +58,8 @@ struct GsfOptions {
   bool throwOnError = true;
 
   std::size_t maxComponents = 4;
+
+  bool multiComponentPropagationToPerigee = true;
 };
 
 template <typename source_link_t>
@@ -336,7 +338,7 @@ struct GaussianSumFitter {
           sumW_loss += cmp.weight();
           sumWeightedQOverP_loss += cmp.weight() * cmp.pars()[eFreeQOverP];
         }
-        
+
         initialQOverP += cmp.weight() * cmp.pars()[eFreeQOverP];
       }
 
@@ -358,9 +360,11 @@ struct GaussianSumFitter {
         }
       }
 
-      
-      throw_assert(std::abs(checkQOverPSum - initialQOverP) < 1.e-8, "momentum mismatch, initial: " << initialQOverP << ", final: " << checkQOverPSum);
-      throw_assert(std::abs(checkWeightSum - 1.0) < 1.e-8, "must sum up to 1 but is " << checkWeightSum);
+      throw_assert(std::abs(checkQOverPSum - initialQOverP) < 1.e-8,
+                   "momentum mismatch, initial: "
+                       << initialQOverP << ", final: " << checkQOverPSum);
+      throw_assert(std::abs(checkWeightSum - 1.0) < 1.e-8,
+                   "must sum up to 1 but is " << checkWeightSum);
 
       // Approximate bethe-heitler distribution as gaussian mixture
       for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
@@ -711,17 +715,43 @@ struct GaussianSumFitter {
     // Last part towards perigee
     //////////////////////////////
 
-    using Projector =
-        detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
-                                         source_link_t>;
-    const auto [lastPars, lastCov] = detail::combineComponentRange(
-        bwdGsfResult.currentTips.begin(), bwdGsfResult.currentTips.end(),
-        Projector{bwdGsfResult.fittedStates, bwdGsfResult.weightsOfStates});
-    const auto& surface = bwdGsfResult.fittedStates
-                              .getTrackState(bwdGsfResult.currentTips.front())
-                              .referenceSurface();
-    MultiComponentBoundTrackParameters<SinglyCharged> lastMultiPars(
-        surface.getSharedPtr(), lastPars, lastCov);
+    //     using Projector =
+    //         detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
+    //                                          source_link_t>;
+    //     const auto [lastPars, lastCov] = detail::combineComponentRange(
+    //         bwdGsfResult.currentTips.begin(), bwdGsfResult.currentTips.end(),
+    //         Projector{bwdGsfResult.fittedStates,
+    //         bwdGsfResult.weightsOfStates});
+    //
+    //
+    //     const auto& surface = bwdGsfResult.fittedStates
+    //                               .getTrackState(bwdGsfResult.currentTips.front())
+    //                               .referenceSurface();
+    //     MultiComponentBoundTrackParameters<SinglyCharged> lastMultiPars(
+    //         surface.getSharedPtr(), lastPars, lastCov);
+
+    const auto lastMultiPars = [&]() {
+      if (options.multiComponentPropagationToPerigee) {
+        return detail::multiTrajectoryToMultiComponentParameters(
+            bwdGsfResult.currentTips, bwdGsfResult.fittedStates,
+            bwdGsfResult.weightsOfStates, detail::StatesType::ePredicted);
+      } else {
+        using Projector =
+            detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
+                                             source_link_t>;
+        const auto [lastPars, lastCov] = detail::combineComponentRange(
+            bwdGsfResult.currentTips.begin(), bwdGsfResult.currentTips.end(),
+            Projector{bwdGsfResult.fittedStates, bwdGsfResult.weightsOfStates});
+
+        const auto& surface =
+            bwdGsfResult.fittedStates
+                .getTrackState(bwdGsfResult.currentTips.front())
+                .referenceSurface();
+
+        return MultiComponentBoundTrackParameters<SinglyCharged>(
+            surface.getSharedPtr(), lastPars, lastCov);
+      }
+    }();
 
     PropagatorOptions<
         Acts::ActionList<DirectNavigator::Initializer, FinalizePositionPrinter>,

@@ -518,7 +518,7 @@ int main(int argc, char **argv) {
     cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
     cfg.inputParticles = kGeneratedParticles;
     cfg.inputTrajectories = kGsfOutputTrajectories;
-    cfg.outputFilename = "gsf_performance.root";
+    cfg.filePath = "gsf_performance.root";
 
     sequencer.addWriter(
         std::make_shared<ActsExamples::TrackFitterPerformanceWriter>(
@@ -532,8 +532,8 @@ int main(int argc, char **argv) {
     cfg.inputParticles = kGeneratedParticles;
     cfg.inputSimHits = kSimulatedHits;
     cfg.inputTrajectories = kGsfOutputTrajectories;
-    cfg.outputFilename = "gsf_trackstates.root";
-    cfg.outputTreename = "tree";
+    cfg.filePath = "gsf_trackstates.root";
+    cfg.treeName = "tree";
 
     sequencer.addWriter(
         std::make_shared<ActsExamples::RootTrajectoryStatesWriter>(
@@ -560,7 +560,7 @@ int main(int argc, char **argv) {
     cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
     cfg.inputParticles = kGeneratedParticles;
     cfg.inputTrajectories = kKalmanOutputTrajectories;
-    cfg.outputFilename = "kalman_performance.root";
+    cfg.filePath = "kalman_performance.root";
 
     sequencer.addWriter(
         std::make_shared<ActsExamples::TrackFitterPerformanceWriter>(
@@ -574,8 +574,8 @@ int main(int argc, char **argv) {
     cfg.inputParticles = kGeneratedParticles;
     cfg.inputSimHits = kSimulatedHits;
     cfg.inputTrajectories = kKalmanOutputTrajectories;
-    cfg.outputFilename = "kalman_trackstates.root";
-    cfg.outputTreename = "tree";
+    cfg.filePath = "kalman_trackstates.root";
+    cfg.treeName = "tree";
 
     sequencer.addWriter(
         std::make_shared<ActsExamples::RootTrajectoryStatesWriter>(

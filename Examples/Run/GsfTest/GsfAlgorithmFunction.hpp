@@ -12,7 +12,7 @@
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
-ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction
+std::shared_ptr<ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
 makeGsfFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,

@@ -34,6 +34,7 @@
 #include <sstream>
 #include <vector>
 
+#include "GsfUtils.hpp"
 #include "MultiStepperError.hpp"
 
 namespace Acts {
@@ -256,9 +257,9 @@ class MultiEigenStepperLoop
   MultiEigenStepperLoop(std::shared_ptr<const MagneticFieldProvider> bField,
                         LoggerWrapper l = getDummyLogger())
       : EigenStepper<extensionlist_t, auctioneer_t>(bField), logger(l) {}
-      
+
   void setOverstepLimit(double oLimit) {
-      SingleStepper::m_overstepLimit = oLimit;
+    SingleStepper::m_overstepLimit = oLimit;
   }
 
   /// Get the field for the stepping, it checks first if the access is still
@@ -341,17 +342,16 @@ class MultiEigenStepperLoop
     constexpr static std::array s = {"missed/unreachable", "reachable",
                                      "onSurface"};
 
-    ACTS_VERBOSE("Component status wrt "
-                 << surface.geometryId() << " at {"
-                 << surface.center(state.geoContext).transpose() << "}:\t"
-                 << [&]() {
-                      std::stringstream ss;
-                      for (auto& component : state.components) {
-                        ss << s[static_cast<std::size_t>(component.status)]
-                           << "\t";
-                      }
-                      return ss.str();
-                    }());
+    ACTS_VERBOSE(
+        "Component status wrt "
+        << surface.geometryId() << " at {"
+        << surface.center(state.geoContext).transpose() << "}:\t" << [&]() {
+             std::stringstream ss;
+             for (auto& component : state.components) {
+               ss << s[static_cast<std::size_t>(component.status)] << "\t";
+             }
+             return ss.str();
+           }());
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -488,7 +488,29 @@ class MultiEigenStepperLoop
       return SingleStepper::boundState(state.components.front().state, surface,
                                        transportCov);
     } else {
-      return MultiStepperError::StateOfMultipleComponentsRequested;
+      std::vector<std::pair<double, BoundState>> bs_vec;
+      double accumulatedPathLength = 0.0;
+
+      for (auto i = 0ul; i < numberComponents(state); ++i) {
+        auto bs = SingleStepper::boundState(state.components[i].state, surface,
+                                            transportCov);
+
+        if (bs.ok()) {
+          bs_vec.push_back({state.components[i].weight, *bs});
+          accumulatedPathLength += std::get<double>(*bs);
+        }
+      }
+
+      const auto [params, cov] = detail::combineComponentRange(
+          bs_vec.begin(), bs_vec.end(), [&](const auto& wbs) {
+            const auto& bp = std::get<BoundTrackParameters>(wbs.second);
+            return std::tie(wbs.first, bp.parameters(), bp.covariance());
+          });
+
+      // TODO Jacobian for multi component state not defined really?
+      return BoundState{
+          BoundTrackParameters(surface.getSharedPtr(), params, cov),
+          Jacobian::Zero(), accumulatedPathLength / bs_vec.size()};
     }
   }
 
@@ -609,8 +631,7 @@ class MultiEigenStepperLoop
       decltype(state.navigation)& navigation;
       SingleState& stepping;
     };
-    
-    
+
     std::stringstream ss;
 
     for (auto& component : state.stepping.components) {
@@ -618,15 +639,15 @@ class MultiEigenStepperLoop
         ss << "cmp skipped\t";
         continue;
       }
-      
+
       SinglePropState single_state{state.options, state.navigation,
                                    component.state};
       results.push_back(SingleStepper::step(single_state));
-      
-      if( results.back().ok() ) {
-          ss << *results.back() << "\t";
+
+      if (results.back().ok()) {
+        ss << *results.back() << "\t";
       } else {
-          ss << "step error: " << results.back().error() << "\t";
+        ss << "step error: " << results.back().error() << "\t";
       }
     }
 

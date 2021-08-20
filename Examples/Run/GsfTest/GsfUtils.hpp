@@ -489,7 +489,8 @@ auto smoothAndCombineTrajectories(
     proxy.smoothed() = smoothedMean;
     proxy.smoothedCovariance() = smoothedCov.value();
 
-    throw_assert(proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag), "must be a measurment");
+    throw_assert(proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag),
+                 "must be a measurment");
 
     // Update bwdTips to the next state
     for (auto &tip : bwdTips) {
@@ -502,6 +503,44 @@ auto smoothAndCombineTrajectories(
   }
 
   return std::make_tuple(finalTrajectory, lastTip);
+}
+
+template <typename source_link_t>
+auto multiTrajectoryToMultiComponentParameters(
+    const std::vector<std::size_t> &tips,
+    const MultiTrajectory<source_link_t> &mt,
+    const std::map<std::size_t, double> weights, StatesType type) {
+  std::shared_ptr<const Surface> surface =
+      mt.getTrackState(tips.front()).referenceSurface().getSharedPtr();
+
+  using Tuple = std::tuple<double, BoundVector, std::optional<BoundSymMatrix>>;
+  std::vector<Tuple> comps;
+
+  for (const auto tip : tips) {
+    const auto &state = mt.getTrackState(tip);
+
+    throw_assert(state.referenceSurface().geometryId() == surface->geometryId(),
+                 "surface mismatch");
+
+    switch (type) {
+      case StatesType::ePredicted: {
+        comps.push_back(Tuple{weights.at(tip), state.predicted(),
+                              state.predictedCovariance()});
+      } break;
+
+      case StatesType::eFiltered: {
+        comps.push_back(Tuple{weights.at(tip), state.filtered(),
+                              state.filteredCovariance()});
+      } break;
+
+      case StatesType::eSmoothed: {
+        comps.push_back(Tuple{weights.at(tip), state.smoothed(),
+                              state.smoothedCovariance()});
+      }
+    }
+  }
+
+  return MultiComponentBoundTrackParameters<SinglyCharged>(surface, comps);
 }
 
 }  // namespace detail

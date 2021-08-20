@@ -54,10 +54,12 @@ using Propagator = Acts::Propagator<Stepper, Acts::DirectNavigator>;
 // The Fitter
 using Fitter = Acts::GaussianSumFitter<Propagator>;
 
-struct GsfFitterFunction {
+struct GsfFitterFunction
+    : public ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction {
   Fitter trackFitter;
 
   GsfFitterFunction(Fitter&& f) : trackFitter(std::move(f)) {}
+  ~GsfFitterFunction() {}
 
   ActsExamples::TrackFittingAlgorithm::TrackFitterResult operator()(
       const std::vector<ActsExamples::IndexSourceLink>& sourceLinks,
@@ -80,7 +82,7 @@ struct GsfFitterFunction {
   };
 };
 
-ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction
+std::shared_ptr<ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
 makeGsfFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> /*trackingGeometry*/,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
@@ -94,5 +96,5 @@ makeGsfFitterFunction(
   Fitter trackFitter(std::move(propagator));
 
   // build the fitter functions. owns the fitter object.
-  return GsfFitterFunction(std::move(trackFitter));
+  return std::make_shared<GsfFitterFunction>(std::move(trackFitter));
 }
