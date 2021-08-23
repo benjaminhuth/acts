@@ -19,12 +19,12 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
-#include "MultiEigenStepperLoop.hpp"
-#include "MultiEigenStepperSIMD.hpp"
-#include "NewGenericDefaultExtension.hpp"
-#include "NewGenericDenseEnvironmentExtension.hpp"
-#include "NewStepperExtensionList.hpp"
-#include "SimdHelpers.hpp"
+#include "GsfInfrastructure/MultiEigenStepperLoop.hpp"
+#include "GsfInfrastructure/MultiEigenStepperSIMD.hpp"
+#include "GsfInfrastructure/NewGenericDefaultExtension.hpp"
+#include "GsfInfrastructure/NewGenericDenseEnvironmentExtension.hpp"
+#include "GsfInfrastructure/NewStepperExtensionList.hpp"
+#include "GsfInfrastructure/SimdHelpers.hpp"
 #include "TestHelpers.hpp"
 
 int main(int argc, char** argv) {

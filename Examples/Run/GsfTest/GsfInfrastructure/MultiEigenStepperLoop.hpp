@@ -490,6 +490,7 @@ class MultiEigenStepperLoop
     } else {
       std::vector<std::pair<double, BoundState>> bs_vec;
       double accumulatedPathLength = 0.0;
+      int failedBoundTransforms = 0;
 
       for (auto i = 0ul; i < numberComponents(state); ++i) {
         auto bs = SingleStepper::boundState(state.components[i].state, surface,
@@ -498,6 +499,8 @@ class MultiEigenStepperLoop
         if (bs.ok()) {
           bs_vec.push_back({state.components[i].weight, *bs});
           accumulatedPathLength += std::get<double>(*bs);
+        } else {
+          failedBoundTransforms++;
         }
       }
 
@@ -506,6 +509,12 @@ class MultiEigenStepperLoop
             const auto& bp = std::get<BoundTrackParameters>(wbs.second);
             return std::tie(wbs.first, bp.parameters(), bp.covariance());
           });
+
+      if (failedBoundTransforms > 0) {
+        ACTS_WARNING("Multi component bound state: " <<  failedBoundTransforms
+                     << " of " << numberComponents(state)
+                     << " transforms failed");
+      }
 
       // TODO Jacobian for multi component state not defined really?
       return BoundState{

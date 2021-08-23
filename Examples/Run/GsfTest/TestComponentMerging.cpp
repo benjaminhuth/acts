@@ -2,7 +2,7 @@
 
 #include <boost/test/unit_test.hpp>
 
-#include "KLMixtureReduction.hpp"
+#include "GsfInfrastructure/KLMixtureReduction.hpp"
 
 using DummyComponent = Acts::detail::GsfComponentCache<int>;
 

@@ -15,8 +15,8 @@
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
 
-#include "GaussianSumFitter.hpp"
-#include "MultiEigenStepperLoop.hpp"
+#include "GsfInfrastructure/GaussianSumFitter.hpp"
+#include "GsfInfrastructure/MultiEigenStepperLoop.hpp"
 
 namespace {
 bool gsfThrowOnAbort = false;

@@ -19,7 +19,7 @@
 #include "Acts/Visualization/GeometryView3D.hpp"
 #include "Acts/Visualization/ObjVisualization3D.hpp"
 
-#include "MultiSteppingLogger.hpp"
+#include "GsfInfrastructure/MultiSteppingLogger.hpp"
 
 // Global constant Context objects
 const Acts::GeometryContext geoCtx;
