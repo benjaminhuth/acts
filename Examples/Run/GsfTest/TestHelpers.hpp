@@ -115,7 +115,7 @@ inline void export_detector_to_obj(const Acts::TrackingGeometry& detector) {
   Acts::GeometryView3D::drawTrackingVolume(
       objVis, *detector.highestTrackingVolume(), geoCtx,
       draw_config.containerView, draw_config.volumeView,
-      draw_config.passiveView, draw_config.sensitiveView, draw_config.gridView);
+      draw_config.passiveView, draw_config.sensitiveView, draw_config.gridView, true, "", "detector_obj");
 }
 
 inline void export_tracks_to_obj(

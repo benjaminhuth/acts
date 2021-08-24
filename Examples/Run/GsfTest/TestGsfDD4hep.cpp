@@ -10,7 +10,7 @@
 #include "Acts/Utilities/PdgParticle.hpp"
 #include "ActsExamples/DD4hepDetector/DD4hepDetector.hpp"
 #include "ActsExamples/Digitization/DigitizationConfig.hpp"
-#include "ActsExamples/Options/CommonOptions.hpp"
+#include "ActsExamples/Digitization/DigitizationOptions.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/Trajectories.hpp"
 #include "ActsExamples/Fatras/FatrasAlgorithm.hpp"
@@ -21,28 +21,28 @@
 #include "ActsExamples/Generators/MultiplicityGenerators.hpp"
 #include "ActsExamples/Generators/ParametricParticleGenerator.hpp"
 #include "ActsExamples/Generators/VertexGenerators.hpp"
+#include "ActsExamples/Geometry/CommonGeometry.hpp"
 #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
+#include "ActsExamples/Io/Json/JsonDigitizationConfig.hpp"
 #include "ActsExamples/Io/Performance/TrackFitterPerformanceWriter.hpp"
 #include "ActsExamples/Io/Root/RootTrajectoryStatesWriter.hpp"
+#include "ActsExamples/MagneticField/MagneticFieldOptions.hpp"
+#include "ActsExamples/Options/CommonOptions.hpp"
 #include "ActsExamples/Plugins/Obj/ObjPropagationStepsWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjSpacePointWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjTrackingGeometryWriter.hpp"
 #include "ActsExamples/TelescopeDetector/BuildTelescopeDetector.hpp"
 #include "ActsExamples/TrackFinding/SpacePointMaker.hpp"
+#include "ActsExamples/TrackFinding/SpacePointMakerOptions.hpp"
 #include "ActsExamples/TrackFinding/TrackParamsEstimationAlgorithm.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 #include "ActsExamples/TruthTracking/ParticleSmearing.hpp"
 #include "ActsExamples/TruthTracking/TruthTrackFinder.hpp"
 #include "ActsExamples/Utilities/Options.hpp"
-#include "ActsExamples/MagneticField/MagneticFieldOptions.hpp"
-#include "ActsExamples/Digitization/DigitizationOptions.hpp"
-#include "ActsExamples/TrackFinding/SpacePointMakerOptions.hpp"
-#include "ActsExamples/Geometry/CommonGeometry.hpp"
 #include "ActsFatras/EventData/Barcode.hpp"
-#include "RecInput.hpp"
- 
+
 #include <chrono>
 #include <iostream>
 #include <random>
@@ -53,6 +53,7 @@
 #include "AlgorithmsAndWriters/SeedsFromProtoTracks.hpp"
 #include "AlgorithmsAndWriters/TrackFittingPerformanceWriterCsv.hpp"
 #include "GsfAlgorithmFunction.hpp"
+#include "RecInput.hpp"
 #include "TestHelpers.hpp"
 
 using namespace Acts::UnitLiterals;
@@ -76,37 +77,33 @@ int main(int argc, char **argv) {
   const auto detector = std::make_shared<DD4hepDetector>();
 
   // Initialize the options
-  boost::program_options::options_description desc("");
+  boost::program_options::options_description desc;
   {
     using namespace ActsExamples;
-
-    Options::addRandomNumbersOptions(desc);
-    Options::addGeometryOptions(desc);
-    Options::addMaterialOptions(desc);
-    Options::addInputOptions(desc);
-    Options::addOutputOptions(desc,
-                              OutputFormat::Csv | OutputFormat::DirectoryOnly);
-    detector->addOptions(desc);
-    Options::addMagneticFieldOptions(desc);
-    Options::addDigitizationOptions(desc);
-    Options::addSpacePointMakerOptions(desc);
 
     namespace po = boost::program_options;
 
     auto opt = desc.add_options();
-    opt("n", po::value<int>(), "Number of events");
+    opt("help", "Show help message");
+    opt("n", po::value<int>()->default_value(1),
+        "Number of generated particles");
+    opt("loglevel", po::value<std::size_t>()->default_value(2),
+        "LogLevel for compatibility, with almost no impact");
     opt("pars-from-seeds", po::bool_switch(),
         "Use track parameters estimated from truth tracks");
     opt("v", po::bool_switch(), "All algorithms verbose (except the GSF)");
     opt("v-gsf", po::bool_switch(), "GSF algorithm verbose");
     opt("no-kalman", po::bool_switch(), "Disable the GSF");
     opt("no-gsf", po::bool_switch(), "Disable the Kalman Filter");
-  }
-  
-  const auto args = std::vector<std::string>(argv, argv+argc);
-  if( std::find(args.begin(), args.end(), "--help") != args.end() ) {
-      std::cout << desc;
-      return EXIT_SUCCESS;
+
+    detector->addOptions(desc);
+    Options::addRandomNumbersOptions(desc);
+    Options::addGeometryOptions(desc);
+    Options::addMaterialOptions(desc);
+    Options::addInputOptions(desc);
+    Options::addMagneticFieldOptions(desc);
+    Options::addDigitizationOptions(desc);
+    Options::addSpacePointMakerOptions(desc);
   }
 
   auto vm = ActsExamples::Options::parse(desc, argc, argv);
@@ -120,18 +117,20 @@ int main(int argc, char **argv) {
   ActsExamples::Sequencer sequencer(seqCfg);
 
   // Read some standard options
-  const auto globalLogLevel = vm["v"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::INFO;
-  const auto gsfLogLevel = vm["v-gsf"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::INFO;
+  const auto globalLogLevel =
+      vm["v"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::INFO;
+  const auto gsfLogLevel =
+      vm["v-gsf"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::INFO;
   const auto doGsf = not vm["no-gsf"].as<bool>();
   const auto doKalman = not vm["no-kalman"].as<bool>();
   const auto numParticles = vm["n"].as<int>();
   const auto estimateParsFromSeed = vm["pars-from-seeds"].as<bool>();
-  
+
   const double inflation = 1.0;
-  
+
   auto rnd = std::make_shared<ActsExamples::RandomNumbers>(
       ActsExamples::Options::readRandomNumbersConfig(vm));
-  
+
   // Logger
   auto mainLogger = Acts::getDefaultLogger("main logger", globalLogLevel);
   auto multiStepperLogger = Acts::getDefaultLogger("MultiStepper", gsfLogLevel);
@@ -139,15 +138,20 @@ int main(int argc, char **argv) {
 
   // Setup detector geometry
   auto geometry = ActsExamples::Geometry::build(vm, *detector);
-  auto trackingGeometry = geometry.first;
-  
+  const auto &trackingGeometry = geometry.first;
+
   // Add context decorators
   for (auto cdr : geometry.second) {
     sequencer.addContextDecorator(cdr);
   }
-  
+
   // Setup the magnetic field
   auto magneticField = ActsExamples::Options::readMagneticField(vm);
+
+  // No need to put detector geometry writing in sequencer loop
+#if 1
+  export_detector_to_obj(*trackingGeometry);
+#endif
 
   /////////////////////
   // Particle gun
@@ -208,8 +212,9 @@ int main(int argc, char **argv) {
   // Digitization
   ///////////////////
   {
-    auto cfg = setupDigitization(vm, sequencer, rnd, trackingGeometry,
-                                 kSimulatedHits);
+    auto cfg = ActsExamples::DigitizationConfig(
+        vm, ActsExamples::readDigiConfigFromJson(
+                  vm["digi-config-file"].as<std::string>()));
 
     cfg.inputSimHits = kSimulatedHits;
     cfg.outputSourceLinks = kSourceLinks;
@@ -346,8 +351,8 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kKalmanOutputTrajectories;
     cfg.directNavigation = true;
     cfg.trackingGeometry = trackingGeometry;
-    cfg.dFit =
-        ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(magneticField);
+    cfg.dFit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
+        magneticField);
     cfg.fitterType = "Kalman";
 
     sequencer.addAlgorithm(
