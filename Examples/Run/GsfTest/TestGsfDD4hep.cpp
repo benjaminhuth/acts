@@ -53,8 +53,7 @@
 #include "AlgorithmsAndWriters/SeedsFromProtoTracks.hpp"
 #include "AlgorithmsAndWriters/TrackFittingPerformanceWriterCsv.hpp"
 #include "GsfAlgorithmFunction.hpp"
-#include "RecInput.hpp"
-#include "TestHelpers.hpp"
+// #include "TestHelpers.hpp"
 
 using namespace Acts::UnitLiterals;
 
@@ -149,7 +148,7 @@ int main(int argc, char **argv) {
   auto magneticField = ActsExamples::Options::readMagneticField(vm);
 
   // No need to put detector geometry writing in sequencer loop
-#if 1
+#if 0
   export_detector_to_obj(*trackingGeometry);
 #endif
 
