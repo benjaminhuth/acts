@@ -219,6 +219,8 @@ struct GaussianSumFitter {
             (state.stepping.navDir == forward) ? "forward" : "backward";
         ACTS_VERBOSE("Perform " << direction << " filter step");
         result.result = filter(state, stepper, result, source_link);
+      } else {
+        ACTS_VERBOSE("No material on surface, continue without any action");
       }
     }
 

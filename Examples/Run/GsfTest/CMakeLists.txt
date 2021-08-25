@@ -14,6 +14,7 @@ set(EXAMPLES_LIBS
     ActsExamplesIoPerformance 
     ActsExamplesIoRoot 
     ActsExamplesTrackFinding
+    ActsExamplesIoObj
 )
 
 target_link_libraries(MultiStepperTest ActsCore)

@@ -298,6 +298,6 @@ int main(int argc, char** argv) {
   }
 
   if (do_obj_export) {
-    export_detector_to_obj(*detector);
+    export_detector_to_obj(*detector, "");
   }
 }

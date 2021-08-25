@@ -53,7 +53,7 @@
 #include "AlgorithmsAndWriters/SeedsFromProtoTracks.hpp"
 #include "AlgorithmsAndWriters/TrackFittingPerformanceWriterCsv.hpp"
 #include "GsfAlgorithmFunction.hpp"
-// #include "TestHelpers.hpp"
+#include "TestHelpers.hpp"
 
 using namespace Acts::UnitLiterals;
 
@@ -68,9 +68,43 @@ const char *kSourceLinks = "source-links";
 const char *kMultiSteppingLogAverageLoop = "average-track-loop-stepper";
 const char *kMultiSteppingLogComponentsLoop = "component-tracks-loop-stepper";
 const char *kProtoTracks = "proto-tracks";
+const char *kSelectedProtoTracks = "selected-proto-tracks";
 const char *kProtoTrackParameters = "proto-track-parameters";
 const char *kKalmanOutputTrajectories = "kalman-output";
 const char *kGsfOutputTrajectories = "gsf-output";
+
+struct AbortIfAllTracksEmpty : ActsExamples::BareAlgorithm {
+  struct Config {
+    std::string inProtoTracks;
+  } m_cfg;
+
+  AbortIfAllTracksEmpty(const Config &cfg, Acts::Logging::Level lvl)
+      : ActsExamples::BareAlgorithm("AbortIfAllTracksEmpty", lvl), m_cfg(cfg) {}
+
+  ActsExamples::ProcessCode execute(
+      const ActsExamples::AlgorithmContext &ctx) const override {
+    const auto &tracks = ctx.eventStore.get<ActsExamples::ProtoTrackContainer>(
+        m_cfg.inProtoTracks);
+
+    bool doAbort = false;
+    int emptyTracks = 0;
+
+    for (const auto &track : tracks) {
+      if (track.empty()) {
+        doAbort = true;
+        emptyTracks++;
+      }
+    }
+
+    ACTS_INFO("Empty Tracks: " << emptyTracks << " of " << tracks.size());
+
+    if (doAbort) {
+      return ActsExamples::ProcessCode::ABORT;
+    }
+
+    return ActsExamples::ProcessCode::SUCCESS;
+  }
+};
 
 int main(int argc, char **argv) {
   const auto detector = std::make_shared<DD4hepDetector>();
@@ -86,6 +120,7 @@ int main(int argc, char **argv) {
     opt("help", "Show help message");
     opt("n", po::value<int>()->default_value(1),
         "Number of generated particles");
+    opt("c", po::value<int>()->default_value(16), "Max number of components");
     opt("loglevel", po::value<std::size_t>()->default_value(2),
         "LogLevel for compatibility, with almost no impact");
     opt("pars-from-seeds", po::bool_switch(),
@@ -124,6 +159,8 @@ int main(int argc, char **argv) {
   const auto doKalman = not vm["no-kalman"].as<bool>();
   const auto numParticles = vm["n"].as<int>();
   const auto estimateParsFromSeed = vm["pars-from-seeds"].as<bool>();
+  const auto maxComponentNumber = vm["c"].as<int>();
+  setGsfMaxComponents(maxComponentNumber);
 
   const double inflation = 1.0;
 
@@ -135,9 +172,31 @@ int main(int argc, char **argv) {
   auto multiStepperLogger = Acts::getDefaultLogger("MultiStepper", gsfLogLevel);
   ACTS_LOCAL_LOGGER(std::move(mainLogger));
 
+  ACTS_INFO("Parameters: numParticles = " << numParticles);
+  ACTS_INFO("Parameters: RNG seed = "
+            << ActsExamples::Options::readRandomNumbersConfig(vm).seed);
+  ACTS_INFO("Parameters: " << (doGsf ? "do GSF" : "no Gsf") << ", "
+                           << (doKalman ? "do Kalman" : "no Kalman"));
+  ACTS_INFO("Parameters: Abort on error: " << std::boolalpha
+                                           << getGsfAbortOnError());
+  ACTS_INFO("Parameters: GSF max components: " << getGsfMaxComponents());
+  ACTS_INFO("Parameters: Estimate start parameters from seeds: "
+            << std::boolalpha << estimateParsFromSeed);
+  ACTS_INFO("Parameters: Covariance inflation factor: " << inflation);
+
   // Setup detector geometry
   auto geometry = ActsExamples::Geometry::build(vm, *detector);
   const auto &trackingGeometry = geometry.first;
+
+  int numSurfaces = 0, surfacesWithMaterial = 0;
+  trackingGeometry->visitSurfaces([&](auto surface){
+      if( surface->surfaceMaterial() ) {
+          surfacesWithMaterial++;
+      }
+      numSurfaces++;
+  });
+
+  ACTS_INFO("Material: " << surfacesWithMaterial << " / " << numSurfaces << " have material");
 
   // Add context decorators
   for (auto cdr : geometry.second) {
@@ -148,9 +207,8 @@ int main(int argc, char **argv) {
   auto magneticField = ActsExamples::Options::readMagneticField(vm);
 
   // No need to put detector geometry writing in sequencer loop
-#if 0
-  export_detector_to_obj(*trackingGeometry);
-#endif
+  const std::string objOutputDir = "obj_output";
+  export_detector_to_obj(*trackingGeometry, objOutputDir);
 
   /////////////////////
   // Particle gun
@@ -161,10 +219,10 @@ int main(int argc, char **argv) {
     ActsExamples::FixedVertexGenerator vertexGen{vertex};
 
     ActsExamples::ParametricParticleGenerator::Config pgCfg;
-    pgCfg.phiMin = -5._degree;
-    pgCfg.phiMax = 5._degree;
-    pgCfg.thetaMin = 85._degree;
-    pgCfg.thetaMax = 95._degree;
+    pgCfg.phiMin = -180._degree;
+    pgCfg.phiMax = 180._degree;
+    pgCfg.thetaMin = 45._degree;
+    pgCfg.thetaMax = 135._degree;
     pgCfg.pMin = 1.0_GeV;
     pgCfg.pMax = 10.0_GeV;
     pgCfg.pdg = Acts::PdgParticle::eElectron;
@@ -200,7 +258,7 @@ int main(int argc, char **argv) {
     cfg.emEnergyLossRadiation = true;
     cfg.emPhotonConversion = false;
     cfg.generateHitsOnSensitive = true;
-    cfg.generateHitsOnMaterial = true;
+    cfg.generateHitsOnMaterial = false;
     cfg.generateHitsOnPassive = false;
 
     sequencer.addAlgorithm(std::make_shared<ActsExamples::FatrasAlgorithm>(
@@ -213,7 +271,7 @@ int main(int argc, char **argv) {
   {
     auto cfg = ActsExamples::DigitizationConfig(
         vm, ActsExamples::readDigiConfigFromJson(
-                  vm["digi-config-file"].as<std::string>()));
+                vm["digi-config-file"].as<std::string>()));
 
     cfg.inputSimHits = kSimulatedHits;
     cfg.outputSourceLinks = kSourceLinks;
@@ -252,9 +310,9 @@ int main(int argc, char **argv) {
   // Seed - Estimation chain //
   /////////////////////////////
   else {
-    const char *kSpacePoints = "space-points";
     const char *kIntermediateProtoTracks = "intermediate-proto-tracks";
     const char *kSeeds = "seeds";
+    const char *kSpacePoints = "space-points";
 
     ActsExamples::TruthTrackFinder::Config ttf_cfg;
     ttf_cfg.inputParticles = kGeneratedParticles;
@@ -297,7 +355,7 @@ int main(int argc, char **argv) {
             tpe_cfg, globalLogLevel));
   }
 
-#if 0
+#if 1
   /////////////////
   // Select Tracks
   /////////////////
@@ -305,7 +363,7 @@ int main(int argc, char **argv) {
     ActsExamples::ProtoTrackLengthSelector::Config cfg;
     cfg.inProtoTracks = kProtoTracks;
     cfg.outProtoTracks = kSelectedProtoTracks;
-    cfg.minLength = 3;
+    cfg.minLength = 6;
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::ProtoTrackLengthSelector>(
@@ -313,7 +371,18 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  //   sequencer.addAlgorithm(std::make_shared<PrintSomeStuff>());
+#if 1
+  /////////////////
+  // Some check
+  /////////////////
+  {
+    AbortIfAllTracksEmpty::Config cfg;
+    cfg.inProtoTracks = kSelectedProtoTracks;
+
+    sequencer.addAlgorithm(
+        std::make_shared<AbortIfAllTracksEmpty>(cfg, globalLogLevel));
+  }
+#endif
 
   ////////////////////////
   // Gaussian Sum Filter
@@ -323,7 +392,7 @@ int main(int argc, char **argv) {
 
     cfg.inputMeasurements = kMeasurements;
     cfg.inputSourceLinks = kSourceLinks;
-    cfg.inputProtoTracks = kProtoTracks;
+    cfg.inputProtoTracks = kSelectedProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
     cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.directNavigation = true;
@@ -345,7 +414,7 @@ int main(int argc, char **argv) {
 
     cfg.inputMeasurements = kMeasurements;
     cfg.inputSourceLinks = kSourceLinks;
-    cfg.inputProtoTracks = kProtoTracks;
+    cfg.inputProtoTracks = kSelectedProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
     cfg.outputTrajectories = kKalmanOutputTrajectories;
     cfg.directNavigation = true;
@@ -455,6 +524,19 @@ int main(int argc, char **argv) {
 
     sequencer.addWriter(
         std::make_shared<ActsExamples::ParameterEstimationPerformanceWriter>(
+            cfg, globalLogLevel));
+  }
+
+  //////////////////////////////////////////
+  // Write spacepoints to obj
+  //////////////////////////////////////////
+  {
+    ActsExamples::ObjHitWriter::Config cfg;
+    cfg.collection = kSimulatedHits;
+    cfg.outputDir = objOutputDir;
+
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::ObjHitWriter>(
             cfg, globalLogLevel));
   }
 

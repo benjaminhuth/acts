@@ -98,7 +98,7 @@ inline auto build_tracking_geometry() {
       std::shared_ptr{tgeo_builder.trackingGeometry(geoCtx)});
 }
 
-inline void export_detector_to_obj(const Acts::TrackingGeometry& detector) {
+inline void export_detector_to_obj(const Acts::TrackingGeometry& detector, const std::string &output_dir) {
   const double output_scalor = 1.0;
   const size_t output_recision = 6;
 
@@ -115,7 +115,7 @@ inline void export_detector_to_obj(const Acts::TrackingGeometry& detector) {
   Acts::GeometryView3D::drawTrackingVolume(
       objVis, *detector.highestTrackingVolume(), geoCtx,
       draw_config.containerView, draw_config.volumeView,
-      draw_config.passiveView, draw_config.sensitiveView, draw_config.gridView, true, "", "detector_obj");
+      draw_config.passiveView, draw_config.sensitiveView, draw_config.gridView, true, "", output_dir);
 }
 
 inline void export_tracks_to_obj(
