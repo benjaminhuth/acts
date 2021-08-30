@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "Acts/Utilities/Logger.hpp"
 #include "ActsExamples/Utilities/OptionsFwd.hpp"
 
 #include <memory>
@@ -34,7 +35,8 @@ namespace Geometry {
 /// @return a pair of TrackingGeometry and context decorators
 std::pair<std::shared_ptr<const Acts::TrackingGeometry>,
           std::vector<std::shared_ptr<ActsExamples::IContextDecorator>>>
-build(const boost::program_options::variables_map& vm, IBaseDetector& detector);
+build(const boost::program_options::variables_map& vm, IBaseDetector& detector,
+      Acts::Logging::Level lvl = Acts::Logging::INFO);
 
 }  // namespace Geometry
 }  // namespace ActsExamples

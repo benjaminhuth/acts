@@ -32,8 +32,8 @@ namespace Geometry {
 /// @return a pair of TrackingGeometry and context decorators
 std::pair<std::shared_ptr<const Acts::TrackingGeometry>,
           std::vector<std::shared_ptr<ActsExamples::IContextDecorator>>>
-build(const boost::program_options::variables_map& vm,
-      IBaseDetector& detector) {
+build(const boost::program_options::variables_map& vm, IBaseDetector& detector,
+      Acts::Logging::Level lvl) {
   // Material decoration
   std::shared_ptr<const Acts::IMaterialDecorator> matDeco = nullptr;
   auto matType = vm["mat-input-type"].template as<std::string>();
@@ -49,13 +49,13 @@ build(const boost::program_options::variables_map& vm,
       Acts::MaterialMapJsonConverter::Config jsonGeoConvConfig;
       // Set up the json-based decorator
       matDeco = std::make_shared<const Acts::JsonMaterialDecorator>(
-          jsonGeoConvConfig, fileName, Acts::Logging::INFO);
+          jsonGeoConvConfig, fileName, lvl);
     } else if (fileName.find(".root") != std::string::npos) {
       // Set up the root-based decorator
       ActsExamples::RootMaterialDecorator::Config rootMatDecConfig;
       rootMatDecConfig.fileName = fileName;
       matDeco = std::make_shared<const ActsExamples::RootMaterialDecorator>(
-          rootMatDecConfig, Acts::Logging::INFO);
+          rootMatDecConfig, lvl);
     }
   }
 

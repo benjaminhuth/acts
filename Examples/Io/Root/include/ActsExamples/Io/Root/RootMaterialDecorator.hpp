@@ -96,11 +96,13 @@ class RootMaterialDecorator : public Acts::IMaterialDecorator {
     // Null out the material for this surface
     if (m_clearSurfaceMaterial) {
       surface.assignSurfaceMaterial(nullptr);
+      ACTS_VERBOSE("Do not assign a material to " << surface.geometryId());
     }
     // Try to find the surface in the map
     auto sMaterial = m_surfaceMaterialMap.find(surface.geometryId());
     if (sMaterial != m_surfaceMaterialMap.end()) {
       surface.assignSurfaceMaterial(sMaterial->second);
+      ACTS_VERBOSE("Assign material to " << surface.geometryId());
     }
   }
 

@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
   ACTS_INFO("Parameters: Covariance inflation factor: " << inflation);
 
   // Setup detector geometry
-  auto geometry = ActsExamples::Geometry::build(vm, *detector);
+  auto geometry = ActsExamples::Geometry::build(vm, *detector, Acts::Logging::INFO);
   const auto &trackingGeometry = geometry.first;
 
   int numSurfaces = 0, surfacesWithMaterial = 0;
@@ -197,6 +197,7 @@ int main(int argc, char **argv) {
   });
 
   ACTS_INFO("Material: " << surfacesWithMaterial << " / " << numSurfaces << " have material");
+  throw_assert(surfacesWithMaterial > 0, "we need some surfaces with material");
 
   // Add context decorators
   for (auto cdr : geometry.second) {
