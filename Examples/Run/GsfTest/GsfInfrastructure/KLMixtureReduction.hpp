@@ -19,13 +19,12 @@ namespace Acts {
 namespace detail {
 
 /// @brief computes the Kullback-Leibler distance between two components as shown in https://arxiv.org/abs/2001.00727v1, while ignoring the weights as done in Athena
-template <typename source_link_t>
-auto computeKLDistance(const GsfComponentCache<source_link_t> &a,
-                       const GsfComponentCache<source_link_t> &b) {
-  const auto parsA = a.predictedPars[eBoundQOverP];
-  const auto parsB = b.predictedPars[eBoundQOverP];
-  const auto covA = (*a.predictedCov)(eBoundQOverP, eBoundQOverP);
-  const auto covB = (*b.predictedCov)(eBoundQOverP, eBoundQOverP);
+auto computeKLDistance(const GsfComponentCache &a,
+                       const GsfComponentCache &b) {
+  const auto parsA = a.boundPars[eBoundQOverP];
+  const auto parsB = b.boundPars[eBoundQOverP];
+  const auto covA = (*a.boundCov)(eBoundQOverP, eBoundQOverP);
+  const auto covB = (*b.boundCov)(eBoundQOverP, eBoundQOverP);
 
   const auto kl = covA * (1 / covB) + covB * (1 / covA) +
                   (parsA - parsB) * (1 / covA + 1 / covB) * (parsA - parsB);
@@ -34,21 +33,20 @@ auto computeKLDistance(const GsfComponentCache<source_link_t> &a,
   return kl;
 }
 
-template <typename source_link_t>
-auto mergeComponents(const GsfComponentCache<source_link_t> &a,
-                     const GsfComponentCache<source_link_t> &b) {
+auto mergeComponents(const GsfComponentCache &a,
+                     const GsfComponentCache &b) {
   throw_assert(a.weight > 0.0 && b.weight > 0.0, "weight error");
 
   std::array range = {std::ref(a), std::ref(b)};
   auto [mergedPars, mergedCov] =
       combineComponentRange(range.begin(), range.end(), [](auto &a) {
-        return std::tie(a.get().weight, a.get().predictedPars,
-                        a.get().predictedCov);
+        return std::tie(a.get().weight, a.get().boundPars,
+                        a.get().boundCov);
       });
 
-  GsfComponentCache<source_link_t> ret = a;
-  ret.predictedPars = mergedPars;
-  ret.predictedCov = mergedCov;
+  GsfComponentCache ret = a;
+  ret.boundPars = mergedPars;
+  ret.boundCov = mergedCov;
   ret.weight = a.weight + b.weight;
 
   return ret;
@@ -61,9 +59,8 @@ class SymmetricKLDistanceMatrix {
   std::size_t m_N;
 
  public:
-  template <typename source_link_t>
   SymmetricKLDistanceMatrix(
-      const std::vector<GsfComponentCache<source_link_t>> &cmps)
+      const std::vector<GsfComponentCache> &cmps)
       : m_data(cmps.size() * (cmps.size() - 1) / 2),
         m_mapToPair(m_data.size()),
         m_N(cmps.size()) {
@@ -80,10 +77,9 @@ class SymmetricKLDistanceMatrix {
     return m_data[i * (i - 1) / 2 + j];
   }
 
-  template <typename source_link_t>
   void recomputeAssociatedDistances(
       std::size_t n,
-      const std::vector<GsfComponentCache<source_link_t>> &cmps) {
+      const std::vector<GsfComponentCache> &cmps) {
     const auto indexConst = (n - 1) * n / 2;
 
     throw_assert(cmps.size() == m_N, "size mismatch");
@@ -136,9 +132,8 @@ class SymmetricKLDistanceMatrix {
   }
 };
 
-template <typename source_link_t>
 void reduceWithKLDistance(
-    std::vector<GsfComponentCache<source_link_t>> &cmpCache,
+    std::vector<GsfComponentCache> &cmpCache,
     std::size_t maxCmpsAfterMerge) {
   if (cmpCache.size() <= maxCmpsAfterMerge) {
     return;
@@ -158,9 +153,9 @@ void reduceWithKLDistance(
     // Reset removed components so that it won't have the shortest distance
     // ever, and so that we can sort them by weight in the end to remove them
     cmpCache[minJ].weight = -1.0;
-    cmpCache[minJ].predictedPars[eBoundQOverP] =
+    cmpCache[minJ].boundPars[eBoundQOverP] =
         std::numeric_limits<double>::max();
-    (*cmpCache[minJ].predictedCov)(eBoundQOverP, eBoundQOverP) =
+    (*cmpCache[minJ].boundCov)(eBoundQOverP, eBoundQOverP) =
         std::numeric_limits<double>::max();
     distances.resetAssociatedDistances(minJ,
                                        std::numeric_limits<double>::max());

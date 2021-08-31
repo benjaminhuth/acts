@@ -26,7 +26,6 @@ using MultiComponentState =
 
 /// @brief Struct which contains all needed information throughout the
 /// processing of the components in the GSF
-template <typename source_link_t>
 struct GsfComponentCache {
   /// Where to find the parent component in the MultiTrajectory
   std::size_t parentIndex;
@@ -35,12 +34,8 @@ struct GsfComponentCache {
   ActsScalar weight;
 
   /// The predicted track state from the stepper
-  BoundVector predictedPars;
-  std::optional<BoundSymMatrix> predictedCov;
-
-  /// The proxyTrackState from the MultiTrajectory
-  using Proxy = typename MultiTrajectory<source_link_t>::TrackStateProxy;
-  std::optional<Proxy> trackStateProxy;
+  BoundVector boundPars;
+  std::optional<BoundSymMatrix> boundCov;
 
   /// Other quantities TODO are they really needed here? seems they are
   /// reinitialized to Identity etc.
@@ -143,9 +138,8 @@ auto combineComponentRange(const component_iterator_t begin,
 /// still 1
 /// TODO If we create new components here to preserve the mean or if we do some
 /// component merging, how can this be applied in the MultiTrajectory
-template <typename source_link_t>
 void reduceNumberOfComponents(
-    std::vector<GsfComponentCache<source_link_t>> &components,
+    std::vector<GsfComponentCache> &components,
     std::size_t maxRemainingComponents) {
   // The elements should be sorted by weight (high -> low)
   std::sort(begin(components), end(components),
@@ -167,8 +161,8 @@ void reduceNumberOfComponents(
 /// @brief Reweight the components according to `R. Frühwirth, "Track fitting
 /// with non-Gaussian noise"`. See also the implementation in Athena at
 /// PosteriorWeightsCalculator.cxx
-template <typename source_link_t>
-void reweightComponents(std::vector<GsfComponentCache<source_link_t>> &cmps) {
+template<typename sometype_t>
+void reweightComponents(std::vector<sometype_t> &cmps) {
   // Helper Function to compute detR
   auto computeDetR = [](const auto &trackState) -> ActsScalar {
     const auto predictedCovariance = trackState.predictedCovariance();

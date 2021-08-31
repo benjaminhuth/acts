@@ -31,11 +31,19 @@
 #include "KLMixtureReduction.hpp"
 #include "MultiSteppingLogger.hpp"
 
+#define RETURN_ERROR_OR_ABORT(error) \
+  if (m_config.abortOnError) {       \
+    std::abort();                    \
+  } else {                           \
+    return error;                    \
+  }
+
 #define RETURN_OR_ABORT(error) \
   if (m_config.abortOnError) { \
     std::abort();              \
   } else {                     \
-    return error;              \
+    result.result = error;     \
+    return;                    \
   }
 
 namespace Acts {
@@ -68,8 +76,13 @@ struct GsfResult {
   MultiTrajectory<source_link_t> fittedStates;
   std::map<size_t, ActsScalar> weightsOfStates;
 
-  /// The current indexes for the active components in the multi trajectory
+  /// The current indexes for the newest components in the multi trajectory
   std::vector<std::size_t> currentTips;
+
+  /// The indices of the parent states in the multi trajectory. This is needed
+  /// since there can be cases with splitting but no Kalman-Update, so we need
+  /// to preserve this information
+  std::vector<std::size_t> parentTips;
 
   /// The number of measurement states created
   std::size_t measurementStates = 0;
@@ -99,9 +112,6 @@ struct GaussianSumFitter {
 
     /// Broadcast the result_type
     using result_type = GsfResult<source_link_t>;
-
-    /// Broadcast the componentCache type
-    using ComponentCache = detail::GsfComponentCache<source_link_t>;
 
     // Actor configuration
     struct Config {
@@ -159,10 +169,15 @@ struct GaussianSumFitter {
                     result_type& result) const {
       const auto& logger = state.options.logger;
 
+      // Some initial printing
       ACTS_VERBOSE("Gsf step at mean position "
                    << stepper.position(state.stepping).transpose()
                    << " with direction "
                    << stepper.direction(state.stepping).transpose());
+      ACTS_VERBOSE(
+          "Propagation is in "
+          << (state.stepping.navDir == forward ? "forward" : "backward")
+          << " mode");
 
       for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
         typename stepper_t::ComponentProxy cmp(state.stepping, i);
@@ -200,106 +215,102 @@ struct GaussianSumFitter {
         result.haveInitializedMT = true;
       }
 
-      // TODO handle surfaces without material
-      if (state.navigation.currentSurface &&
-          state.navigation.currentSurface->surfaceMaterial()) {
-        const auto& surface = *state.navigation.currentSurface;
-
-        ACTS_VERBOSE("Step is at surface " << surface.geometryId());
-
-        const auto source_link =
-            m_config.inputMeasurements.find(surface.geometryId())->second;
-
-        if (result.currentTips.empty()) {
-          result.currentTips.resize(stepper.numberComponents(state.stepping),
-                                    SIZE_MAX);
-        }
-
-        std::string_view direction =
-            (state.stepping.navDir == forward) ? "forward" : "backward";
-        ACTS_VERBOSE("Perform " << direction << " filter step");
-        result.result = filter(state, stepper, result, source_link);
-      } else {
-        ACTS_VERBOSE("No material on surface, continue without any action");
+      // Initialize current tips on first pass
+      if (result.currentTips.empty()) {
+        result.currentTips.resize(stepper.numberComponents(state.stepping),
+                                  SIZE_MAX);
       }
-    }
 
-    /// @brief A filtering step
-    template <typename propagator_state_t, typename stepper_t>
-    Result<void> filter(propagator_state_t& state, const stepper_t& stepper,
-                        result_type& result,
-                        const source_link_t& measurement) const {
-      const auto& logger = state.options.logger;
-      const auto& surface = *state.navigation.currentSurface;
-
-      if (result.currentTips.size() !=
+      // Check if we have the right number of components
+      if (result.parentTips.size() !=
           stepper.numberComponents(state.stepping)) {
         ACTS_ERROR("component number mismatch:"
-                   << result.currentTips.size() << " vs "
+                   << result.parentTips.size() << " vs "
                    << stepper.numberComponents(state.stepping));
 
         RETURN_OR_ABORT(GsfError::ComponentNumberMismatch);
       }
 
-      // Static std::vector to avoid reallocation every pass. Reserve enough
-      // space to allow all possible components to be stored
-      thread_local std::vector<ComponentCache> componentCache;
+      // We only need to do something if we are on a surface
+      if (state.navigation.currentSurface) {
+        const auto& surface = *state.navigation.currentSurface;
+        ACTS_VERBOSE("Step is at surface " << surface.geometryId());
+
+        // Do component splitting if we have material
+        if (state.navigation.currentSurface->surfaceMaterial()) {
+          ACTS_VERBOSE("--> Found material, do component splitting");
+          componentSplitting(state, stepper, result);
+        } else {
+          ACTS_VERBOSE("--> No material found on surface");
+        }
+
+        const auto found_source_link =
+            m_config.inputMeasurements.find(surface.geometryId());
+
+        // Do Kalman update if we found a measurement
+        if (found_source_link != m_config.inputMeasurements.end()) {
+          ACTS_VERBOSE("--> Found measurement, do Kalman update");
+          kalmanUpdate(state, stepper, result);
+        } else {
+          ACTS_VERBOSE("--> No measuerement ofund on surface");
+        }
+      }
+    }
+
+    /// @brief Do the component splitting due to material effects and eventually merging if necessary
+    template <typename propagator_state_t, typename stepper_t>
+    Result<void> componentSplitting(propagator_state_t& state,
+                                    const stepper_t& stepper,
+                                    result_type& result) const {
+      const auto& logger = state.options.logger;
+      const auto& surface = *state.navigation.currentSurface;
+
+      // We have a thread_local component cache to avoid reallocation
+
+      thread_local std::vector<detail::GsfComponentCache> componentCache;
       componentCache.reserve(m_config.maxComponents *
                              m_config.bethe_heitler_approx.numComponents());
       componentCache.clear();
 
-      ACTS_VERBOSE("GSF actor: Start filtering");
-
-      // Apply material effect by creating new components
+      // Create new components
       create_new_components(state, stepper, componentCache, result.currentTips,
                             surface);
 
       if (componentCache.empty()) {
-        ACTS_ERROR("No component created");
-        RETURN_OR_ABORT(GsfError::NoComponentCreated);
+        ACTS_ERROR("GSF: No component created");
+        RETURN_ERROR_OR_ABORT(GsfError::NoComponentCreated);
       }
 
-      ACTS_VERBOSE("GSF actor: " << componentCache.size()
-                                 << " components candidates");
+      ACTS_VERBOSE("GSF: " << componentCache.size()
+                           << " components candidates");
 
-      // Reduce the number of components to a managable degree
+      // If necessary, reduce number of components
       if (componentCache.size() > m_config.maxComponents ||
           componentCache.size() > stepper.maxComponents) {
         detail::reduceWithKLDistance(
             componentCache, std::min(static_cast<int>(m_config.maxComponents),
                                      stepper.maxComponents));
-        //         detail::reduceNumberOfComponents(componentCache,
-        //                   std::min(static_cast<int>(m_config.maxComponents),
-        //                            stepper.maxComponents));
       }
 
-      ACTS_VERBOSE("GSF actor: " << componentCache.size()
-                                 << " after component reduction");
+      stepper.clearComponents(state.stepping);
+      result.parentTips.clear();
 
-      // Update the Multi trajectory with the new components
-      auto res =
-          kalmanUpdateForward(state, result, measurement, componentCache);
+      for (const auto& cmp_data : componentCache) {
+        auto component = stepper.addComponent(
+            state.stepping,
+            BoundTrackParameters(surface.getSharedPtr(), cmp_data.boundPars,
+                                 cmp_data.boundCov),
+            cmp_data.weight, Intersection3D::Status::onSurface);
 
-      if (!res.ok()) {
-        RETURN_OR_ABORT(res.error());
+        if (component.ok()) {
+          (*component).jacobian() = cmp_data.jacobian;
+          (*component).jacToGlobal() = cmp_data.jacToGlobal;
+          (*component).jacTransport() = cmp_data.jacTransport;
+          (*component).pathLength() = cmp_data.pathLength;
+        } else {
+          return component.error();
+        }
       }
-
-      // Reweigth components according to measurement
-      detail::reweightComponents(componentCache);
-
-      // Store the weights TODO can we incorporate weights in MultiTrajectory?
-      for (const auto& cmp : componentCache) {
-        const auto [it, success] = result.weightsOfStates.insert(
-            {cmp.trackStateProxy->index(), cmp.weight});
-        throw_assert(success, "Could not insert weight");
-      }
-
-      // update stepper state with the collected component caches
-      stepper.updateComponents(state.stepping, componentCache, surface);
-
-      // Add the combined track state to results
-      //       result.combinedPars.push_back(
-      //           detail::combineMultiComponentState(componentCache, surface));
 
       return Result<void>::success();
     }
@@ -309,10 +320,11 @@ struct GaussianSumFitter {
     ///
     /// @return a std::vector with all new components (parent tip, weight,
     /// parameters, covariance)
-    template <typename propagator_state_t, typename stepper_t>
+    template <typename propagator_state_t, typename stepper_t,
+              typename cmp_cache_t>
     void create_new_components(
         propagator_state_t& state, const stepper_t& stepper,
-        std::vector<ComponentCache>& new_components,
+        std::vector<cmp_cache_t>& new_components,
         const std::vector<std::size_t>& parentTrajectoryIdxs,
         const Surface& surface) const {
       // Some shortcuts
@@ -372,11 +384,12 @@ struct GaussianSumFitter {
       for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
         typename stepper_t::ComponentProxy old_cmp(stepping, i);
 
-        auto boundState = old_cmp.boundState(surface, m_config.doCovTransport);
-
         if (old_cmp.status() != Intersection3D::Status::onSurface) {
+          ACTS_VERBOSE("Skip component which is not on surface");
           continue;
         }
+
+        auto boundState = old_cmp.boundState(surface, m_config.doCovTransport);
 
         if (!boundState.ok()) {
           ACTS_ERROR("Failed to compute boundState: " << boundState.error());
@@ -384,6 +397,7 @@ struct GaussianSumFitter {
         }
 
         const auto& [old_bound, jac, pathLength] = boundState.value();
+
         const auto p_prev = old_bound.absoluteMomentum();
         const auto slab = surfaceMaterial->materialSlab(
             old_bound.position(gctx), navDir, MaterialUpdateStage::fullUpdate);
@@ -393,7 +407,7 @@ struct GaussianSumFitter {
 
         // Create all possible new components
         for (const auto& gaussian : mixture) {
-          ComponentCache new_cmp;
+          detail::GsfComponentCache new_cmp;
 
           // compute delta p from mixture and update parameters
           const auto delta_p = [&]() {
@@ -406,8 +420,8 @@ struct GaussianSumFitter {
           throw_assert(p_prev + delta_p > 0.,
                        "new momentum after bethe-heitler must be > 0");
 
-          new_cmp.predictedPars = old_bound.parameters();
-          new_cmp.predictedPars[eBoundQOverP] =
+          new_cmp.boundPars = old_bound.parameters();
+          new_cmp.boundPars[eBoundQOverP] =
               old_bound.charge() / (p_prev + delta_p);
 
           // compute inverse variance of p from mixture and update covariance
@@ -421,8 +435,8 @@ struct GaussianSumFitter {
               }
             }();
 
-            new_cmp.predictedCov = old_bound.covariance();
-            (*new_cmp.predictedCov)(eBoundQOverP, eBoundQOverP) += varInvP;
+            new_cmp.boundCov = old_bound.covariance();
+            (*new_cmp.boundCov)(eBoundQOverP, eBoundQOverP) += varInvP;
           }
 
           // Here we combine the new child weight with the parent weight.
@@ -442,11 +456,9 @@ struct GaussianSumFitter {
       }
     }
 
-    template <typename propagator_state_t>
-    Acts::Result<void> kalmanUpdateForward(
-        propagator_state_t& state, result_type& result,
-        const source_link_t measurement,
-        std::vector<ComponentCache>& new_components) const {
+    template <typename propagator_state_t, typename stepper_t>
+    void kalmanUpdate(propagator_state_t& state, const stepper_t& stepper,
+                      result_type& result) const {
       // Some shortcut references
       const auto& logger = state.options.logger;
       const auto& surface = *state.navigation.currentSurface;
@@ -482,8 +494,8 @@ struct GaussianSumFitter {
         trackProxy.jacobian() = std::move(cmp.jacobian);
         trackProxy.pathLength() = std::move(cmp.pathLength);
 
-        // We have predicted parameters, so calibrate the uncalibrated input
-        std::visit(
+        // We have predicted parameters, so calibrate the uncalibrated
+        input std::visit(
             [&](const auto& calibrated) {
               trackProxy.setCalibrated(calibrated);
             },
@@ -503,7 +515,7 @@ struct GaussianSumFitter {
 
           if (!updateRes.ok()) {
             ACTS_ERROR("Update step failed: " << updateRes.error());
-            RETURN_OR_ABORT(updateRes.error());
+            RETURN_ERROR_OR_ABORT(updateRes.error());
           }
 
           trackProxy.typeFlags().set(TrackStateFlag::MeasurementFlag);
@@ -704,8 +716,8 @@ struct GaussianSumFitter {
     // easier
     //     detail::MultiComponentState bwdFirstState;
     //     bwdFirstState.first =
-    //     sMultiParsBwd.referenceSurface().getSharedPtr(); for (const auto& cmp
-    //     : sMultiParsBwd.components()) {
+    //     sMultiParsBwd.referenceSurface().getSharedPtr(); for (const auto&
+    //     cmp : sMultiParsBwd.components()) {
     //       bwdFirstState.second.push_back(
     //           {std::get<double>(cmp),
     //            std::get<BoundTrackParameters>(cmp).parameters(),
@@ -721,7 +733,250 @@ struct GaussianSumFitter {
     //         detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
     //                                          source_link_t>;
     //     const auto [lastPars, lastCov] = detail::combineComponentRange(
-    //         bwdGsfResult.currentTips.begin(), bwdGsfResult.currentTips.end(),
+    //         bwdGsfResult.currentTips.begin(),
+    //         bwdGsfResult.currentTips.end(),
+    //         Projector{bwdGsfResult.fittedStates,
+    //         bwdGsfResult.weightsOfStates});
+    //
+    //
+    //     const auto& surface = bwdGsfResult.fittedStates
+    //                               .getTrackState(bwdGsfResult.currentTips.front())
+    //                               .referenceSurface();
+    //     MultiComponentBoundTrackParameters<SinglyCharged> lastMultiPars(
+    //         surface.getSharedPtr(), lastPars, lastCov);
+
+    const auto lastMultiPars = [&]() {
+      if (options.multiComponentPropagationToPerigee) {
+        return detail::multiTrajectoryToMultiComponentParameters(
+            bwdGsfResult.currentTips, bwdGsfResult.fittedStates,
+            bwdGsfResult.weightsOfStates, detail::StatesType::ePredicted);
+      } else {
+        using Projector =
+            detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
+                                             source_link_t>;
+        const auto [lastPars, lastCov] = detail::combineComponentRange(
+            bwdGsfResult.currentTips.begin(), bwdGsfResult.currentTips.end(),
+            Projector{bwdGsfResult.fittedStates, bwdGsfResult.weightsOfStates});
+
+        const auto& surface =
+            bwdGsfResult.fittedStates
+                .getTrackState(bwdGsfResult.currentTips.front())
+                .referenceSurface();
+
+        return MultiComponentBoundTrackParameters<SinglyCharged>(
+            surface.getSharedPtr(), lastPars, lastCov);
+      }
+    }();
+
+    PropagatorOptions<
+        Acts::ActionList<DirectNavigator::Initializer, FinalizePositionPrinter>,
+        Aborters>
+        lastPropOptions(options.geoContext, options.magFieldContext, logger);
+
+    lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
+        .navSurfaces = {options.referenceSurface};
+    lastPropOptions.direction = NavigationDirection::backward;
+    lastPropOptions.targetTolerance *= 1000.0;
+
+    ACTS_VERBOSE("+-------------------+");
+    ACTS_VERBOSE("| Gsf: Do Last Part |");
+    ACTS_VERBOSE("+-------------------+");
+    auto lastPropRes = m_propagator.propagate(
+        lastMultiPars, *options.referenceSurface, lastPropOptions);
+
+    if (!lastPropRes.ok()) {
+      return lastPropRes.error();
+    }
+
+    ////////////////////////////////////
+    // Smooth and create Kalman Result
+    ////////////////////////////////////
+
+    ACTS_VERBOSE("Gsf: Do smoothing");
+
+    const auto [combinedTraj, lastTip] = detail::smoothAndCombineTrajectories(
+        fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+        fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
+        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates);
+
+    Acts::KalmanFitterResult<source_link_t> kalmanResult;
+    kalmanResult.lastTrackIndex = lastTip;
+    kalmanResult.fittedStates = std::move(combinedTraj);
+    kalmanResult.smoothed = true;
+    kalmanResult.reversed = true;
+    kalmanResult.finished = true;
+    kalmanResult.lastMeasurementIndex = lastTip;
+    kalmanResult.fittedParameters = *((*lastPropRes).endParameters);
+
+    return kalmanResult;
+  }
+
+  /// @brief The fit function
+  template <typename source_link_t, typename start_parameters_t,
+            typename calibrator_t, typename outlier_finder_t>
+  Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit(
+      const std::vector<source_link_t>& sourcelinks,
+      const start_parameters_t& sParameters,
+      const GsfOptions<calibrator_t, outlier_finder_t>& options) const {
+    static_assert(SourceLinkConcept<source_link_t>,
+                  "Source link does not fulfill SourceLinkConcept");
+
+    // The logger
+    const auto& logger = options.logger;
+
+    // To be able to find measurements later, we put them into a map
+    // We need to copy input SourceLinks anyways, so the map can own them.
+    ACTS_VERBOSE("Preparing " << sourcelinks.size() << " input measurements");
+    std::map<GeometryIdentifier, source_link_t> inputMeasurements;
+    for (const auto& sl : sourcelinks) {
+      inputMeasurements.emplace(sl.geometryId(), sl);
+    }
+
+    ACTS_VERBOSE("Run Gsf with start parameters: \n" << sParameters);
+    ACTS_VERBOSE(
+        "Gsf: Final measuerement map size: " << inputMeasurements.size());
+    throw_assert(sParameters.covariance() != std::nullopt,
+                 "we need a covariance here...");
+
+    ////////////////////
+    // Common Settings
+    ////////////////////
+
+    // Create the ActionList and AbortList
+    using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
+                           calibrator_t, GainMatrixSmoother>;
+
+    using Actors = ActionList<DirectNavigator::Initializer, GSFActor>;
+    using Aborters = AbortList<EndOfWorldReached>;
+
+    // Create relevant options for the propagation options
+    PropagatorOptions<Actors, Aborters> propOptions(
+        options.geoContext, options.magFieldContext, logger);
+
+    // Catch the actor and set the measurements
+    auto& actor = propOptions.actionList.template get<GSFActor>();
+    actor.m_config.inputMeasurements = inputMeasurements;
+    actor.m_config.maxComponents = options.maxComponents;
+    actor.m_calibrator = options.calibrator;
+    actor.m_outlierFinder = options.outlierFinder;
+    actor.m_config.abortOnError = options.throwOnError;
+
+    // TODO This seems so solve some issues in the navigation
+    //     propOptions.tolerance = 1e-5;
+
+    /////////////////
+    // Forward pass
+    /////////////////
+    ACTS_VERBOSE("+-----------------------------+");
+    ACTS_VERBOSE("| Gsf: Do forward propagation |");
+    ACTS_VERBOSE("+-----------------------------+");
+    auto fwdResult = [&]() -> Result<GsfResult<source_link_t>> {
+      MultiComponentBoundTrackParameters<SinglyCharged> params(
+          sParameters.referenceSurface().getSharedPtr(),
+          sParameters.parameters(), sParameters.covariance());
+
+      propOptions.direction = Acts::forward;
+
+      auto propResult = m_propagator.propagate(params, propOptions);
+
+      if (!propResult.ok()) {
+        return propResult.error();
+      }
+
+      GsfResult gsfResult =
+          (*propResult).template get<GsfResult<source_link_t>>();
+
+      if (!gsfResult.result.ok()) {
+        return gsfResult.result.error();
+      }
+
+      if (gsfResult.processedStates == 0) {
+        return GsfError::NoStatesCreated;
+      }
+
+      return gsfResult;
+    }();
+
+    if (!fwdResult.ok()) {
+      return fwdResult.error();
+    }
+
+    const auto& fwdGsfResult = *fwdResult;
+
+    //////////////////
+    // Backward pass
+    //////////////////
+
+    ACTS_VERBOSE("+------------------------------+");
+    ACTS_VERBOSE("| Gsf: Do backward propagation |");
+    ACTS_VERBOSE("+------------------------------+");
+    auto bwdResult = [&]() -> Result<GsfResult<source_link_t>> {
+      const auto params = detail::extractMultiComponentState(
+          fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+          fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
+
+      propOptions.direction = Acts::backward;
+
+      // Workaround to get the first state into the MultiTrajectory
+      //       actor.m_config.initInfoForMT =
+      //           typename
+      //           decltype(actor.m_config.initInfoForMT)::value_type{
+      //               std::ref(fwdGsfResult.fittedStates),
+      //               std::ref(fwdGsfResult.currentTips),
+      //               std::ref(fwdGsfResult.weightsOfStates)};
+
+      auto propResult = m_propagator.propagate(params, propOptions);
+
+      actor.m_config.initInfoForMT.reset();
+
+      if (!propResult.ok()) {
+        return propResult.error();
+      }
+
+      GsfResult gsfResult =
+          (*propResult).template get<GsfResult<source_link_t>>();
+
+      if (!gsfResult.result.ok()) {
+        return gsfResult.result.error();
+      }
+
+      if (gsfResult.processedStates == 0) {
+        return GsfError::NoStatesCreated;
+      }
+
+      return gsfResult;
+    }();
+
+    if (!bwdResult.ok()) {
+      return bwdResult.error();
+    }
+
+    const auto& bwdGsfResult = *bwdResult;
+
+    // TODO here we in principle need the predicted state and not the filtered
+    // state of the last forward state. But for now just do this since it is
+    // easier
+    //     detail::MultiComponentState bwdFirstState;
+    //     bwdFirstState.first =
+    //     sMultiParsBwd.referenceSurface().getSharedPtr(); for (const auto&
+    //     cmp : sMultiParsBwd.components()) {
+    //       bwdFirstState.second.push_back(
+    //           {std::get<double>(cmp),
+    //            std::get<BoundTrackParameters>(cmp).parameters(),
+    //            std::get<BoundTrackParameters>(cmp).covariance()});
+    //     }
+    //     bwdFiltered.push_back(bwdFirstState);
+
+    //////////////////////////////
+    // Last part towards perigee
+    //////////////////////////////
+
+    //     using Projector =
+    //         detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
+    //                                          source_link_t>;
+    //     const auto [lastPars, lastCov] = detail::combineComponentRange(
+    //         bwdGsfResult.currentTips.begin(),
+    //         bwdGsfResult.currentTips.end(),
     //         Projector{bwdGsfResult.fittedStates,
     //         bwdGsfResult.weightsOfStates});
     //

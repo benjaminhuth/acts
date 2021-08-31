@@ -207,6 +207,10 @@ class MultiEigenStepperLoop
     auto status() const { return cmp().status; }
     auto& weight() { return cmp().weight; }
     auto weight() const { return cmp().weight; }
+    auto& charge() { return cmp().state.charge; }
+    auto charge() const { return cmp().state.charge; }
+    auto& pathLength() { return cmp().state.pathAccumulated; }
+    auto pathLength() const { return cmp().state.pathAccumulated; }
     auto& pars() { return cmp().state.pars; }
     const auto& pars() const { return cmp().state.pars; }
     auto& derivative() { return cmp().state.derivative; }
@@ -222,18 +226,21 @@ class MultiEigenStepperLoop
 
     Result<BoundState> boundState(const Surface& surface, bool transportCov) {
       if (cmp().status == Intersection3D::Status::onSurface) {
-        auto bs = detail::boundState(
-            m_state.geoContext, cov(), jacobian(), jacTransport(), derivative(),
-            jacToGlobal(), pars(), m_state.covTransport && transportCov,
-            cmp().state.pathAccumulated, surface);
-
-        if (!bs.ok())
-          return bs.error();
-
-        return std::move(bs.value());
+        return detail::boundState(m_state.geoContext, cov(), jacobian(),
+                                  jacTransport(), derivative(), jacToGlobal(),
+                                  pars(), m_state.covTransport && transportCov,
+                                  cmp().state.pathAccumulated, surface);
       } else {
         return MultiStepperError::ComponentNotOnSurface;
       }
+    }
+
+    void update(const FreeVector& freeParams, const BoundVector& boundParams,
+                const Covariance& covariance, const Surface& surface) {
+      cmp().state.pars = freeParams;
+      cmp().state.cov = covariance;
+      cmp().state.jacToGlobal =
+          surface.boundToFreeJacobian(cmp().state.geoContext, boundParams);
     }
   };
 
@@ -242,6 +249,25 @@ class MultiEigenStepperLoop
     return state.components.size();
   }
 
+  /// Reset the number of components
+  /// @note This function makes no garantuees about how new components are initialized, it is up to the caller to ensure that all components are valid in the end.
+  void clearComponents(State& state) const { state.components.clear(); }
+
+  /// Add a component to the Multistepper
+  template <typename charge_t>
+  Result<ComponentProxy> addComponent(
+      State& state, const SingleBoundTrackParameters<charge_t>& pars,
+      double weight, Intersection3D::Status status) const {
+    state.components.push_back(
+        {SingleState(state.geoContext,
+                     SingleStepper::m_bField->makeCache(state.magContext), pars,
+                     state.navDir),
+         weight, status});
+
+    return ComponentProxy(state, state.components.size() - 1);
+  }
+
+  /// Construct and initialize a state
   template <typename charge_t>
   State makeState(std::reference_wrapper<const GeometryContext> gctx,
                   std::reference_wrapper<const MagneticFieldContext> mctx,
@@ -511,9 +537,9 @@ class MultiEigenStepperLoop
           });
 
       if (failedBoundTransforms > 0) {
-        ACTS_WARNING("Multi component bound state: " <<  failedBoundTransforms
-                     << " of " << numberComponents(state)
-                     << " transforms failed");
+        ACTS_WARNING("Multi component bound state: "
+                     << failedBoundTransforms << " of "
+                     << numberComponents(state) << " transforms failed");
       }
 
       // TODO Jacobian for multi component state not defined really?
