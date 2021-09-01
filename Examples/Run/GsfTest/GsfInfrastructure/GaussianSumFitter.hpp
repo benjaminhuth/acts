@@ -335,10 +335,12 @@ struct GaussianSumFitter {
               ParametersCacheProjector{});
 
           // Convert ComponentParameterCache to TrackStateProxy in std::variant
-          for(auto &[variant, meta] : componentCache) {
-            const auto [weight, pars, cov] = std::get<ComponentParameterCache>(variant);
+          for (auto& [variant, meta] : componentCache) {
+            const auto [weight, pars, cov] =
+                std::get<ComponentParameterCache>(variant);
 
-            const auto idx = result.fittedStates.addTrackState(TrackStatePropMask::All, meta.parentIndex);
+            const auto idx = result.fittedStates.addTrackState(
+                TrackStatePropMask::All, meta.parentIndex);
             auto proxy = result.fittedStates.getTrackState(idx);
 
             proxy.predicted() = pars;
@@ -362,10 +364,11 @@ struct GaussianSumFitter {
               std::min(static_cast<std::size_t>(stepper.maxComponents),
                        m_config.maxComponents),
               ParametersCacheProjector{});
-          /////////////////////////////////////////////
-          // Kalman Update BUT NO Component Splitting
-          /////////////////////////////////////////////
-        } else if (not haveMaterial && haveMeasurement) {
+        }
+        /////////////////////////////////////////////
+        // Kalman Update BUT NO Component Splitting
+        /////////////////////////////////////////////
+        else if (not haveMaterial && haveMeasurement) {
           preprocessComponents(state, stepper, result.parentTips,
                                componentForwarder, componentCache);
 
