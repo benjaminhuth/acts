@@ -18,13 +18,16 @@ namespace Acts {
 
 namespace detail {
 
-/// @brief computes the Kullback-Leibler distance between two components as shown in https://arxiv.org/abs/2001.00727v1, while ignoring the weights as done in Athena
-auto computeKLDistance(const GsfComponentCache &a,
-                       const GsfComponentCache &b) {
-  const auto parsA = a.boundPars[eBoundQOverP];
-  const auto parsB = b.boundPars[eBoundQOverP];
-  const auto covA = (*a.boundCov)(eBoundQOverP, eBoundQOverP);
-  const auto covB = (*b.boundCov)(eBoundQOverP, eBoundQOverP);
+/// Computes the Kullback-Leibler distance between two components as shown in
+/// https://arxiv.org/abs/2001.00727v1, while ignoring the weights as done in
+/// Athena
+template <typename component_t, typename component_projector_t>
+auto computeKLDistance(const component_t &a, const component_t &b,
+                       const component_projector_t &proj) {
+  const auto parsA = proj(a).boundPars[eBoundQOverP];
+  const auto parsB = proj(b).boundPars[eBoundQOverP];
+  const auto covA = (*proj(a).boundCov)(eBoundQOverP, eBoundQOverP);
+  const auto covB = (*proj(b).boundCov)(eBoundQOverP, eBoundQOverP);
 
   const auto kl = covA * (1 / covB) + covB * (1 / covA) +
                   (parsA - parsB) * (1 / covA + 1 / covB) * (parsA - parsB);
@@ -33,21 +36,21 @@ auto computeKLDistance(const GsfComponentCache &a,
   return kl;
 }
 
-auto mergeComponents(const GsfComponentCache &a,
-                     const GsfComponentCache &b) {
-  throw_assert(a.weight > 0.0 && b.weight > 0.0, "weight error");
+template <typename component_t, typename component_projector_t>
+auto mergeComponents(const component_t &a, const component_t &b,
+                     const component_projector_t &proj) {
+  throw_assert(proj(a).weight > 0.0 && proj(b).weight > 0.0, "weight error");
 
-  std::array range = {std::ref(a), std::ref(b)};
+  std::array range = {std::ref(proj(a)), std::ref(proj(b))};
   auto [mergedPars, mergedCov] =
       combineComponentRange(range.begin(), range.end(), [](auto &a) {
-        return std::tie(a.get().weight, a.get().boundPars,
-                        a.get().boundCov);
+        return std::tie(a.get().weight, a.get().boundPars, a.get().boundCov);
       });
 
-  GsfComponentCache ret = a;
-  ret.boundPars = mergedPars;
-  ret.boundCov = mergedCov;
-  ret.weight = a.weight + b.weight;
+  component_t ret = a;
+  proj(ret).boundPars = mergedPars;
+  proj(ret).boundCov = mergedCov;
+  proj(ret).weight = proj(a).weight + proj(b).weight;
 
   return ret;
 }
@@ -59,8 +62,9 @@ class SymmetricKLDistanceMatrix {
   std::size_t m_N;
 
  public:
-  SymmetricKLDistanceMatrix(
-      const std::vector<GsfComponentCache> &cmps)
+  template <typename component_t, typename projector_t>
+  SymmetricKLDistanceMatrix(const std::vector<component_t> &cmps,
+                                    const projector_t &proj)
       : m_data(cmps.size() * (cmps.size() - 1) / 2),
         m_mapToPair(m_data.size()),
         m_N(cmps.size()) {
@@ -68,7 +72,7 @@ class SymmetricKLDistanceMatrix {
       const auto indexConst = (i - 1) * i / 2;
       for (auto j = 0ul; j < i; ++j) {
         m_mapToPair.at(indexConst + j) = {i, j};
-        m_data[indexConst + j] = computeKLDistance(cmps[i], cmps[j]);
+        m_data[indexConst + j] = computeKLDistance(cmps[i], cmps[j], proj);
       }
     }
   }
@@ -77,21 +81,22 @@ class SymmetricKLDistanceMatrix {
     return m_data[i * (i - 1) / 2 + j];
   }
 
-  void recomputeAssociatedDistances(
-      std::size_t n,
-      const std::vector<GsfComponentCache> &cmps) {
+  template <typename component_t, typename projector_t>
+  void recomputeAssociatedDistances(std::size_t n,
+                                    const std::vector<component_t> &cmps,
+                                    const projector_t &proj) {
     const auto indexConst = (n - 1) * n / 2;
 
     throw_assert(cmps.size() == m_N, "size mismatch");
 
     // Rows
     for (auto i = 0ul; i < n; ++i) {
-      m_data[indexConst + i] = computeKLDistance(cmps[n], cmps[i]);
+      m_data[indexConst + i] = computeKLDistance(cmps[n], cmps[i], proj);
     }
 
     // Columns
     for (auto i = n + 1; i < cmps.size(); ++i) {
-      m_data[(i - 1) * i / 2 + n] = computeKLDistance(cmps[n], cmps[i]);
+      m_data[(i - 1) * i / 2 + n] = computeKLDistance(cmps[n], cmps[i], proj);
     }
   }
 
@@ -132,30 +137,30 @@ class SymmetricKLDistanceMatrix {
   }
 };
 
-void reduceWithKLDistance(
-    std::vector<GsfComponentCache> &cmpCache,
-    std::size_t maxCmpsAfterMerge) {
+template <typename component_t, typename component_projector_t>
+void reduceWithKLDistance(std::vector<component_t> &cmpCache,
+                          std::size_t maxCmpsAfterMerge,
+                          const component_projector_t &proj) {
   if (cmpCache.size() <= maxCmpsAfterMerge) {
     return;
   }
 
-  SymmetricKLDistanceMatrix distances(cmpCache);
+  SymmetricKLDistanceMatrix distances(cmpCache, proj);
 
   auto remainingComponents = cmpCache.size();
 
   while (remainingComponents > maxCmpsAfterMerge) {
     const auto [minI, minJ] = distances.minDistancePair();
 
-    cmpCache[minI] = mergeComponents(cmpCache[minI], cmpCache[minJ]);
-    distances.recomputeAssociatedDistances(minI, cmpCache);
+    cmpCache[minI] = mergeComponents(cmpCache[minI], cmpCache[minJ], proj);
+    distances.recomputeAssociatedDistances(minI, cmpCache, proj);
     remainingComponents--;
 
     // Reset removed components so that it won't have the shortest distance
     // ever, and so that we can sort them by weight in the end to remove them
-    cmpCache[minJ].weight = -1.0;
-    cmpCache[minJ].boundPars[eBoundQOverP] =
-        std::numeric_limits<double>::max();
-    (*cmpCache[minJ].boundCov)(eBoundQOverP, eBoundQOverP) =
+    proj(cmpCache[minJ]).weight = -1.0;
+    proj(cmpCache[minJ]).boundPars[eBoundQOverP] = std::numeric_limits<double>::max();
+    (*proj(cmpCache[minJ]).boundCov)(eBoundQOverP, eBoundQOverP) =
         std::numeric_limits<double>::max();
     distances.resetAssociatedDistances(minJ,
                                        std::numeric_limits<double>::max());
@@ -163,9 +168,9 @@ void reduceWithKLDistance(
 
   // Remove all components which are labled with weight -1
   std::sort(cmpCache.begin(), cmpCache.end(),
-            [](const auto &a, const auto &b) { return a.weight < b.weight; });
+            [&](const auto &a, const auto &b) { return proj(a).weight < proj(b).weight; });
   cmpCache.erase(std::remove_if(cmpCache.begin(), cmpCache.end(),
-                                [](const auto &a) { return a.weight == -1.0; }),
+                                [&](const auto &a) { return proj(a).weight == -1.0; }),
                  cmpCache.end());
 
   throw_assert(cmpCache.size() == maxCmpsAfterMerge,

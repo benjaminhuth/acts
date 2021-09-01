@@ -156,6 +156,44 @@ struct GaussianSumFitter {
     smoother_t m_smoother;
     SurfaceReached m_targetReachedAborter;
 
+    /// Stores meta information about the components
+    struct ComponentMetaCache {
+      /// Where to find the parent component in the MultiTrajectory
+      std::size_t parentIndex;
+
+      /// Other quantities TODO are they really needed here? seems they are
+      /// reinitialized to Identity etc.
+      BoundMatrix jacobian;
+      BoundToFreeMatrix jacToGlobal;
+      FreeMatrix jacTransport;
+      FreeVector derivative;
+
+      /// We need to preserve the path length
+      ActsScalar pathLength;
+    };
+
+    /// Stores parameters of a gaussian component
+    struct ComponentParameterCache {
+      ActsScalar weight;
+      BoundVector boundPars;
+      std::optional<BoundSymMatrix> boundCov;
+    };
+
+    /// Broadcast Cache Type
+    using TrackProxy = typename MultiTrajectory<source_link_t>::TrackStateProxy;
+    using ComponentCache =
+        std::tuple<std::variant<ComponentParameterCache, TrackProxy>,
+                   ComponentMetaCache>;
+
+    struct ParametersCacheProjector {
+      auto& operator()(ComponentCache& cache) const {
+        return std::get<ComponentParameterCache>(std::get<0>(cache));
+      }
+      const auto& operator()(const ComponentCache& cache) const {
+        return std::get<ComponentParameterCache>(std::get<0>(cache));
+      }
+    };
+
     /// @brief GSF actor operation
     ///
     /// @tparam propagator_state_t is the type of Propagagor state
@@ -236,83 +274,107 @@ struct GaussianSumFitter {
         const auto& surface = *state.navigation.currentSurface;
         ACTS_VERBOSE("Step is at surface " << surface.geometryId());
 
-        // Do component splitting if we have material
-        if (state.navigation.currentSurface->surfaceMaterial()) {
-          ACTS_VERBOSE("--> Found material, do component splitting");
-          componentSplitting(state, stepper, result);
-        } else {
-          ACTS_VERBOSE("--> No material found on surface");
-        }
-
+        // Check what we have on this surface
         const auto found_source_link =
             m_config.inputMeasurements.find(surface.geometryId());
+        const bool haveMaterial =
+            state.navigation.currentSurface->surfaceMaterial();
+        const bool haveMeasurement =
+            found_source_link != m_config.inputMeasurements.end();
 
-        // Do Kalman update if we found a measurement
-        if (found_source_link != m_config.inputMeasurements.end()) {
-          ACTS_VERBOSE("--> Found measurement, do Kalman update");
-          kalmanUpdate(state, stepper, result);
-        } else {
-          ACTS_VERBOSE("--> No measuerement ofund on surface");
+        // Early return if nothing happens
+        if (not haveMaterial && not haveMeasurement) {
+          return;
         }
-      }
-    }
 
-    /// @brief Do the component splitting due to material effects and eventually merging if necessary
-    template <typename propagator_state_t, typename stepper_t>
-    Result<void> componentSplitting(propagator_state_t& state,
-                                    const stepper_t& stepper,
-                                    result_type& result) const {
-      const auto& logger = state.options.logger;
-      const auto& surface = *state.navigation.currentSurface;
+        // Create Cache
+        thread_local std::vector<ComponentCache> componentCache;
 
-      // We have a thread_local component cache to avoid reallocation
+        // Generic component handlers
+        const auto componentSplitter = detail::ComponentSplitter(
+            m_config.bethe_heitler_approx,
+            [](const BoundTrackParameters& old_bound, const ComponentMetaCache&,
+               const auto new_qop, const double new_qop_var,
+               const double new_weight) {
+              ComponentParameterCache cache{new_weight, old_bound.parameters(),
+                                            old_bound.covariance()};
+              cache.boundPars[eBoundQOverP] = new_qop;
+              (*cache.boundCov)(eBoundQOverP, eBoundQOverP) = new_qop_var;
+              return cache;
+            });
 
-      thread_local std::vector<detail::GsfComponentCache> componentCache;
-      componentCache.reserve(m_config.maxComponents *
-                             m_config.bethe_heitler_approx.numComponents());
-      componentCache.clear();
+        auto componentForwarder = detail::ComponentForwarder(
+            [&result](const BoundTrackParameters& old_bound,
+                      const ComponentMetaCache& metaCache, const double new_qop,
+                      const double new_qop_var, const double new_weight) {
+              const auto idx = result.fittedStates.addTrackState(
+                  TrackStatePropMask::All, metaCache.parentIndex);
+              auto trackProxy = result.fittedStates.getTrackState(idx);
 
-      // Create new components
-      create_new_components(state, stepper, componentCache, result.currentTips,
-                            surface);
+              trackProxy.predicted() = old_bound.parameters();
+              trackProxy.predicted()[eBoundQOverP] = new_qop;
+              trackProxy.predictedCovariance() = old_bound.covariance().value();
+              trackProxy.predictedCovariance()(eBoundQOverP, eBoundQOverP) =
+                  new_qop_var;
+              result.weightsOfStates[idx] = new_weight;
 
-      if (componentCache.empty()) {
-        ACTS_ERROR("GSF: No component created");
-        RETURN_ERROR_OR_ABORT(GsfError::NoComponentCreated);
-      }
+              return trackProxy;
+            });
 
-      ACTS_VERBOSE("GSF: " << componentCache.size()
-                           << " components candidates");
+        ///////////////////////////////////////////
+        // Component Splitting AND Kalman Update
+        ///////////////////////////////////////////
+        if (haveMaterial && haveMeasurement) {
+          preprocessComponents(state, stepper, result.parentTips,
+                               componentSplitter, componentCache);
 
-      // If necessary, reduce number of components
-      if (componentCache.size() > m_config.maxComponents ||
-          componentCache.size() > stepper.maxComponents) {
-        detail::reduceWithKLDistance(
-            componentCache, std::min(static_cast<int>(m_config.maxComponents),
-                                     stepper.maxComponents));
-      }
+          detail::reduceWithKLDistance(
+              componentCache,
+              std::min(static_cast<std::size_t>(stepper.maxComponents),
+                       m_config.maxComponents),
+              ParametersCacheProjector{});
 
-      stepper.clearComponents(state.stepping);
-      result.parentTips.clear();
+          // Convert ComponentParameterCache to TrackStateProxy in std::variant
+          for(auto &[variant, meta] : componentCache) {
+            const auto [weight, pars, cov] = std::get<ComponentParameterCache>(variant);
 
-      for (const auto& cmp_data : componentCache) {
-        auto component = stepper.addComponent(
-            state.stepping,
-            BoundTrackParameters(surface.getSharedPtr(), cmp_data.boundPars,
-                                 cmp_data.boundCov),
-            cmp_data.weight, Intersection3D::Status::onSurface);
+            const auto idx = result.fittedStates.addTrackState(TrackStatePropMask::All, meta.parentIndex);
+            auto proxy = result.fittedStates.getTrackState(idx);
 
-        if (component.ok()) {
-          (*component).jacobian() = cmp_data.jacobian;
-          (*component).jacToGlobal() = cmp_data.jacToGlobal;
-          (*component).jacTransport() = cmp_data.jacTransport;
-          (*component).pathLength() = cmp_data.pathLength;
-        } else {
-          return component.error();
+            proxy.predicted() = pars;
+            proxy.predictedCovariance() = *cov;
+            result.weightsOfStates[idx] = weight;
+
+            variant = proxy;
+          }
+
+          kalmanUpdate();
         }
-      }
+        /////////////////////////////////////////////
+        // Component Splitting BUT NO Kalman Update
+        /////////////////////////////////////////////
+        else if (haveMaterial && not haveMeasurement) {
+          preprocessComponents(state, stepper, result.parentTips,
+                               componentSplitter, componentCache);
 
-      return Result<void>::success();
+          detail::reduceWithKLDistance(
+              componentCache,
+              std::min(static_cast<std::size_t>(stepper.maxComponents),
+                       m_config.maxComponents),
+              ParametersCacheProjector{});
+          /////////////////////////////////////////////
+          // Kalman Update BUT NO Component Splitting
+          /////////////////////////////////////////////
+        } else if (not haveMaterial && haveMeasurement) {
+          preprocessComponents(state, stepper, result.parentTips,
+                               componentForwarder, componentCache);
+
+          kalmanUpdate();
+        }
+
+        // In the end update stepper
+        //         updateStepper(state, stepper, componentCache);
+      }
     }
 
     /// @brief Expands all existing components to new components by using a
@@ -320,33 +382,27 @@ struct GaussianSumFitter {
     ///
     /// @return a std::vector with all new components (parent tip, weight,
     /// parameters, covariance)
+    /// TODO We could make propagator_state const here if the component proxy of
+    /// the stepper would accept it
     template <typename propagator_state_t, typename stepper_t,
-              typename cmp_cache_t>
-    void create_new_components(
+              typename component_processor_t>
+    void preprocessComponents(
         propagator_state_t& state, const stepper_t& stepper,
-        std::vector<cmp_cache_t>& new_components,
         const std::vector<std::size_t>& parentTrajectoryIdxs,
-        const Surface& surface) const {
+        const component_processor_t& componentProcessor,
+        std::vector<ComponentCache>& componentCache) const {
       // Some shortcuts
       auto& stepping = state.stepping;
       const auto& logger = state.options.logger;
-      const auto& gctx = stepping.geoContext;
-      const auto navDir = stepping.navDir;
-      const auto surfaceMaterial = surface.surfaceMaterial();
-
-      // Remove old components and reserve space for the number of possible
-      // components
-      new_components.clear();
-      new_components.reserve(parentTrajectoryIdxs.size() *
-                             m_config.bethe_heitler_approx.numComponents());
+      const auto& surface = *state.navigation.currentSurface;
 
       // Adjust qop to account for lost energy due to lost components
       // TODO do we need to adjust variance?
       double sumW_loss = 0.0, sumWeightedQOverP_loss = 0.0;
       double initialQOverP = 0.0;
 
-      for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-        typename stepper_t::ComponentProxy cmp(stepping, i);
+      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
+        typename stepper_t::ComponentProxy cmp(state.stepping, i);
 
         if (cmp.status() != Intersection3D::Status::onSurface) {
           sumW_loss += cmp.weight();
@@ -381,8 +437,8 @@ struct GaussianSumFitter {
                    "must sum up to 1 but is " << checkWeightSum);
 
       // Approximate bethe-heitler distribution as gaussian mixture
-      for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-        typename stepper_t::ComponentProxy old_cmp(stepping, i);
+      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
+        typename stepper_t::ComponentProxy old_cmp(state.stepping, i);
 
         if (old_cmp.status() != Intersection3D::Status::onSurface) {
           ACTS_VERBOSE("Skip component which is not on surface");
@@ -398,67 +454,19 @@ struct GaussianSumFitter {
 
         const auto& [old_bound, jac, pathLength] = boundState.value();
 
-        const auto p_prev = old_bound.absoluteMomentum();
-        const auto slab = surfaceMaterial->materialSlab(
-            old_bound.position(gctx), navDir, MaterialUpdateStage::fullUpdate);
+        ComponentMetaCache metaCache{
+            parentTrajectoryIdxs[i], jac,
+            old_cmp.jacToGlobal(),   old_cmp.jacTransport(),
+            old_cmp.derivative(),    pathLength};
 
-        const auto mixture =
-            m_config.bethe_heitler_approx.mixture(slab.thicknessInX0());
-
-        // Create all possible new components
-        for (const auto& gaussian : mixture) {
-          detail::GsfComponentCache new_cmp;
-
-          // compute delta p from mixture and update parameters
-          const auto delta_p = [&]() {
-            if (navDir == NavigationDirection::forward)
-              return p_prev * (gaussian.mean - 1.);
-            else
-              return p_prev * (1. / gaussian.mean - 1.);
-          }();
-
-          throw_assert(p_prev + delta_p > 0.,
-                       "new momentum after bethe-heitler must be > 0");
-
-          new_cmp.boundPars = old_bound.parameters();
-          new_cmp.boundPars[eBoundQOverP] =
-              old_bound.charge() / (p_prev + delta_p);
-
-          // compute inverse variance of p from mixture and update covariance
-          if (old_bound.covariance()) {
-            const auto varInvP = [&]() {
-              if (navDir == NavigationDirection::forward) {
-                const auto f = 1. / (p_prev * gaussian.mean);
-                return f * f * gaussian.var;
-              } else {
-                return gaussian.var / (p_prev * p_prev);
-              }
-            }();
-
-            new_cmp.boundCov = old_bound.covariance();
-            (*new_cmp.boundCov)(eBoundQOverP, eBoundQOverP) += varInvP;
-          }
-
-          // Here we combine the new child weight with the parent weight.
-          // However, this must be later re-adjusted
-          new_cmp.weight = gaussian.weight * old_cmp.weight();
-
-          // Set the remaining things and push to vector
-          new_cmp.jacobian = jac;
-          new_cmp.pathLength = pathLength;
-          new_cmp.jacToGlobal = old_cmp.jacToGlobal();
-          new_cmp.derivative = old_cmp.derivative();
-          new_cmp.jacTransport = old_cmp.jacTransport();
-          new_cmp.parentIndex = parentTrajectoryIdxs[i];
-
-          new_components.push_back(new_cmp);
-        }
+        componentProcessor(state, old_bound, old_cmp.weight(), metaCache,
+                           componentCache);
       }
     }
 
-    template <typename propagator_state_t, typename stepper_t>
-    void kalmanUpdate(propagator_state_t& state, const stepper_t& stepper,
-                      result_type& result) const {
+    /// Do the Kalman update
+    void kalmanUpdate() const {
+#if 0
       // Some shortcut references
       const auto& logger = state.options.logger;
       const auto& surface = *state.navigation.currentSurface;
@@ -536,7 +544,13 @@ struct GaussianSumFitter {
       ++result.processedStates;
 
       return Acts::Result<void>::success();
+#endif
     }
+
+    template <typename propagator_state_t, typename stepper_t>
+    void updateStepper(propagator_state_t& /*state*/,
+                       const stepper_t& /*stepper*/,
+                       const std::vector<ComponentCache>& /*componentCache*/) {}
   };
 
   struct FinalizePositionPrinter {

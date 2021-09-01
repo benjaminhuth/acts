@@ -4,7 +4,18 @@
 
 #include "GsfInfrastructure/KLMixtureReduction.hpp"
 
-using DummyComponent = Acts::detail::GsfComponentCache;
+struct DummyComponent {
+  Acts::ActsScalar weight;
+  Acts::BoundVector boundPars;
+  std::optional<Acts::BoundSymMatrix> boundCov;
+};
+
+struct Identity {
+  template <typename T>
+  auto &operator()(T &v) const {
+    return v;
+  }
+};
 
 BOOST_AUTO_TEST_CASE(test_merge_two_equal_components) {
   DummyComponent a;
@@ -13,7 +24,7 @@ BOOST_AUTO_TEST_CASE(test_merge_two_equal_components) {
   *a.boundCov *= a.boundCov->transpose();
   a.weight = 0.5;
 
-  DummyComponent c = Acts::detail::mergeComponents(a, a);
+  DummyComponent c = Acts::detail::mergeComponents(a, a, Identity{});
   BOOST_CHECK(c.boundPars == a.boundPars);
   BOOST_CHECK(*c.boundCov == *a.boundCov);
   BOOST_CHECK(c.weight == 1.0);
@@ -32,7 +43,7 @@ BOOST_AUTO_TEST_CASE(test_merge_two_different_components) {
   *b.boundCov *= b.boundCov->transpose();
   b.weight = 0.5;
 
-  DummyComponent c = Acts::detail::mergeComponents(a, b);
+  DummyComponent c = Acts::detail::mergeComponents(a, b, Identity{});
   BOOST_CHECK(c.boundPars == 0.5 * (a.boundPars + b.boundPars));
   BOOST_CHECK(c.weight == 1.0);
 }
@@ -70,7 +81,7 @@ BOOST_AUTO_TEST_CASE(test_component_reduction) {
     auto merge_iter_a = cmps.begin();
     auto merge_iter_b = std::next(cmps.begin());
 
-    *merge_iter_a = Acts::detail::mergeComponents(*merge_iter_a, *merge_iter_b);
+    *merge_iter_a = Acts::detail::mergeComponents(*merge_iter_a, *merge_iter_b, Identity{});
     cmps.erase(merge_iter_b);
 
     const auto mean = std::accumulate(
@@ -88,8 +99,7 @@ BOOST_AUTO_TEST_CASE(test_component_reduction) {
   }
 }
 
-BOOST_AUTO_TEST_CASE(test_kl_mixture_reduction)
-{
+BOOST_AUTO_TEST_CASE(test_kl_mixture_reduction) {
   const std::size_t NCompsBefore = 10;
   const std::size_t NCompsAfter = 5;
 
@@ -118,7 +128,7 @@ BOOST_AUTO_TEST_CASE(test_kl_mixture_reduction)
 
   BOOST_CHECK_CLOSE(weightSumBefore, 1.0, 0.0001);
 
-  Acts::detail::reduceWithKLDistance(cmps, NCompsAfter);
+  Acts::detail::reduceWithKLDistance(cmps, NCompsAfter, Identity{});
 
   const auto meanAfter = std::accumulate(
       cmps.begin(), cmps.end(), Acts::BoundVector::Zero().eval(),

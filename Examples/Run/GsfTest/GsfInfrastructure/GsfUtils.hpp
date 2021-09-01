@@ -24,19 +24,99 @@ using MultiComponentState =
               std::vector<std::tuple<ActsScalar, BoundVector,
                                      std::optional<BoundSymMatrix>>>>;
 
+/// Functor which splits a component into multiple new components by creating a
+/// gaussian mixture, and adds them to a cache with a customizable cache_maker
+template <typename bethe_heitler_t, typename cache_maker_t>
+struct ComponentSplitter {
+  const bethe_heitler_t &betheHeitler;
+  const cache_maker_t &makeParameterCache;
+
+  ComponentSplitter(const bethe_heitler_t &bh, const cache_maker_t &cm)
+      : betheHeitler(bh), makeParameterCache(cm) {}
+
+  template <typename propagator_state_t, typename component_cache_t,
+            typename meta_cache_t>
+  void operator()(const propagator_state_t &state,
+                  const BoundTrackParameters &old_bound,
+                  const double old_weight, const meta_cache_t &metaCache,
+                  std::vector<component_cache_t> &componentCaches) const {
+    const auto p_prev = old_bound.absoluteMomentum();
+    const auto slab =
+        state.navigation.currentSurface->surfaceMaterial()->materialSlab(
+            old_bound.position(state.stepping.geoContext),
+            state.stepping.navDir, MaterialUpdateStage::fullUpdate);
+
+    const auto mixture = betheHeitler.mixture(slab.thicknessInX0());
+
+    // Create all possible new components
+    for (const auto &gaussian : mixture) {
+      // compute delta p from mixture and update parameters
+      const auto delta_p = [&]() {
+        if (state.stepping.navDir == NavigationDirection::forward)
+          return p_prev * (gaussian.mean - 1.);
+        else
+          return p_prev * (1. / gaussian.mean - 1.);
+      }();
+
+      throw_assert(p_prev + delta_p > 0.,
+                   "new momentum after bethe-heitler must be > 0");
+      const auto new_qop = old_bound.charge() / (p_prev + delta_p);
+
+      // compute inverse variance of p from mixture and update covariance
+      throw_assert(old_bound.covariance().has_value(), "need covariance here");
+
+      const auto varInvP = [&]() {
+        if (state.stepping.navDir == NavigationDirection::forward) {
+          const auto f = 1. / (p_prev * gaussian.mean);
+          return f * f * gaussian.var;
+        } else {
+          return gaussian.var / (p_prev * p_prev);
+        }
+      }();
+
+      const auto new_qop_var =
+          (*old_bound.covariance())(eBoundQOverP, eBoundQOverP) + varInvP;
+
+      // Here we combine the new child weight with the parent weight.
+      // However, this must be later re-adjusted
+      const auto new_weight = gaussian.weight * old_weight;
+
+      // Set the remaining things and push to vector
+      componentCaches.push_back(
+          {makeParameterCache(old_bound, metaCache, new_qop, new_qop_var,
+                              new_weight),
+           metaCache});
+    }
+  }
+};
+
+/// Functor whicht forwards components to the component cache and does not
+/// splitting therefore
+template <typename cache_maker_t>
+struct ComponentForwarder {
+  const cache_maker_t &makeParameterCache;
+
+  ComponentForwarder(const cache_maker_t &cm) : makeParameterCache(cm) {}
+
+  template <typename propagator_state_t,
+            typename component_cache_t, typename meta_cache_t>
+  void operator()(const propagator_state_t &,
+                  const BoundTrackParameters &old_bound,
+                  const double old_weight, const meta_cache_t &metaCache,
+                  std::vector<component_cache_t> &componentCaches) const {
+    const auto new_qop = old_bound.charge() / old_bound.absoluteMomentum();
+    const auto new_qop_var =
+        (*old_bound.covariance())(eBoundQOverP, eBoundQOverP);
+    componentCaches.push_back(
+        {makeParameterCache(old_bound, metaCache, old_weight, new_qop,
+                            new_qop_var),
+         metaCache});
+  }
+};
+
 /// @brief Struct which contains all needed information throughout the
 /// processing of the components in the GSF
 struct GsfComponentCache {
-  /// Where to find the parent component in the MultiTrajectory
-  std::size_t parentIndex;
-
-  /// The weight of the component
-  ActsScalar weight;
-
-  /// The predicted track state from the stepper
-  BoundVector boundPars;
-  std::optional<BoundSymMatrix> boundCov;
-
   /// Other quantities TODO are they really needed here? seems they are
   /// reinitialized to Identity etc.
   BoundMatrix jacobian;
@@ -63,7 +143,7 @@ void normalizeMultiComponentState(MultiComponentState &state) {
 
 struct Identity {
   template <typename T>
-  auto operator()(T &&v) {
+  auto operator()(T &&v) const {
     return std::forward<T>(v);
   }
 };
@@ -138,9 +218,9 @@ auto combineComponentRange(const component_iterator_t begin,
 /// still 1
 /// TODO If we create new components here to preserve the mean or if we do some
 /// component merging, how can this be applied in the MultiTrajectory
-void reduceNumberOfComponents(
-    std::vector<GsfComponentCache> &components,
-    std::size_t maxRemainingComponents) {
+template <typename component_t>
+void reduceNumberOfComponents(std::vector<component_t> &components,
+                              std::size_t maxRemainingComponents) {
   // The elements should be sorted by weight (high -> low)
   std::sort(begin(components), end(components),
             [](const auto &a, const auto &b) { return a.weight > b.weight; });
@@ -161,7 +241,7 @@ void reduceNumberOfComponents(
 /// @brief Reweight the components according to `R. Frühwirth, "Track fitting
 /// with non-Gaussian noise"`. See also the implementation in Athena at
 /// PosteriorWeightsCalculator.cxx
-template<typename sometype_t>
+template <typename sometype_t>
 void reweightComponents(std::vector<sometype_t> &cmps) {
   // Helper Function to compute detR
   auto computeDetR = [](const auto &trackState) -> ActsScalar {
