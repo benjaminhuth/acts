@@ -398,7 +398,7 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.directNavigation = true;
     cfg.trackingGeometry = trackingGeometry;
-    cfg.dFit = makeGsfFitterFunction(trackingGeometry, magneticField,
+    cfg.dFit = makeGsfDirectFitterFunction(trackingGeometry, magneticField,
                                      Acts::LoggerWrapper(*multiStepperLogger));
     cfg.fitterType = "GSF";
 

@@ -135,6 +135,8 @@ int main(int argc, char **argv) {
               << "Call std::abort on some GSF errors\n";
     std::cout << "\t --pars-from-seed   \t"
               << "Estimate the start parameters from seeds\n";
+    std::cout << "\t --std-navigator    \t"
+              << "Use the standard navigator instead of the DirectNavigator\n";
     std::cout << "\t --inflate-cov <val>\t"
               << "Inflate the covariance of esimated start parameters "
                  "(default: 1.0)\n";
@@ -185,6 +187,8 @@ int main(int argc, char **argv) {
     setGsfMaxComponents(std::stoi(*std::next(found)));
   }
 
+  const bool doDirectNavigation =
+      std::find(begin(args), end(args), "--std-navigator") == args.end();
   const bool doGsf =
       std::find(begin(args), end(args), "--no-gsf") == args.end();
   const bool doKalman =
@@ -475,11 +479,11 @@ int main(int argc, char **argv) {
     cfg.inputProtoTracks = kProtoTracks;
     cfg.inputInitialTrackParameters = kProtoTrackParameters;
     cfg.outputTrajectories = kGsfOutputTrajectories;
-    cfg.directNavigation = true;
+    cfg.directNavigation = doDirectNavigation;
     cfg.trackingGeometry = detector;
-    //     cfg.targetSurface = startSurface;
-    cfg.dFit = makeGsfFitterFunction(detector, magField,
+    cfg.dFit = makeGsfDirectFitterFunction(detector, magField,
                                      Acts::LoggerWrapper(*multiStepperLogger));
+    cfg.fit = makeGsfStandardFitterFunction(detector, magField, Acts::LoggerWrapper(*multiStepperLogger));
     cfg.fitterType = "GSF";
 
     sequencer.addAlgorithm(
@@ -500,9 +504,9 @@ int main(int argc, char **argv) {
     cfg.outputTrajectories = kKalmanOutputTrajectories;
     cfg.directNavigation = true;
     cfg.trackingGeometry = detector;
-    //     cfg.targetSurface = startSurface;
     cfg.dFit =
         ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(magField);
+    cfg.fit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(detector, magField);
     cfg.fitterType = "Kalman";
 
     sequencer.addAlgorithm(

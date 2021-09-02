@@ -257,12 +257,12 @@ class MultiEigenStepperLoop
   template <typename charge_t>
   Result<ComponentProxy> addComponent(
       State& state, const SingleBoundTrackParameters<charge_t>& pars,
-      double weight, Intersection3D::Status status) const {
+      double weight) const {
     state.components.push_back(
         {SingleState(state.geoContext,
                      SingleStepper::m_bField->makeCache(state.magContext), pars,
                      state.navDir),
-         weight, status});
+         weight, Intersection3D::Status::onSurface});
 
     return ComponentProxy(state, state.components.size() - 1);
   }

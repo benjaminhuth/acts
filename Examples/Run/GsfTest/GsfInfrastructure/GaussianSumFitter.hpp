@@ -105,7 +105,7 @@ struct GaussianSumFitter {
 
   template <typename source_link_t, typename updater_t,
             typename outlier_finder_t, typename calibrator_t,
-            typename smoother_t /*, typename parameters_t*/>
+            typename smoother_t>
   struct Actor {
     /// Enforce default construction
     Actor() = default;
@@ -142,11 +142,8 @@ struct GaussianSumFitter {
 
       /// A not so nice workaround to get the first backward state in the
       /// MultiTrajectory for the DirectNavigator
-      std::optional<std::tuple<
-          std::reference_wrapper<const MultiTrajectory<source_link_t>>,
-          std::reference_wrapper<const std::vector<std::size_t>>,
-          std::reference_wrapper<const std::map<std::size_t, double>>>>
-          initInfoForMT;
+      std::function<void(result_type&, const LoggerWrapper&)>
+          multiTrajectoryInitializer;
     } m_config;
 
     /// Configurable components:
@@ -154,43 +151,21 @@ struct GaussianSumFitter {
     outlier_finder_t m_outlierFinder;
     calibrator_t m_calibrator;
     smoother_t m_smoother;
+
     SurfaceReached m_targetReachedAborter;
-
-    /// Stores meta information about the components
-    struct ComponentMetaCache {
-      /// Where to find the parent component in the MultiTrajectory
-      std::size_t parentIndex;
-
-      /// Other quantities TODO are they really needed here? seems they are
-      /// reinitialized to Identity etc.
-      BoundMatrix jacobian;
-      BoundToFreeMatrix jacToGlobal;
-      FreeMatrix jacTransport;
-      FreeVector derivative;
-
-      /// We need to preserve the path length
-      ActsScalar pathLength;
-    };
-
-    /// Stores parameters of a gaussian component
-    struct ComponentParameterCache {
-      ActsScalar weight;
-      BoundVector boundPars;
-      std::optional<BoundSymMatrix> boundCov;
-    };
 
     /// Broadcast Cache Type
     using TrackProxy = typename MultiTrajectory<source_link_t>::TrackStateProxy;
     using ComponentCache =
-        std::tuple<std::variant<ComponentParameterCache, TrackProxy>,
-                   ComponentMetaCache>;
+        std::tuple<std::variant<detail::GsfComponentParameterCache, TrackProxy>,
+                   detail::GsfComponentMetaCache>;
 
     struct ParametersCacheProjector {
       auto& operator()(ComponentCache& cache) const {
-        return std::get<ComponentParameterCache>(std::get<0>(cache));
+        return std::get<detail::GsfComponentParameterCache>(std::get<0>(cache));
       }
       const auto& operator()(const ComponentCache& cache) const {
-        return std::get<ComponentParameterCache>(std::get<0>(cache));
+        return std::get<detail::GsfComponentParameterCache>(std::get<0>(cache));
       }
     };
 
@@ -228,35 +203,14 @@ struct GaussianSumFitter {
       }
 
       // Workaround to initialize MT in backward mode
-      if (m_config.initInfoForMT && !result.haveInitializedMT) {
-        const auto& [mt, idxs, weights] = *m_config.initInfoForMT;
-        result.currentTips.clear();
-
-        ACTS_VERBOSE(
-            "Initialize the MultiTrajectory with information provided to the "
-            "Actor");
-
-        for (const auto idx : idxs.get()) {
-          result.currentTips.push_back(
-              result.fittedStates.addTrackState(TrackStatePropMask::All));
-          auto proxy =
-              result.fittedStates.getTrackState(result.currentTips.back());
-          proxy.copyFrom(mt.get().getTrackState(idx));
-          result.weightsOfStates[result.currentTips.back()] =
-              weights.get().at(idx);
-
-          // Because we are backwards, we use forward filtered as predicted
-          proxy.predicted() = proxy.filtered();
-          proxy.predictedCovariance() = proxy.filteredCovariance();
-        }
-
-        result.haveInitializedMT = true;
+      if (!result.haveInitializedMT && m_config.multiTrajectoryInitializer) {
+        m_config.multiTrajectoryInitializer(result, logger);
       }
 
       // Initialize current tips on first pass
-      if (result.currentTips.empty()) {
-        result.currentTips.resize(stepper.numberComponents(state.stepping),
-                                  SIZE_MAX);
+      if (result.parentTips.empty()) {
+        result.parentTips.resize(stepper.numberComponents(state.stepping),
+                                 SIZE_MAX);
       }
 
       // Check if we have the right number of components
@@ -289,224 +243,134 @@ struct GaussianSumFitter {
 
         // Create Cache
         thread_local std::vector<ComponentCache> componentCache;
+        componentCache.clear();
 
-        // Generic component handlers
-        const auto componentSplitter = detail::ComponentSplitter(
-            m_config.bethe_heitler_approx,
-            [](const BoundTrackParameters& old_bound, const ComponentMetaCache&,
-               const auto new_qop, const double new_qop_var,
-               const double new_weight) {
-              ComponentParameterCache cache{new_weight, old_bound.parameters(),
-                                            old_bound.covariance()};
-              cache.boundPars[eBoundQOverP] = new_qop;
-              (*cache.boundCov)(eBoundQOverP, eBoundQOverP) = new_qop_var;
-              return cache;
-            });
+        // Projectors
+        auto mapToProxyAndWeight = [&](auto& cmp) {
+          auto& proxy = std::get<TrackProxy>(std::get<0>(cmp));
+          return std::tie(proxy, result.weightsOfStates.at(proxy.index()));
+        };
 
-        auto componentForwarder = detail::ComponentForwarder(
-            [&result](const BoundTrackParameters& old_bound,
-                      const ComponentMetaCache& metaCache, const double new_qop,
-                      const double new_qop_var, const double new_weight) {
-              const auto idx = result.fittedStates.addTrackState(
-                  TrackStatePropMask::All, metaCache.parentIndex);
-              auto trackProxy = result.fittedStates.getTrackState(idx);
-
-              trackProxy.predicted() = old_bound.parameters();
-              trackProxy.predicted()[eBoundQOverP] = new_qop;
-              trackProxy.predictedCovariance() = old_bound.covariance().value();
-              trackProxy.predictedCovariance()(eBoundQOverP, eBoundQOverP) =
-                  new_qop_var;
-              result.weightsOfStates[idx] = new_weight;
-
-              return trackProxy;
-            });
+        auto mapProxyToWeightParsCov = [&](const auto& variant) {
+          auto& proxy = std::get<TrackProxy>(variant);
+          return std::make_tuple(result.weightsOfStates.at(proxy.index()),
+                                 proxy.filtered(), proxy.filteredCovariance());
+        };
 
         ///////////////////////////////////////////
         // Component Splitting AND Kalman Update
         ///////////////////////////////////////////
         if (haveMaterial && haveMeasurement) {
-          preprocessComponents(state, stepper, result.parentTips,
-                               componentSplitter, componentCache);
+          ACTS_VERBOSE("Material and measurement");
+          detail::extractComponents(
+              state, stepper, result.parentTips,
+              detail::ComponentSplitter{m_config.bethe_heitler_approx},
+              m_config.doCovTransport, componentCache);
 
+          ACTS_VERBOSE("reduce component number...");
           detail::reduceWithKLDistance(
               componentCache,
               std::min(static_cast<std::size_t>(stepper.maxComponents),
                        m_config.maxComponents),
               ParametersCacheProjector{});
 
-          // Convert ComponentParameterCache to TrackStateProxy in std::variant
-          for (auto& [variant, meta] : componentCache) {
-            const auto [weight, pars, cov] =
-                std::get<ComponentParameterCache>(variant);
+          ACTS_VERBOSE("kalman update...");
+          kalmanUpdate(state, found_source_link->second, result,
+                       componentCache);
+          result.parentTips = result.currentTips;
 
-            const auto idx = result.fittedStates.addTrackState(
-                TrackStatePropMask::All, meta.parentIndex);
-            auto proxy = result.fittedStates.getTrackState(idx);
+          ACTS_VERBOSE("reweight components...");
+          detail::reweightComponents(componentCache, mapToProxyAndWeight);
 
-            proxy.predicted() = pars;
-            proxy.predictedCovariance() = *cov;
-            result.weightsOfStates[idx] = weight;
-
-            variant = proxy;
-          }
-
-          kalmanUpdate();
+          ACTS_VERBOSE("update stepper...");
+          detail::updateStepper(state, stepper, componentCache,
+                                mapProxyToWeightParsCov);
         }
         /////////////////////////////////////////////
         // Component Splitting BUT NO Kalman Update
         /////////////////////////////////////////////
         else if (haveMaterial && not haveMeasurement) {
-          preprocessComponents(state, stepper, result.parentTips,
-                               componentSplitter, componentCache);
+          ACTS_VERBOSE("Only Material");
+          detail::extractComponents(
+              state, stepper, result.parentTips,
+              detail::ComponentSplitter{m_config.bethe_heitler_approx},
+              m_config.doCovTransport, componentCache);
 
           detail::reduceWithKLDistance(
               componentCache,
               std::min(static_cast<std::size_t>(stepper.maxComponents),
                        m_config.maxComponents),
               ParametersCacheProjector{});
+
+          result.parentTips.clear();
+          for (const auto& [variant, meta] : componentCache) {
+            result.parentTips.push_back(meta.parentIndex);
+          }
+
+          detail::updateStepper(
+              state, stepper, componentCache, [&](const auto& variant) {
+                return std::get<detail::GsfComponentParameterCache>(variant);
+              });
         }
         /////////////////////////////////////////////
         // Kalman Update BUT NO Component Splitting
         /////////////////////////////////////////////
         else if (not haveMaterial && haveMeasurement) {
-          preprocessComponents(state, stepper, result.parentTips,
-                               componentForwarder, componentCache);
+          ACTS_VERBOSE("Only measurement");
+          detail::extractComponents(state, stepper, result.parentTips,
+                                    detail::ComponentForwarder{},
+                                    m_config.doCovTransport, componentCache);
 
-          kalmanUpdate();
+          kalmanUpdate(state, found_source_link->second, result,
+                       componentCache);
+          result.parentTips = result.currentTips;
+
+          detail::reweightComponents(componentCache, mapToProxyAndWeight);
+
+          detail::updateStepper(state, stepper, componentCache,
+                                mapProxyToWeightParsCov);
         }
-
-        // In the end update stepper
-        //         updateStepper(state, stepper, componentCache);
       }
     }
 
-    /// @brief Expands all existing components to new components by using a
-    /// gaussian-mixture approximation for the Bethe-Heitler distribution.
-    ///
-    /// @return a std::vector with all new components (parent tip, weight,
-    /// parameters, covariance)
-    /// TODO We could make propagator_state const here if the component proxy of
-    /// the stepper would accept it
-    template <typename propagator_state_t, typename stepper_t,
-              typename component_processor_t>
-    void preprocessComponents(
-        propagator_state_t& state, const stepper_t& stepper,
-        const std::vector<std::size_t>& parentTrajectoryIdxs,
-        const component_processor_t& componentProcessor,
-        std::vector<ComponentCache>& componentCache) const {
-      // Some shortcuts
-      auto& stepping = state.stepping;
+    template <typename propagator_state_t>
+    Result<void> kalmanUpdate(const propagator_state_t& state,
+                              const source_link_t& source_link,
+                              result_type& result,
+                              std::vector<ComponentCache>& components) const {
       const auto& logger = state.options.logger;
       const auto& surface = *state.navigation.currentSurface;
-
-      // Adjust qop to account for lost energy due to lost components
-      // TODO do we need to adjust variance?
-      double sumW_loss = 0.0, sumWeightedQOverP_loss = 0.0;
-      double initialQOverP = 0.0;
-
-      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-        typename stepper_t::ComponentProxy cmp(state.stepping, i);
-
-        if (cmp.status() != Intersection3D::Status::onSurface) {
-          sumW_loss += cmp.weight();
-          sumWeightedQOverP_loss += cmp.weight() * cmp.pars()[eFreeQOverP];
-        }
-
-        initialQOverP += cmp.weight() * cmp.pars()[eFreeQOverP];
-      }
-
-      double checkWeightSum = 0.0;
-      double checkQOverPSum = 0.0;
-
-      for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-        typename stepper_t::ComponentProxy cmp(stepping, i);
-
-        if (cmp.status() == Intersection3D::Status::onSurface) {
-          auto& weight = cmp.weight();
-          auto& qop = cmp.pars()[eFreeQOverP];
-
-          weight /= (1.0 - sumW_loss);
-          qop = qop * (1.0 - sumW_loss) + sumWeightedQOverP_loss;
-
-          checkWeightSum += weight;
-          checkQOverPSum += weight * qop;
-        }
-      }
-
-      throw_assert(std::abs(checkQOverPSum - initialQOverP) < 1.e-8,
-                   "momentum mismatch, initial: "
-                       << initialQOverP << ", final: " << checkQOverPSum);
-      throw_assert(std::abs(checkWeightSum - 1.0) < 1.e-8,
-                   "must sum up to 1 but is " << checkWeightSum);
-
-      // Approximate bethe-heitler distribution as gaussian mixture
-      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-        typename stepper_t::ComponentProxy old_cmp(state.stepping, i);
-
-        if (old_cmp.status() != Intersection3D::Status::onSurface) {
-          ACTS_VERBOSE("Skip component which is not on surface");
-          continue;
-        }
-
-        auto boundState = old_cmp.boundState(surface, m_config.doCovTransport);
-
-        if (!boundState.ok()) {
-          ACTS_ERROR("Failed to compute boundState: " << boundState.error());
-          continue;
-        }
-
-        const auto& [old_bound, jac, pathLength] = boundState.value();
-
-        ComponentMetaCache metaCache{
-            parentTrajectoryIdxs[i], jac,
-            old_cmp.jacToGlobal(),   old_cmp.jacTransport(),
-            old_cmp.derivative(),    pathLength};
-
-        componentProcessor(state, old_bound, old_cmp.weight(), metaCache,
-                           componentCache);
-      }
-    }
-
-    /// Do the Kalman update
-    void kalmanUpdate() const {
-#if 0
-      // Some shortcut references
-      const auto& logger = state.options.logger;
-      const auto& surface = *state.navigation.currentSurface;
-
-      // Clear the current tips, to set the new ones
       result.currentTips.clear();
 
-      // Loop over new components, add to MultiTrajectory and do kalman update
-      for (auto i = 0ul; i < new_components.size(); ++i) {
-        auto& cmp = new_components[i];
-
+      for (auto& [variant, meta] : components) {
         // Create new track state
         result.currentTips.push_back(result.fittedStates.addTrackState(
-            TrackStatePropMask::All, cmp.parentIndex));
+            TrackStatePropMask::All, meta.parentIndex));
 
-        cmp.trackStateProxy =
-            result.fittedStates.getTrackState(result.currentTips.back());
+        const auto [weight, pars, cov] =
+            std::get<detail::GsfComponentParameterCache>(variant);
 
-        auto& trackProxy = *cmp.trackStateProxy;
+        variant = result.fittedStates.getTrackState(result.currentTips.back());
+        auto& trackProxy = std::get<TrackProxy>(variant);
+
+        // Set track parameters
+        trackProxy.predicted() = std::move(pars);
+        if (cov) {
+          trackProxy.predictedCovariance() = std::move(*cov);
+        }
+        result.weightsOfStates[result.currentTips.back()] = weight;
 
         // Set surface
         trackProxy.setReferenceSurface(surface.getSharedPtr());
 
         // assign the source link to the track state
-        trackProxy.uncalibrated() = measurement;
+        trackProxy.uncalibrated() = source_link;
 
-        // Set track parameters
-        trackProxy.predicted() = std::move(cmp.predictedPars);
-        if (cmp.predictedCov) {
-          trackProxy.predictedCovariance() = std::move(*cmp.predictedCov);
-        }
-
-        trackProxy.jacobian() = std::move(cmp.jacobian);
-        trackProxy.pathLength() = std::move(cmp.pathLength);
+        trackProxy.jacobian() = std::move(meta.jacobian);
+        trackProxy.pathLength() = std::move(meta.pathLength);
 
         // We have predicted parameters, so calibrate the uncalibrated
-        input std::visit(
+        std::visit(
             [&](const auto& calibrated) {
               trackProxy.setCalibrated(calibrated);
             },
@@ -547,13 +411,7 @@ struct GaussianSumFitter {
       ++result.processedStates;
 
       return Acts::Result<void>::success();
-#endif
     }
-
-    template <typename propagator_state_t, typename stepper_t>
-    void updateStepper(propagator_state_t& /*state*/,
-                       const stepper_t& /*stepper*/,
-                       const std::vector<ComponentCache>& /*componentCache*/) {}
   };
 
   struct FinalizePositionPrinter {
@@ -574,7 +432,7 @@ struct GaussianSumFitter {
   /// The propagator instance used by the fit function
   propagator_t m_propagator;
 
-  /// @brief The fit function
+  /// @brief The fit function for the Direct navigator
   template <typename source_link_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
   Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit(
@@ -694,15 +552,32 @@ struct GaussianSumFitter {
           .navSurfaces = std::move(backwardSequence);
 
       // Workaround to get the first state into the MultiTrajectory
-      actor.m_config.initInfoForMT =
-          typename decltype(actor.m_config.initInfoForMT)::value_type{
-              std::ref(fwdGsfResult.fittedStates),
-              std::ref(fwdGsfResult.currentTips),
-              std::ref(fwdGsfResult.weightsOfStates)};
+      actor.m_config.multiTrajectoryInitializer = [&](auto& result,
+                                                      const auto& logger) {
+        result.currentTips.clear();
+
+        ACTS_VERBOSE(
+            "Initialize the MultiTrajectory with information provided to the "
+            "Actor");
+
+        for (const auto idx : fwdGsfResult.currentTips) {
+          result.currentTips.push_back(
+              result.fittedStates.addTrackState(TrackStatePropMask::All));
+          auto proxy =
+              result.fittedStates.getTrackState(result.currentTips.back());
+          proxy.copyFrom(fwdGsfResult.fittedStates.getTrackState(idx));
+          result.weightsOfStates[result.currentTips.back()] =
+              fwdGsfResult.weightsOfStates.at(idx);
+
+          // Because we are backwards, we use forward filtered as predicted
+          proxy.predicted() = proxy.filtered();
+          proxy.predictedCovariance() = proxy.filteredCovariance();
+        }
+
+        result.haveInitializedMT = true;
+      };
 
       auto propResult = m_propagator.propagate(params, propOptions);
-
-      actor.m_config.initInfoForMT.reset();
 
       if (!propResult.ok()) {
         return propResult.error();
@@ -728,39 +603,9 @@ struct GaussianSumFitter {
 
     const auto& bwdGsfResult = *bwdResult;
 
-    // TODO here we in principle need the predicted state and not the filtered
-    // state of the last forward state. But for now just do this since it is
-    // easier
-    //     detail::MultiComponentState bwdFirstState;
-    //     bwdFirstState.first =
-    //     sMultiParsBwd.referenceSurface().getSharedPtr(); for (const auto&
-    //     cmp : sMultiParsBwd.components()) {
-    //       bwdFirstState.second.push_back(
-    //           {std::get<double>(cmp),
-    //            std::get<BoundTrackParameters>(cmp).parameters(),
-    //            std::get<BoundTrackParameters>(cmp).covariance()});
-    //     }
-    //     bwdFiltered.push_back(bwdFirstState);
-
     //////////////////////////////
     // Last part towards perigee
     //////////////////////////////
-
-    //     using Projector =
-    //         detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
-    //                                          source_link_t>;
-    //     const auto [lastPars, lastCov] = detail::combineComponentRange(
-    //         bwdGsfResult.currentTips.begin(),
-    //         bwdGsfResult.currentTips.end(),
-    //         Projector{bwdGsfResult.fittedStates,
-    //         bwdGsfResult.weightsOfStates});
-    //
-    //
-    //     const auto& surface = bwdGsfResult.fittedStates
-    //                               .getTrackState(bwdGsfResult.currentTips.front())
-    //                               .referenceSurface();
-    //     MultiComponentBoundTrackParameters<SinglyCharged> lastMultiPars(
-    //         surface.getSharedPtr(), lastPars, lastCov);
 
     const auto lastMultiPars = [&]() {
       if (options.multiComponentPropagationToPerigee) {
@@ -828,7 +673,7 @@ struct GaussianSumFitter {
     return kalmanResult;
   }
 
-  /// @brief The fit function
+  /// @brief The fit function for the standard navigator
   template <typename source_link_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
   Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit(
@@ -837,6 +682,7 @@ struct GaussianSumFitter {
       const GsfOptions<calibrator_t, outlier_finder_t>& options) const {
     static_assert(SourceLinkConcept<source_link_t>,
                   "Source link does not fulfill SourceLinkConcept");
+    static_assert(std::is_same_v<Navigator, typename propagator_t::Navigator>);
 
     // The logger
     const auto& logger = options.logger;
@@ -863,7 +709,7 @@ struct GaussianSumFitter {
     using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
                            calibrator_t, GainMatrixSmoother>;
 
-    using Actors = ActionList<DirectNavigator::Initializer, GSFActor>;
+    using Actors = ActionList<GSFActor>;
     using Aborters = AbortList<EndOfWorldReached>;
 
     // Create relevant options for the propagation options
@@ -934,17 +780,7 @@ struct GaussianSumFitter {
 
       propOptions.direction = Acts::backward;
 
-      // Workaround to get the first state into the MultiTrajectory
-      //       actor.m_config.initInfoForMT =
-      //           typename
-      //           decltype(actor.m_config.initInfoForMT)::value_type{
-      //               std::ref(fwdGsfResult.fittedStates),
-      //               std::ref(fwdGsfResult.currentTips),
-      //               std::ref(fwdGsfResult.weightsOfStates)};
-
       auto propResult = m_propagator.propagate(params, propOptions);
-
-      actor.m_config.initInfoForMT.reset();
 
       if (!propResult.ok()) {
         return propResult.error();
@@ -970,39 +806,9 @@ struct GaussianSumFitter {
 
     const auto& bwdGsfResult = *bwdResult;
 
-    // TODO here we in principle need the predicted state and not the filtered
-    // state of the last forward state. But for now just do this since it is
-    // easier
-    //     detail::MultiComponentState bwdFirstState;
-    //     bwdFirstState.first =
-    //     sMultiParsBwd.referenceSurface().getSharedPtr(); for (const auto&
-    //     cmp : sMultiParsBwd.components()) {
-    //       bwdFirstState.second.push_back(
-    //           {std::get<double>(cmp),
-    //            std::get<BoundTrackParameters>(cmp).parameters(),
-    //            std::get<BoundTrackParameters>(cmp).covariance()});
-    //     }
-    //     bwdFiltered.push_back(bwdFirstState);
-
     //////////////////////////////
     // Last part towards perigee
     //////////////////////////////
-
-    //     using Projector =
-    //         detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
-    //                                          source_link_t>;
-    //     const auto [lastPars, lastCov] = detail::combineComponentRange(
-    //         bwdGsfResult.currentTips.begin(),
-    //         bwdGsfResult.currentTips.end(),
-    //         Projector{bwdGsfResult.fittedStates,
-    //         bwdGsfResult.weightsOfStates});
-    //
-    //
-    //     const auto& surface = bwdGsfResult.fittedStates
-    //                               .getTrackState(bwdGsfResult.currentTips.front())
-    //                               .referenceSurface();
-    //     MultiComponentBoundTrackParameters<SinglyCharged> lastMultiPars(
-    //         surface.getSharedPtr(), lastPars, lastCov);
 
     const auto lastMultiPars = [&]() {
       if (options.multiComponentPropagationToPerigee) {
@@ -1028,12 +834,10 @@ struct GaussianSumFitter {
     }();
 
     PropagatorOptions<
-        Acts::ActionList<DirectNavigator::Initializer, FinalizePositionPrinter>,
+        Acts::ActionList<FinalizePositionPrinter>,
         Aborters>
         lastPropOptions(options.geoContext, options.magFieldContext, logger);
 
-    lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
-        .navSurfaces = {options.referenceSurface};
     lastPropOptions.direction = NavigationDirection::backward;
     lastPropOptions.targetTolerance *= 1000.0;
 

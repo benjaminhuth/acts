@@ -49,17 +49,19 @@ using Calibrator = ActsExamples::MeasurementCalibrator;
 using DefaultExt = Acts::detail::GenericDefaultExtension<Acts::ActsScalar>;
 using ExtList = Acts::StepperExtensionList<DefaultExt>;
 using Stepper = Acts::MultiEigenStepperLoop<ExtList>;
-using Propagator = Acts::Propagator<Stepper, Acts::DirectNavigator>;
 
-// The Fitter
-using Fitter = Acts::GaussianSumFitter<Propagator>;
+/////////////////////////////////////////
+// The Fitter for the Direct Navigator
+/////////////////////////////////////////
+using DirectPropagator = Acts::Propagator<Stepper, Acts::DirectNavigator>;
+using DirectFitter = Acts::GaussianSumFitter<DirectPropagator>;
 
-struct GsfFitterFunction
+struct GsfDirectFitterFunction
     : public ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction {
-  Fitter trackFitter;
+  DirectFitter trackFitter;
 
-  GsfFitterFunction(Fitter&& f) : trackFitter(std::move(f)) {}
-  ~GsfFitterFunction() {}
+  GsfDirectFitterFunction(DirectFitter&& f) : trackFitter(std::move(f)) {}
+  ~GsfDirectFitterFunction() {}
 
   ActsExamples::TrackFittingAlgorithm::TrackFitterResult operator()(
       const std::vector<ActsExamples::IndexSourceLink>& sourceLinks,
@@ -83,7 +85,7 @@ struct GsfFitterFunction
 };
 
 std::shared_ptr<ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
-makeGsfFitterFunction(
+makeGsfDirectFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> /*trackingGeometry*/,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
     Acts::LoggerWrapper logger) {
@@ -92,9 +94,63 @@ makeGsfFitterFunction(
   Stepper stepper(std::move(magneticField), logger);
   stepper.setOverstepLimit(1_mm);
   Acts::DirectNavigator navigator;
-  Propagator propagator(std::move(stepper), std::move(navigator));
-  Fitter trackFitter(std::move(propagator));
+  DirectPropagator propagator(std::move(stepper), std::move(navigator));
+  DirectFitter trackFitter(std::move(propagator));
 
   // build the fitter functions. owns the fitter object.
-  return std::make_shared<GsfFitterFunction>(std::move(trackFitter));
+  return std::make_shared<GsfDirectFitterFunction>(std::move(trackFitter));
 }
+
+/////////////////////////////////////////
+// The Fitter for the Standard Navigator
+/////////////////////////////////////////
+using StandardPropagator = Acts::Propagator<Stepper, Acts::Navigator>;
+using StandardFitter = Acts::GaussianSumFitter<StandardPropagator>;
+
+struct GsfStandardFitterFunction
+    : public ActsExamples::TrackFittingAlgorithm::TrackFitterFunction {
+  StandardFitter trackFitter;
+
+  GsfStandardFitterFunction(StandardFitter&& f) : trackFitter(std::move(f)) {}
+  ~GsfStandardFitterFunction() {}
+
+  ActsExamples::TrackFittingAlgorithm::TrackFitterResult operator()(
+      const std::vector<ActsExamples::IndexSourceLink>& sourceLinks,
+      const ActsExamples::TrackParameters& initialParameters,
+      const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions&
+          kalmanOptions) const {
+    Acts::GsfOptions<Calibrator, OutlierFinder> gsfOptions{
+        kalmanOptions.calibrator,
+        kalmanOptions.outlierFinder,
+        kalmanOptions.geoContext,
+        kalmanOptions.magFieldContext,
+        kalmanOptions.referenceSurface,
+        kalmanOptions.logger,
+        gsfThrowOnAbort,
+        maxComponents};
+
+    return trackFitter.fit(sourceLinks, initialParameters, gsfOptions);
+  };
+};
+
+std::shared_ptr<ActsExamples::TrackFittingAlgorithm::TrackFitterFunction>
+makeGsfStandardFitterFunction(
+    std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
+    std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
+    Acts::LoggerWrapper logger) {
+  using namespace Acts::UnitLiterals;
+
+  Stepper stepper(std::move(magneticField), logger);
+  stepper.setOverstepLimit(1_mm);
+
+  Acts::Navigator::Config cfg;
+  cfg.trackingGeometry = trackingGeometry;
+
+  Acts::Navigator navigator(cfg);
+  StandardPropagator propagator(std::move(stepper), std::move(navigator));
+  StandardFitter trackFitter(std::move(propagator));
+
+  // build the fitter functions. owns the fitter object.
+  return std::make_shared<GsfStandardFitterFunction>(std::move(trackFitter));
+}
+

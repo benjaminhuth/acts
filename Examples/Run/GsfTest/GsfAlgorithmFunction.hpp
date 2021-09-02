@@ -13,7 +13,13 @@
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
 std::shared_ptr<ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
-makeGsfFitterFunction(
+makeGsfDirectFitterFunction(
+    std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
+    std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
+    Acts::LoggerWrapper logger);
+
+std::shared_ptr<ActsExamples::TrackFittingAlgorithm::TrackFitterFunction>
+makeGsfStandardFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
     Acts::LoggerWrapper logger);

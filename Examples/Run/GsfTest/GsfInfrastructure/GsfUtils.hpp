@@ -11,12 +11,36 @@
 #include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
 #include "Acts/EventData/MultiTrajectory.hpp"
 #include "Acts/EventData/TrackParameters.hpp"
+#include "Acts/Utilities/Logger.hpp"
 
 #include <numeric>
 
 namespace Acts {
 
 namespace detail {
+
+/// Stores meta information about the components
+struct GsfComponentMetaCache {
+  /// Where to find the parent component in the MultiTrajectory
+  std::size_t parentIndex;
+
+  /// Other quantities TODO are they really needed here? seems they are
+  /// reinitialized to Identity etc.
+  BoundMatrix jacobian;
+  BoundToFreeMatrix jacToGlobal;
+  FreeMatrix jacTransport;
+  FreeVector derivative;
+
+  /// We need to preserve the path length
+  ActsScalar pathLength;
+};
+
+/// Stores parameters of a gaussian component
+struct GsfComponentParameterCache {
+  ActsScalar weight;
+  BoundVector boundPars;
+  std::optional<BoundSymMatrix> boundCov;
+};
 
 /// @brief A multi component state
 using MultiComponentState =
@@ -26,19 +50,17 @@ using MultiComponentState =
 
 /// Functor which splits a component into multiple new components by creating a
 /// gaussian mixture, and adds them to a cache with a customizable cache_maker
-template <typename bethe_heitler_t, typename cache_maker_t>
+template <typename bethe_heitler_t>
 struct ComponentSplitter {
   const bethe_heitler_t &betheHeitler;
-  const cache_maker_t &makeParameterCache;
 
-  ComponentSplitter(const bethe_heitler_t &bh, const cache_maker_t &cm)
-      : betheHeitler(bh), makeParameterCache(cm) {}
+  ComponentSplitter(const bethe_heitler_t &bh) : betheHeitler(bh) {}
 
-  template <typename propagator_state_t, typename component_cache_t,
-            typename meta_cache_t>
+  template <typename propagator_state_t, typename component_cache_t>
   void operator()(const propagator_state_t &state,
                   const BoundTrackParameters &old_bound,
-                  const double old_weight, const meta_cache_t &metaCache,
+                  const double old_weight,
+                  const GsfComponentMetaCache &metaCache,
                   std::vector<component_cache_t> &componentCaches) const {
     const auto p_prev = old_bound.absoluteMomentum();
     const auto slab =
@@ -51,6 +73,8 @@ struct ComponentSplitter {
     // Create all possible new components
     for (const auto &gaussian : mixture) {
       // compute delta p from mixture and update parameters
+      auto new_pars = old_bound.parameters();
+
       const auto delta_p = [&]() {
         if (state.stepping.navDir == NavigationDirection::forward)
           return p_prev * (gaussian.mean - 1.);
@@ -60,31 +84,30 @@ struct ComponentSplitter {
 
       throw_assert(p_prev + delta_p > 0.,
                    "new momentum after bethe-heitler must be > 0");
-      const auto new_qop = old_bound.charge() / (p_prev + delta_p);
+      new_pars[eBoundQOverP] = old_bound.charge() / (p_prev + delta_p);
 
       // compute inverse variance of p from mixture and update covariance
-      throw_assert(old_bound.covariance().has_value(), "need covariance here");
+      auto new_cov = std::move(old_bound.covariance());
 
-      const auto varInvP = [&]() {
-        if (state.stepping.navDir == NavigationDirection::forward) {
-          const auto f = 1. / (p_prev * gaussian.mean);
-          return f * f * gaussian.var;
-        } else {
-          return gaussian.var / (p_prev * p_prev);
-        }
-      }();
+      if (new_cov.has_value()) {
+        const auto varInvP = [&]() {
+          if (state.stepping.navDir == NavigationDirection::forward) {
+            const auto f = 1. / (p_prev * gaussian.mean);
+            return f * f * gaussian.var;
+          } else {
+            return gaussian.var / (p_prev * p_prev);
+          }
+        }();
 
-      const auto new_qop_var =
-          (*old_bound.covariance())(eBoundQOverP, eBoundQOverP) + varInvP;
-
+        (*new_cov)(eBoundQOverP, eBoundQOverP) += varInvP;
+      }
       // Here we combine the new child weight with the parent weight.
       // However, this must be later re-adjusted
       const auto new_weight = gaussian.weight * old_weight;
 
       // Set the remaining things and push to vector
       componentCaches.push_back(
-          {makeParameterCache(old_bound, metaCache, new_qop, new_qop_var,
-                              new_weight),
+          {GsfComponentParameterCache{new_weight, new_pars, new_cov},
            metaCache});
     }
   }
@@ -92,41 +115,138 @@ struct ComponentSplitter {
 
 /// Functor whicht forwards components to the component cache and does not
 /// splitting therefore
-template <typename cache_maker_t>
 struct ComponentForwarder {
-  const cache_maker_t &makeParameterCache;
-
-  ComponentForwarder(const cache_maker_t &cm) : makeParameterCache(cm) {}
-
-  template <typename propagator_state_t,
-            typename component_cache_t, typename meta_cache_t>
+  template <typename propagator_state_t, typename component_cache_t,
+            typename meta_cache_t>
   void operator()(const propagator_state_t &,
                   const BoundTrackParameters &old_bound,
                   const double old_weight, const meta_cache_t &metaCache,
                   std::vector<component_cache_t> &componentCaches) const {
-    const auto new_qop = old_bound.charge() / old_bound.absoluteMomentum();
-    const auto new_qop_var =
-        (*old_bound.covariance())(eBoundQOverP, eBoundQOverP);
     componentCaches.push_back(
-        {makeParameterCache(old_bound, metaCache, old_weight, new_qop,
-                            new_qop_var),
+        {GsfComponentParameterCache{old_weight, old_bound.parameters(),
+                                    old_bound.covariance()},
          metaCache});
   }
 };
 
-/// @brief Struct which contains all needed information throughout the
-/// processing of the components in the GSF
-struct GsfComponentCache {
-  /// Other quantities TODO are they really needed here? seems they are
-  /// reinitialized to Identity etc.
-  BoundMatrix jacobian;
-  BoundToFreeMatrix jacToGlobal;
-  FreeMatrix jacTransport;
-  FreeVector derivative;
+/// Function that updates the stepper with the component Cache
+template <typename propagator_state_t, typename stepper_t, typename component_t,
+          typename projector_t>
+Result<void> updateStepper(propagator_state_t &state, const stepper_t &stepper,
+                           const std::vector<component_t> &componentCache,
+                           const projector_t &proj) {
+  //   const auto &logger = state.options.logger;
+  const auto &surface = *state.navigation.currentSurface;
+  stepper.clearComponents(state.stepping);
 
-  /// We need to preserve the path length
-  ActsScalar pathLength;
-};
+  for (const auto &[variant, meta] : componentCache) {
+    const auto &[weight, pars, cov] = proj(variant);
+
+    auto res = stepper.addComponent(
+        state.stepping, BoundTrackParameters(surface.getSharedPtr(), pars, cov),
+        weight);
+
+    if (!res.ok()) {
+      return res.error();
+    }
+
+    auto &cmp = *res;
+    cmp.jacobian() = meta.jacobian;
+    cmp.jacToGlobal() = meta.jacToGlobal;
+    cmp.pathLength() = meta.pathLength;
+    cmp.derivative() = meta.derivative;
+    cmp.jacTransport() = meta.jacTransport;
+  }
+
+  return Result<void>::success();
+}
+
+/// @brief Expands all existing components to new components by using a
+/// gaussian-mixture approximation for the Bethe-Heitler distribution.
+///
+/// @return a std::vector with all new components (parent tip, weight,
+/// parameters, covariance)
+/// TODO We could make propagator_state const here if the component proxy
+/// of the stepper would accept it
+template <typename propagator_state_t, typename stepper_t,
+          typename component_t, typename component_processor_t>
+void extractComponents(propagator_state_t &state, const stepper_t &stepper,
+                       const std::vector<std::size_t> &parentTrajectoryIdxs,
+                       const component_processor_t &componentProcessor,
+                       const bool doCovTransport,
+                       std::vector<component_t> &componentCache) {
+  // Some shortcuts
+  auto &stepping = state.stepping;
+  const auto &logger = state.options.logger;
+  const auto &surface = *state.navigation.currentSurface;
+
+  // Adjust qop to account for lost energy due to lost components
+  // TODO do we need to adjust variance?
+  double sumW_loss = 0.0, sumWeightedQOverP_loss = 0.0;
+  double initialQOverP = 0.0;
+
+  for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
+    typename stepper_t::ComponentProxy cmp(state.stepping, i);
+
+    if (cmp.status() != Intersection3D::Status::onSurface) {
+      sumW_loss += cmp.weight();
+      sumWeightedQOverP_loss += cmp.weight() * cmp.pars()[eFreeQOverP];
+    }
+
+    initialQOverP += cmp.weight() * cmp.pars()[eFreeQOverP];
+  }
+
+  double checkWeightSum = 0.0;
+  double checkQOverPSum = 0.0;
+
+  for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
+    typename stepper_t::ComponentProxy cmp(stepping, i);
+
+    if (cmp.status() == Intersection3D::Status::onSurface) {
+      auto &weight = cmp.weight();
+      auto &qop = cmp.pars()[eFreeQOverP];
+
+      weight /= (1.0 - sumW_loss);
+      qop = qop * (1.0 - sumW_loss) + sumWeightedQOverP_loss;
+
+      checkWeightSum += weight;
+      checkQOverPSum += weight * qop;
+    }
+  }
+
+  throw_assert(std::abs(checkQOverPSum - initialQOverP) < 1.e-8,
+               "momentum mismatch, initial: " << initialQOverP
+                                              << ", final: " << checkQOverPSum);
+  throw_assert(std::abs(checkWeightSum - 1.0) < 1.e-8,
+               "must sum up to 1 but is " << checkWeightSum);
+
+  // Approximate bethe-heitler distribution as gaussian mixture
+  for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
+    typename stepper_t::ComponentProxy old_cmp(state.stepping, i);
+
+    if (old_cmp.status() != Intersection3D::Status::onSurface) {
+      ACTS_VERBOSE("Skip component which is not on surface");
+      continue;
+    }
+
+    auto boundState = old_cmp.boundState(surface, doCovTransport);
+
+    if (!boundState.ok()) {
+      ACTS_ERROR("Failed to compute boundState: " << boundState.error());
+      continue;
+    }
+
+    const auto &[old_bound, jac, pathLength] = boundState.value();
+
+    detail::GsfComponentMetaCache metaCache{
+        parentTrajectoryIdxs[i], jac,
+        old_cmp.jacToGlobal(),   old_cmp.jacTransport(),
+        old_cmp.derivative(),    pathLength};
+
+    componentProcessor(state, old_bound, old_cmp.weight(), metaCache,
+                       componentCache);
+  }
+}
 
 /// @brief reweight MultiComponentState
 void normalizeMultiComponentState(MultiComponentState &state) {
@@ -241,8 +361,11 @@ void reduceNumberOfComponents(std::vector<component_t> &components,
 /// @brief Reweight the components according to `R. Frühwirth, "Track fitting
 /// with non-Gaussian noise"`. See also the implementation in Athena at
 /// PosteriorWeightsCalculator.cxx
-template <typename sometype_t>
-void reweightComponents(std::vector<sometype_t> &cmps) {
+/// Expects that the projector maps the component to something like a
+/// std::pair< trackProxy&, double& > so that it can be extracted with std::get
+template <typename component_t, typename projector_t>
+void reweightComponents(std::vector<component_t> &cmps,
+                        const projector_t &proj) {
   // Helper Function to compute detR
   auto computeDetR = [](const auto &trackState) -> ActsScalar {
     const auto predictedCovariance = trackState.predictedCovariance();
@@ -266,29 +389,30 @@ void reweightComponents(std::vector<sometype_t> &cmps) {
 
   // Find minChi2, this can be used to factor some things later in the
   // exponentiation
-  const auto minChi2 = std::min_element(cmps.begin(), cmps.end(),
-                                        [](const auto &a, const auto &b) {
-                                          return a.trackStateProxy->chi2() <
-                                                 b.trackStateProxy->chi2();
-                                        })
-                           ->trackStateProxy->chi2();
+  const auto minChi2 =
+      std::get<0>(proj(*std::min_element(cmps.begin(), cmps.end(),
+                                         [&](const auto &a, const auto &b) {
+                                           return std::get<0>(proj(a)).chi2() <
+                                                  std::get<0>(proj(b)).chi2();
+                                         })))
+          .chi2();
 
   // Compute new weights and reweight
   double sumOfWeights = 0.;
 
   for (auto &cmp : cmps) {
-    const double chi2 = cmp.trackStateProxy->chi2() - minChi2;
-    const double detR = computeDetR(*cmp.trackStateProxy);
+    const double chi2 = std::get<0>(proj(cmp)).chi2() - minChi2;
+    const double detR = computeDetR(std::get<0>(proj(cmp)));
 
-    cmp.weight *= std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
-    sumOfWeights += cmp.weight;
+    std::get<1>(proj(cmp)) *= std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
+    sumOfWeights += std::get<1>(proj(cmp));
   }
 
   throw_assert(sumOfWeights > 0.,
                "The sum of the weights needs to be positive");
 
   for (auto &cmp : cmps) {
-    cmp.weight *= (1. / sumOfWeights);
+    std::get<1>(proj(cmp)) *= (1. / sumOfWeights);
   }
 }
 
