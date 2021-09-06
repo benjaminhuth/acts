@@ -606,6 +606,9 @@ struct GaussianSumFitter {
     //////////////////////////////
     // Last part towards perigee
     //////////////////////////////
+    ACTS_VERBOSE("+-------------------+");
+    ACTS_VERBOSE("| Gsf: Do Last Part |");
+    ACTS_VERBOSE("+-------------------+");
 
     const auto lastMultiPars = [&]() {
       if (options.multiComponentPropagationToPerigee) {
@@ -640,9 +643,6 @@ struct GaussianSumFitter {
     lastPropOptions.direction = NavigationDirection::backward;
     lastPropOptions.targetTolerance *= 1000.0;
 
-    ACTS_VERBOSE("+-------------------+");
-    ACTS_VERBOSE("| Gsf: Do Last Part |");
-    ACTS_VERBOSE("+-------------------+");
     auto lastPropRes = m_propagator.propagate(
         lastMultiPars, *options.referenceSurface, lastPropOptions);
 
@@ -672,6 +672,20 @@ struct GaussianSumFitter {
 
     return kalmanResult;
   }
+
+  /// Workaround to let navigation abort on surface
+  struct SurfaceAborter {
+    const Surface* target;
+    template <typename propagator_state_t, typename stepper_t>
+    bool operator()(propagator_state_t& state, const stepper_t&) const {
+      const auto& logger = state.options.logger;
+      if (state.navigation.currentSurface == target) {
+        ACTS_VERBOSE("Surface aborter does its job");
+        return true;
+      }
+      return false;
+    }
+  };
 
   /// @brief The fit function for the standard navigator
   template <typename source_link_t, typename start_parameters_t,
@@ -778,9 +792,32 @@ struct GaussianSumFitter {
           fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
           fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
 
-      propOptions.direction = Acts::backward;
+      const Surface* backwardTarget = nullptr;
+      fwdGsfResult.fittedStates.visitBackwards(
+          fwdGsfResult.currentTips.front(), [&](const auto& state) {
+            backwardTarget = &state.referenceSurface();
+          });
 
-      auto propResult = m_propagator.propagate(params, propOptions);
+      using BwdActors = ActionList<GSFActor>;
+      using BwdAborters = AbortList<SurfaceAborter>;
+
+      PropagatorOptions<BwdActors, BwdAborters> bwdPropOptions(
+          options.geoContext, options.magFieldContext, logger);
+
+      bwdPropOptions.abortList.template get<SurfaceAborter>().target = backwardTarget;
+      
+      auto& actor = bwdPropOptions.actionList.template get<GSFActor>();
+      actor.m_config.inputMeasurements = inputMeasurements;
+      actor.m_config.maxComponents = options.maxComponents;
+      actor.m_calibrator = options.calibrator;
+      actor.m_outlierFinder = options.outlierFinder;
+      actor.m_config.abortOnError = options.throwOnError;
+
+      bwdPropOptions.direction = Acts::backward;
+
+      ACTS_VERBOSE("Backward propagation with target surface "
+                   << backwardTarget->geometryId());
+      auto propResult = m_propagator.propagate(params, bwdPropOptions);
 
       if (!propResult.ok()) {
         return propResult.error();
@@ -833,9 +870,7 @@ struct GaussianSumFitter {
       }
     }();
 
-    PropagatorOptions<
-        Acts::ActionList<FinalizePositionPrinter>,
-        Aborters>
+    PropagatorOptions<Acts::ActionList<FinalizePositionPrinter>, Aborters>
         lastPropOptions(options.geoContext, options.magFieldContext, logger);
 
     lastPropOptions.direction = NavigationDirection::backward;
