@@ -544,9 +544,9 @@ class AtlasStepper {
   /// @param [in] stepSize The step size value
   /// @param [in] stype The step size type to be set
   void setStepSize(State& state, double stepSize,
-                   ConstrainedStep::Type stype = ConstrainedStep::actor) const {
+                   ConstrainedStep::Type stype = ConstrainedStep::actor, bool release=true) const {
     state.previousStepSize = state.stepSize;
-    state.stepSize.update(stepSize, stype, true);
+    state.stepSize.update(stepSize, stype, release);
   }
   
   /// Get the step size

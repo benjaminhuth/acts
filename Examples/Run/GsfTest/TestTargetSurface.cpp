@@ -30,44 +30,44 @@
 
 using namespace Acts::UnitLiterals;
 
-struct AdvancedInitializer {
-    /// The Surface sequence
-    Acts::DirectNavigator::SurfaceSequence navSurfaces = {};
-    const Acts::Surface *startSurface = nullptr;
-
-    /// Actor result / state
-    struct this_result {
-      bool initialized = false;
-    };
-    using result_type = this_result;
-
-    /// Defaulting the constructor
-    AdvancedInitializer() = default;
-
-    /// Actor operator call
-    /// @tparam statet Type of the full propagator state
-    /// @tparam stepper_t Type of the stepper
-    ///
-    /// @param state the entire propagator state
-    /// @param r the result of this Actor
-    template <typename propagator_state_t, typename stepper_t>
-    void operator()(propagator_state_t& state, const stepper_t& /*unused*/,
-                    result_type& r) const {
-      // Only act once
-      if (not r.initialized) {
-        // Initialize the surface sequence
-        state.navigation.navSurfaces = navSurfaces;
-        state.navigation.navSurfaceIter = state.navigation.navSurfaces.begin();
-        state.navigation.startSurface = startSurface;
-        r.initialized = true;
-      }
-    }
-
-    /// Actor operator call - resultless, unused
-    template <typename propagator_state_t, typename stepper_t>
-    void operator()(propagator_state_t& /*unused*/,
-                    const stepper_t& /*unused*/) const {}
-  };
+// struct AdvancedInitializer {
+//     /// The Surface sequence
+//     Acts::DirectNavigator::SurfaceSequence navSurfaces = {};
+//     const Acts::Surface *startSurface = nullptr;
+//
+//     /// Actor result / state
+//     struct this_result {
+//       bool initialized = false;
+//     };
+//     using result_type = this_result;
+//
+//     /// Defaulting the constructor
+//     AdvancedInitializer() = default;
+//
+//     /// Actor operator call
+//     /// @tparam statet Type of the full propagator state
+//     /// @tparam stepper_t Type of the stepper
+//     ///
+//     /// @param state the entire propagator state
+//     /// @param r the result of this Actor
+//     template <typename propagator_state_t, typename stepper_t>
+//     void operator()(propagator_state_t& state, const stepper_t& /*unused*/,
+//                     result_type& r) const {
+//       // Only act once
+//       if (not r.initialized) {
+//         // Initialize the surface sequence
+//         state.navigation.navSurfaces = navSurfaces;
+//         state.navigation.navSurfaceIter =
+//         state.navigation.navSurfaces.begin(); state.navigation.startSurface =
+//         startSurface; r.initialized = true;
+//       }
+//     }
+//
+//     /// Actor operator call - resultless, unused
+//     template <typename propagator_state_t, typename stepper_t>
+//     void operator()(propagator_state_t& /*unused*/,
+//                     const stepper_t& /*unused*/) const {}
+//   };
 
 struct PrintPositionActor {
   using result_type = int;
@@ -120,9 +120,8 @@ int main() {
   detector->visitSurfaces([&](auto surface) {
     if (surface->center(Acts::GeometryContext{})[0] == 0.0) {
       first_surface = surface->getSharedPtr();
-    } /*else*/ {
-    surfaceSequence.push_back(surface);
-    }
+    } /*else*/
+    { surfaceSequence.push_back(surface); }
 
     std::cout << "Surface position : "
               << surface->center(Acts::GeometryContext{})
@@ -164,25 +163,20 @@ int main() {
 
   // Propagator
   Acts::EigenStepper<> stepper(std::move(bField));
-  //   Acts::Navigator::Config cfg;
-  //   cfg.trackingGeometry = detector;
-  //   cfg.resolvePassive = false;
-  //   cfg.resolveMaterial = true;
-  //   cfg.resolveSensitive = true;
-  Acts::DirectNavigator navigator;
+  Acts::Navigator::Config cfg;
+  cfg.trackingGeometry = detector;
+  cfg.resolvePassive = false;
+  cfg.resolveMaterial = true;
+  cfg.resolveSensitive = true;
+  Acts::Navigator navigator(cfg);
   Acts::Propagator propagator(std::move(stepper), std::move(navigator));
 
-  using Actors =
-      Acts::ActionList<AdvancedInitializer, PrintPositionActor>;
+  using Actors = Acts::ActionList<PrintPositionActor>;
   using Aborters = Acts::AbortList<>;
 
   Acts::PropagatorOptions<Actors, Aborters> propOptions(
       Acts::GeometryContext{}, Acts::MagneticFieldContext{},
       Acts::LoggerWrapper{*mainLogger});
-
-  propOptions.actionList.get<AdvancedInitializer>().navSurfaces =
-      surfaceSequence;
-  propOptions.actionList.get<AdvancedInitializer>().startSurface = first_surface.get();
 
   std::cout << "Start propagation\n";
   propagator.propagate(start_params, *targetSurface, propOptions);

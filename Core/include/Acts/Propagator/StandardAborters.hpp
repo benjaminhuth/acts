@@ -60,7 +60,7 @@ struct PathLimitReached {
     double distance = state.stepping.navDir * std::abs(internalLimit) -
                       state.stepping.pathAccumulated;
     double tolerance = state.options.targetTolerance;
-    stepper.setStepSize(state.stepping, distance, ConstrainedStep::aborter);
+    stepper.setStepSize(state.stepping, distance, ConstrainedStep::aborter, false);
     bool limitReached = (distance * distance < tolerance * tolerance);
     if (limitReached) {
       ACTS_VERBOSE("Target: x | "
@@ -151,8 +151,7 @@ struct SurfaceReached {
         // Update the distance to the alternative solution
         distance = sIntersection.alternative.pathLength;
       }
-      stepper.setStepSize(state.stepping, state.stepping.navDir * distance,
-                          ConstrainedStep::aborter);
+      stepper.updateStepSize(state.stepping, sIntersection, false);
       ACTS_VERBOSE("Target: 0 | "
                    << "Target stepSize (surface) updated to "
                    << stepper.outputStepSize(state.stepping));

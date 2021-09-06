@@ -195,16 +195,23 @@ struct GaussianSumFitter {
       for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
         typename stepper_t::ComponentProxy cmp(state.stepping, i);
 
-        ACTS_VERBOSE(
-            "  #" << i << " pos: "
-                  << cmp.pars().template segment<3>(eFreePos0).transpose()
-                  << ", dir: "
-                  << cmp.pars().template segment<3>(eFreeDir0).transpose());
+        if (cmp.status() == Acts::Intersection3D::Status::missed) {
+          ACTS_VERBOSE("  #"
+                       << i << " missed/unreachable, weight: " << cmp.weight());
+        } else {
+          ACTS_VERBOSE("  #"
+                       << i << " pos: "
+                       << cmp.pars().template segment<3>(eFreePos0).transpose()
+                       << ", dir: "
+                       << cmp.pars().template segment<3>(eFreeDir0).transpose()
+                       << ", weight: " << cmp.weight());
+        }
       }
 
       // Workaround to initialize MT in backward mode
       if (!result.haveInitializedMT && m_config.multiTrajectoryInitializer) {
         m_config.multiTrajectoryInitializer(result, logger);
+        result.haveInitializedMT = true;
       }
 
       // Initialize current tips on first pass
@@ -238,7 +245,26 @@ struct GaussianSumFitter {
 
         // Early return if nothing happens
         if (not haveMaterial && not haveMeasurement) {
+          ACTS_VERBOSE("No material or measurement, return");
           return;
+        }
+
+        // Early return if we already were on this surface TODO why is this
+        // necessary
+        if (!result.currentTips.empty()) {
+          bool alreadyVisited = false;
+          result.fittedStates.visitBackwards(
+              result.currentTips.front(), [&](const auto& state) {
+                if (state.referenceSurface().geometryId() ==
+                    surface.geometryId()) {
+                  alreadyVisited = true;
+                }
+              });
+
+          if (alreadyVisited) {
+            ACTS_VERBOSE("Already visited surface, return");
+            return;
+          }
         }
 
         // Create Cache
@@ -426,6 +452,22 @@ struct GaussianSumFitter {
                    << stepper.position(state.stepping).transpose()
                    << " with direction "
                    << stepper.direction(state.stepping).transpose());
+
+      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
+        typename stepper_t::ComponentProxy cmp(state.stepping, i);
+
+        if (cmp.status() == Acts::Intersection3D::Status::missed) {
+          ACTS_VERBOSE("  #"
+                       << i << " missed/unreachable, weight: " << cmp.weight());
+        } else {
+          ACTS_VERBOSE("  #"
+                       << i << " pos: "
+                       << cmp.pars().template segment<3>(eFreePos0).transpose()
+                       << ", dir: "
+                       << cmp.pars().template segment<3>(eFreeDir0).transpose()
+                       << ", weight: " << cmp.weight());
+        }
+      }
     }
   };
 
@@ -573,8 +615,6 @@ struct GaussianSumFitter {
           proxy.predicted() = proxy.filtered();
           proxy.predictedCovariance() = proxy.filteredCovariance();
         }
-
-        result.haveInitializedMT = true;
       };
 
       auto propResult = m_propagator.propagate(params, propOptions);
@@ -641,7 +681,6 @@ struct GaussianSumFitter {
     lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
         .navSurfaces = {options.referenceSurface};
     lastPropOptions.direction = NavigationDirection::backward;
-    lastPropOptions.targetTolerance *= 1000.0;
 
     auto lastPropRes = m_propagator.propagate(
         lastMultiPars, *options.referenceSurface, lastPropOptions);
@@ -804,8 +843,9 @@ struct GaussianSumFitter {
       PropagatorOptions<BwdActors, BwdAborters> bwdPropOptions(
           options.geoContext, options.magFieldContext, logger);
 
-      bwdPropOptions.abortList.template get<SurfaceAborter>().target = backwardTarget;
-      
+      bwdPropOptions.abortList.template get<SurfaceAborter>().target =
+          backwardTarget;
+
       auto& actor = bwdPropOptions.actionList.template get<GSFActor>();
       actor.m_config.inputMeasurements = inputMeasurements;
       actor.m_config.maxComponents = options.maxComponents;
@@ -813,11 +853,38 @@ struct GaussianSumFitter {
       actor.m_outlierFinder = options.outlierFinder;
       actor.m_config.abortOnError = options.throwOnError;
 
+      // Workaround to get the first state into the MultiTrajectory seems also
+      // to be necessary for standard navigator to prevent double kalman update
+      // on the last surface
+      actor.m_config.multiTrajectoryInitializer = [&](auto& result,
+                                                      const auto& logger) {
+        result.currentTips.clear();
+
+        ACTS_VERBOSE(
+            "Initialize the MultiTrajectory with information provided to the "
+            "Actor");
+
+        for (const auto idx : fwdGsfResult.currentTips) {
+          result.currentTips.push_back(
+              result.fittedStates.addTrackState(TrackStatePropMask::All));
+          auto proxy =
+              result.fittedStates.getTrackState(result.currentTips.back());
+          proxy.copyFrom(fwdGsfResult.fittedStates.getTrackState(idx));
+          result.weightsOfStates[result.currentTips.back()] =
+              fwdGsfResult.weightsOfStates.at(idx);
+
+          // Because we are backwards, we use forward filtered as predicted
+          proxy.predicted() = proxy.filtered();
+          proxy.predictedCovariance() = proxy.filteredCovariance();
+        }
+      };
+
       bwdPropOptions.direction = Acts::backward;
 
-      ACTS_VERBOSE("Backward propagation with target surface "
-                   << backwardTarget->geometryId());
-      auto propResult = m_propagator.propagate(params, bwdPropOptions);
+      //       ACTS_VERBOSE("Backward propagation with target surface "
+      //                    << backwardTarget->geometryId());
+      auto propResult =
+          m_propagator.propagate(params, /**backwardTarget,*/ bwdPropOptions);
 
       if (!propResult.ok()) {
         return propResult.error();
@@ -874,7 +941,6 @@ struct GaussianSumFitter {
         lastPropOptions(options.geoContext, options.magFieldContext, logger);
 
     lastPropOptions.direction = NavigationDirection::backward;
-    lastPropOptions.targetTolerance *= 1000.0;
 
     ACTS_VERBOSE("+-------------------+");
     ACTS_VERBOSE("| Gsf: Do Last Part |");

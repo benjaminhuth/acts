@@ -117,7 +117,7 @@ using step_size_t = decltype(std::declval<T>().stepSize);
         static_assert(covariance_transport_exists, "covarianceTransport method not found");
         constexpr static bool update_surface_exists = has_method<const S, Intersection3D::Status, update_surface_status_t, state&, const Surface&, const BoundaryCheck&, LoggerWrapper>;
         static_assert(update_surface_exists, "updateSurfaceStatus method not found");
-        constexpr static bool set_step_size_exists = has_method<const S, void, set_step_size_t, state&, double, ConstrainedStep::Type>;
+        constexpr static bool set_step_size_exists = has_method<const S, void, set_step_size_t, state&, double, ConstrainedStep::Type, bool>;
         static_assert(set_step_size_exists, "setStepSize method not found");
         constexpr static bool release_step_size_exists = has_method<const S, void, release_step_size_t, state&>;
         static_assert(release_step_size_exists, "releaseStepSize method not found");

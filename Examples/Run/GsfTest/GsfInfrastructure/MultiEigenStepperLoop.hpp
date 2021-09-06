@@ -428,9 +428,9 @@ class MultiEigenStepperLoop
   /// @param stepSize [in] The step size value
   /// @param stype [in] The step size type to be set
   void setStepSize(State& state, double stepSize,
-                   ConstrainedStep::Type stype = ConstrainedStep::actor) const {
+                   ConstrainedStep::Type stype = ConstrainedStep::actor, bool release=true) const {
     for (auto& component : state.components) {
-      SingleStepper::setStepSize(component.state, stepSize, stype);
+      SingleStepper::setStepSize(component.state, stepSize, stype, release);
     }
   }
 
