@@ -358,6 +358,7 @@ class MultiEigenStepperLoop
       State& state, const Surface& surface, const BoundaryCheck& bcheck,
       LoggerWrapper = getDummyLogger()) const {
     std::array<int, 4> counts = {0, 0, 0, 0};
+    const std::string before = outputStepSize(state);
 
     for (auto& component : state.components) {
       component.status = SingleStepper::updateSurfaceStatus(
@@ -378,6 +379,10 @@ class MultiEigenStepperLoop
              }
              return ss.str();
            }());
+
+    std::cout << "MultiStepperLoop::updateSurfaceStatus(...):\n"
+              << "\tBEFORE" << before << "\n"
+              << "\tAFTER" << outputStepSize(state) << std::endl;
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -407,8 +412,7 @@ class MultiEigenStepperLoop
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
-    //     std::cout << "BEFORE updateStepSize(...): " << outputStepSize(state)
-    //               << std::endl;
+    const std::string before = outputStepSize(state);
 
     for (auto& component : state.components) {
       const auto intersection = oIntersection.representation->intersect(
@@ -418,8 +422,9 @@ class MultiEigenStepperLoop
       SingleStepper::updateStepSize(component.state, intersection, release);
     }
 
-    //     std::cout << "AFTER updateStepSize(...): " << outputStepSize(state)
-    //               << std::endl;
+    std::cout << "MultiStepperLoop::updateStepSize(...):\n"
+              << "\tBEFORE" << before << "\n"
+              << "\tAFTER" << outputStepSize(state) << std::endl;
   }
 
   /// Set Step size - explicitely with a double
@@ -428,10 +433,17 @@ class MultiEigenStepperLoop
   /// @param stepSize [in] The step size value
   /// @param stype [in] The step size type to be set
   void setStepSize(State& state, double stepSize,
-                   ConstrainedStep::Type stype = ConstrainedStep::actor, bool release=true) const {
+                   ConstrainedStep::Type stype = ConstrainedStep::actor,
+                   bool release = true) const {
+    const std::string before = outputStepSize(state);
+    
     for (auto& component : state.components) {
       SingleStepper::setStepSize(component.state, stepSize, stype, release);
     }
+
+    std::cout << "MultiStepperLoop::setStepSize(...):\n"
+              << "\tBEFORE" << before << "\n"
+              << "\tAFTER" << outputStepSize(state) << std::endl;
   }
 
   /// Get the step size
@@ -451,9 +463,15 @@ class MultiEigenStepperLoop
   ///
   /// @param state [in,out] The stepping state (thread-local cache)
   void releaseStepSize(State& state) const {
+    const std::string before = outputStepSize(state);
+      
     for (auto& component : state.components) {
       SingleStepper::releaseStepSize(component.state);
     }
+    
+    std::cout << "MultiStepperLoop::releaseStepSize(...):\n"
+              << "\tBEFORE" << before << "\n"
+              << "\tAFTER" << outputStepSize(state) << std::endl;
   }
 
   /// Output the Step Size - single component
@@ -674,6 +692,9 @@ class MultiEigenStepperLoop
         ss << "cmp skipped\t";
         continue;
       }
+
+      std::cout << "stepSize of component before step(...): "
+                << component.state.stepSize.toString() << std::endl;
 
       SinglePropState single_state{state.options, state.navigation,
                                    component.state};

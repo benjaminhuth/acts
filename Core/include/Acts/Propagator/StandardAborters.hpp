@@ -151,7 +151,7 @@ struct SurfaceReached {
         // Update the distance to the alternative solution
         distance = sIntersection.alternative.pathLength;
       }
-      stepper.updateStepSize(state.stepping, sIntersection, false);
+      stepper.updateSurfaceStatus(state.stepping, *sIntersection.representation, true);
       ACTS_VERBOSE("Target: 0 | "
                    << "Target stepSize (surface) updated to "
                    << stepper.outputStepSize(state.stepping));

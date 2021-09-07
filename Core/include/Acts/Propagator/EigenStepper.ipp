@@ -204,6 +204,7 @@ Acts::Result<double> Acts::EigenStepper<E, A>::step(
                  4.);
 
     state.stepping.stepSize = state.stepping.stepSize * stepSizeScaling;
+    std::cout << "current stepSize estimate: " << state.stepping.stepSize << "\n";
 
     // If step size becomes too small the particle remains at the initial
     // place

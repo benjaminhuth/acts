@@ -48,6 +48,16 @@
 
 namespace Acts {
 
+namespace detail {
+template <typename stepper_t, typename old_navigator_t,
+          typename new_navigator_t>
+auto swapNavigator(const Acts::Propagator<stepper_t, old_navigator_t>& old_prop,
+                   const new_navigator_t& new_nav) {
+  return Acts::Propagator<stepper_t, new_navigator_t>(old_prop.stepper(),
+                                                      new_nav);
+}
+}  // namespace detail
+
 template <typename calibrator_t, typename outlier_finder_t>
 struct GsfOptions {
   using Calibrator = calibrator_t;
@@ -937,16 +947,22 @@ struct GaussianSumFitter {
       }
     }();
 
-    PropagatorOptions<Acts::ActionList<FinalizePositionPrinter>, Aborters>
+    PropagatorOptions<
+        Acts::ActionList<FinalizePositionPrinter, DirectNavigator::Initializer>,
+        Acts::AbortList<>>
         lastPropOptions(options.geoContext, options.magFieldContext, logger);
 
+    lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
+        .navSurfaces = {options.referenceSurface};
     lastPropOptions.direction = NavigationDirection::backward;
 
     ACTS_VERBOSE("+-------------------+");
     ACTS_VERBOSE("| Gsf: Do Last Part |");
     ACTS_VERBOSE("+-------------------+");
-    auto lastPropRes = m_propagator.propagate(
-        lastMultiPars, *options.referenceSurface, lastPropOptions);
+
+    auto lastPropRes = detail::swapNavigator(m_propagator, DirectNavigator{})
+                           .propagate(lastMultiPars, *options.referenceSurface,
+                                      lastPropOptions);
 
     if (!lastPropRes.ok()) {
       return lastPropRes.error();
