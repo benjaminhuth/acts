@@ -142,7 +142,7 @@ int main(int argc, char **argv) {
                  "(default: 1.0)\n";
     std::cout << "\t --help             \t"
               << "Print the help message\n";
-    return EXIT_SUCCESS;
+    return EXIT_FAILURE;
   }
 
   const auto globalLogLevel = [&]() {
@@ -249,7 +249,8 @@ int main(int argc, char **argv) {
   std::vector<
       std::shared_ptr<ActsExamples::Telescope::TelescopeDetectorElement>>
       detectorElementStorage;
-  const std::vector<double> distances = {100_mm, 200_mm, 300_mm, 400_mm,
+  // we add a surface at the opposite site, to extend the volume etc
+  const std::vector<double> distances = {-100_mm, 100_mm, 200_mm, 300_mm, 400_mm,
                                          500_mm};
   const std::array<double, 2> offsets = {0.0_mm, 0.0_mm};
   const std::array<double, 2> bounds = {100._mm, 100._mm};

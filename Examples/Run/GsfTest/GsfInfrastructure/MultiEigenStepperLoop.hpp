@@ -37,6 +37,8 @@
 #include "GsfUtils.hpp"
 #include "MultiStepperError.hpp"
 
+#define PRINT_STEPSIZE_CHANGE
+
 namespace Acts {
 
 using namespace Acts::UnitLiterals;
@@ -356,13 +358,29 @@ class MultiEigenStepperLoop
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck,
-      LoggerWrapper = getDummyLogger()) const {
+      LoggerWrapper extLogger = getDummyLogger()) const {
+    return updateSurfaceStatusImpl(state, surface, bcheck, extLogger,
+                                   ConstrainedStep::actor);
+  }
+
+  /// Update surface status as aborter. This is needed for the MultiStepping Aborter
+  Intersection3D::Status updateSurfaceStatusAsAborter(
+      State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
+    return updateSurfaceStatusImpl(state, surface, bcheck, getDummyLogger(),
+                                   ConstrainedStep::aborter);
+  }
+
+  Intersection3D::Status updateSurfaceStatusImpl(
+      State& state, const Surface& surface, const BoundaryCheck& bcheck,
+      LoggerWrapper extLogger, ConstrainedStep::Type stype) const {
     std::array<int, 4> counts = {0, 0, 0, 0};
+#ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
+#endif
 
     for (auto& component : state.components) {
-      component.status = SingleStepper::updateSurfaceStatus(
-          component.state, surface, bcheck, getDummyLogger());
+      component.status = detail::updateSingleSurfaceStatus<SingleStepper>(
+          *this, component.state, surface, bcheck, extLogger, stype);
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
@@ -380,9 +398,11 @@ class MultiEigenStepperLoop
              return ss.str();
            }());
 
+#ifdef PRINT_STEPSIZE_CHANGE
     std::cout << "MultiStepperLoop::updateSurfaceStatus(...):\n"
               << "\tBEFORE" << before << "\n"
               << "\tAFTER" << outputStepSize(state) << std::endl;
+#endif
 
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
@@ -412,19 +432,32 @@ class MultiEigenStepperLoop
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
+#ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
+#endif
 
     for (auto& component : state.components) {
-      const auto intersection = oIntersection.representation->intersect(
+      const auto& surface = *oIntersection.representation;
+      const auto intersection = surface.intersect(
           component.state.geoContext, SingleStepper::position(component.state),
-          state.navDir * SingleStepper::direction(component.state), false);
+          /*state.navDir * */ SingleStepper::direction(component.state), false);
+
+      // TODO why does this give the wrong sign if we multiply with navDir?
+      throw_assert(std::signbit(oIntersection.intersection.pathLength) ==
+                       std::signbit(intersection.intersection.pathLength),
+                   "sign error: averaged pathLength = "
+                       << oIntersection.intersection.pathLength
+                       << ", component pathLength = "
+                       << intersection.intersection.pathLength);
 
       SingleStepper::updateStepSize(component.state, intersection, release);
     }
 
+#ifdef PRINT_STEPSIZE_CHANGE
     std::cout << "MultiStepperLoop::updateStepSize(...):\n"
               << "\tBEFORE" << before << "\n"
               << "\tAFTER" << outputStepSize(state) << std::endl;
+#endif
   }
 
   /// Set Step size - explicitely with a double
@@ -435,15 +468,19 @@ class MultiEigenStepperLoop
   void setStepSize(State& state, double stepSize,
                    ConstrainedStep::Type stype = ConstrainedStep::actor,
                    bool release = true) const {
+#ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
-    
+#endif
+
     for (auto& component : state.components) {
       SingleStepper::setStepSize(component.state, stepSize, stype, release);
     }
 
+#ifdef PRINT_STEPSIZE_CHANGE
     std::cout << "MultiStepperLoop::setStepSize(...):\n"
               << "\tBEFORE" << before << "\n"
               << "\tAFTER" << outputStepSize(state) << std::endl;
+#endif
   }
 
   /// Get the step size
@@ -463,15 +500,19 @@ class MultiEigenStepperLoop
   ///
   /// @param state [in,out] The stepping state (thread-local cache)
   void releaseStepSize(State& state) const {
+#ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
-      
+#endif
+
     for (auto& component : state.components) {
       SingleStepper::releaseStepSize(component.state);
     }
-    
+
+#ifdef PRINT_STEPSIZE_CHANGE
     std::cout << "MultiStepperLoop::releaseStepSize(...):\n"
               << "\tBEFORE" << before << "\n"
               << "\tAFTER" << outputStepSize(state) << std::endl;
+#endif
   }
 
   /// Output the Step Size - single component
@@ -692,9 +733,6 @@ class MultiEigenStepperLoop
         ss << "cmp skipped\t";
         continue;
       }
-
-      std::cout << "stepSize of component before step(...): "
-                << component.state.stepSize.toString() << std::endl;
 
       SinglePropState single_state{state.options, state.navigation,
                                    component.state};

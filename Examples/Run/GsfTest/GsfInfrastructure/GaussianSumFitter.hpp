@@ -29,6 +29,7 @@
 #include "GsfError.hpp"
 #include "GsfUtils.hpp"
 #include "KLMixtureReduction.hpp"
+#include "MultiStepperAborters.hpp"
 #include "MultiSteppingLogger.hpp"
 
 #define RETURN_ERROR_OR_ABORT(error) \
@@ -492,249 +493,49 @@ struct GaussianSumFitter {
       const start_parameters_t& sParameters,
       const GsfOptions<calibrator_t, outlier_finder_t>& options,
       const std::vector<const Surface*>& sSequence) const {
-    static_assert(SourceLinkConcept<source_link_t>,
-                  "Source link does not fulfill SourceLinkConcept");
+    // Check if we have the correct navigator
     static_assert(
         std::is_same_v<DirectNavigator, typename propagator_t::Navigator>);
 
-    // The logger
-    const auto& logger = options.logger;
-
-    // To be able to find measurements later, we put them into a map
-    // We need to copy input SourceLinks anyways, so the map can own them.
-    ACTS_VERBOSE("Preparing " << sourcelinks.size() << " input measurements");
-    std::map<GeometryIdentifier, source_link_t> inputMeasurements;
-    for (const auto& sl : sourcelinks) {
-      inputMeasurements.emplace(sl.geometryId(), sl);
-    }
-
-    ACTS_VERBOSE("Run Gsf with start parameters: \n" << sParameters);
-    ACTS_VERBOSE("Gsf: Number of surfaces in sSequence: " << sSequence.size());
-    ACTS_VERBOSE(
-        "Gsf: Final measuerement map size: " << inputMeasurements.size());
-    throw_assert(sParameters.covariance() != std::nullopt,
-                 "we need a covariance here...");
-
-    ////////////////////
-    // Common Settings
-    ////////////////////
-
-    // Create the ActionList and AbortList
     using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
                            calibrator_t, GainMatrixSmoother>;
 
-    using Actors = ActionList<DirectNavigator::Initializer, GSFActor>;
-    using Aborters = AbortList<>;
+    // Initialize the forward propagation with the DirectNavigator
+    auto fwdPropInitializer = [&sSequence](const auto& options,
+                                           const auto& logger) {
+      using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
+      using Aborters = AbortList<>;
 
-    // Create relevant options for the propagation options
-    PropagatorOptions<Actors, Aborters> propOptions(
-        options.geoContext, options.magFieldContext, logger);
+      PropagatorOptions<Actors, Aborters> propOptions(
+          options.geoContext, options.magFieldContext, logger);
 
-    // Catch the actor and set the measurements
-    auto& actor = propOptions.actionList.template get<GSFActor>();
-    actor.m_config.inputMeasurements = inputMeasurements;
-    actor.m_config.maxComponents = options.maxComponents;
-    actor.m_calibrator = options.calibrator;
-    actor.m_outlierFinder = options.outlierFinder;
-    actor.m_config.abortOnError = options.throwOnError;
-
-    // TODO This seems so solve some issues in the navigation
-    //     propOptions.tolerance = 1e-5;
-
-    /////////////////
-    // Forward pass
-    /////////////////
-    ACTS_VERBOSE("+-----------------------------+");
-    ACTS_VERBOSE("| Gsf: Do forward propagation |");
-    ACTS_VERBOSE("+-----------------------------+");
-    auto fwdResult = [&]() -> Result<GsfResult<source_link_t>> {
-      MultiComponentBoundTrackParameters<SinglyCharged> params(
-          sParameters.referenceSurface().getSharedPtr(),
-          sParameters.parameters(), sParameters.covariance());
-
-      propOptions.direction = Acts::forward;
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = sSequence;
+      return propOptions;
+    };
 
-      auto propResult = m_propagator.propagate(params, propOptions);
+    // Initialize the backward propagation with the DirectNavigator
+    auto bwdPropInitializer = [&sSequence](const auto& options,
+                                           const auto& logger) {
+      using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
+      using Aborters = AbortList<>;
 
-      if (!propResult.ok()) {
-        return propResult.error();
-      }
+      PropagatorOptions<Actors, Aborters> propOptions(
+          options.geoContext, options.magFieldContext, logger);
 
-      GsfResult gsfResult =
-          (*propResult).template get<GsfResult<source_link_t>>();
-
-      if (!gsfResult.result.ok()) {
-        return gsfResult.result.error();
-      }
-
-      if (gsfResult.processedStates == 0) {
-        return GsfError::NoStatesCreated;
-      }
-
-      return gsfResult;
-    }();
-
-    if (!fwdResult.ok()) {
-      return fwdResult.error();
-    }
-
-    const auto& fwdGsfResult = *fwdResult;
-
-    //////////////////
-    // Backward pass
-    //////////////////
-
-    ACTS_VERBOSE("+------------------------------+");
-    ACTS_VERBOSE("| Gsf: Do backward propagation |");
-    ACTS_VERBOSE("+------------------------------+");
-    auto bwdResult = [&]() -> Result<GsfResult<source_link_t>> {
-      const auto params = detail::extractMultiComponentState(
-          fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-          fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
-
-      propOptions.direction = Acts::backward;
-
-      // TODO here we start with the second last surface, so we don't get
-      // navigation problems. this should get fixed
       std::vector<const Surface*> backwardSequence(
           std::next(sSequence.rbegin()), sSequence.rend());
+      backwardSequence.push_back(options.referenceSurface);
+
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = std::move(backwardSequence);
 
-      // Workaround to get the first state into the MultiTrajectory
-      actor.m_config.multiTrajectoryInitializer = [&](auto& result,
-                                                      const auto& logger) {
-        result.currentTips.clear();
+      return propOptions;
+    };
 
-        ACTS_VERBOSE(
-            "Initialize the MultiTrajectory with information provided to the "
-            "Actor");
-
-        for (const auto idx : fwdGsfResult.currentTips) {
-          result.currentTips.push_back(
-              result.fittedStates.addTrackState(TrackStatePropMask::All));
-          auto proxy =
-              result.fittedStates.getTrackState(result.currentTips.back());
-          proxy.copyFrom(fwdGsfResult.fittedStates.getTrackState(idx));
-          result.weightsOfStates[result.currentTips.back()] =
-              fwdGsfResult.weightsOfStates.at(idx);
-
-          // Because we are backwards, we use forward filtered as predicted
-          proxy.predicted() = proxy.filtered();
-          proxy.predictedCovariance() = proxy.filteredCovariance();
-        }
-      };
-
-      auto propResult = m_propagator.propagate(params, propOptions);
-
-      if (!propResult.ok()) {
-        return propResult.error();
-      }
-
-      GsfResult gsfResult =
-          (*propResult).template get<GsfResult<source_link_t>>();
-
-      if (!gsfResult.result.ok()) {
-        return gsfResult.result.error();
-      }
-
-      if (gsfResult.processedStates == 0) {
-        return GsfError::NoStatesCreated;
-      }
-
-      return gsfResult;
-    }();
-
-    if (!bwdResult.ok()) {
-      return bwdResult.error();
-    }
-
-    const auto& bwdGsfResult = *bwdResult;
-
-    //////////////////////////////
-    // Last part towards perigee
-    //////////////////////////////
-    ACTS_VERBOSE("+-------------------+");
-    ACTS_VERBOSE("| Gsf: Do Last Part |");
-    ACTS_VERBOSE("+-------------------+");
-
-    const auto lastMultiPars = [&]() {
-      if (options.multiComponentPropagationToPerigee) {
-        return detail::multiTrajectoryToMultiComponentParameters(
-            bwdGsfResult.currentTips, bwdGsfResult.fittedStates,
-            bwdGsfResult.weightsOfStates, detail::StatesType::ePredicted);
-      } else {
-        using Projector =
-            detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
-                                             source_link_t>;
-        const auto [lastPars, lastCov] = detail::combineComponentRange(
-            bwdGsfResult.currentTips.begin(), bwdGsfResult.currentTips.end(),
-            Projector{bwdGsfResult.fittedStates, bwdGsfResult.weightsOfStates});
-
-        const auto& surface =
-            bwdGsfResult.fittedStates
-                .getTrackState(bwdGsfResult.currentTips.front())
-                .referenceSurface();
-
-        return MultiComponentBoundTrackParameters<SinglyCharged>(
-            surface.getSharedPtr(), lastPars, lastCov);
-      }
-    }();
-
-    PropagatorOptions<
-        Acts::ActionList<DirectNavigator::Initializer, FinalizePositionPrinter>,
-        Aborters>
-        lastPropOptions(options.geoContext, options.magFieldContext, logger);
-
-    lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
-        .navSurfaces = {options.referenceSurface};
-    lastPropOptions.direction = NavigationDirection::backward;
-
-    auto lastPropRes = m_propagator.propagate(
-        lastMultiPars, *options.referenceSurface, lastPropOptions);
-
-    if (!lastPropRes.ok()) {
-      return lastPropRes.error();
-    }
-
-    ////////////////////////////////////
-    // Smooth and create Kalman Result
-    ////////////////////////////////////
-
-    ACTS_VERBOSE("Gsf: Do smoothing");
-
-    const auto [combinedTraj, lastTip] = detail::smoothAndCombineTrajectories(
-        fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-        fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates);
-
-    Acts::KalmanFitterResult<source_link_t> kalmanResult;
-    kalmanResult.lastTrackIndex = lastTip;
-    kalmanResult.fittedStates = std::move(combinedTraj);
-    kalmanResult.smoothed = true;
-    kalmanResult.reversed = true;
-    kalmanResult.finished = true;
-    kalmanResult.lastMeasurementIndex = lastTip;
-    kalmanResult.fittedParameters = *((*lastPropRes).endParameters);
-
-    return kalmanResult;
+    return fit_impl(sourcelinks, sParameters, options, fwdPropInitializer,
+                    bwdPropInitializer);
   }
-
-  /// Workaround to let navigation abort on surface
-  struct SurfaceAborter {
-    const Surface* target;
-    template <typename propagator_state_t, typename stepper_t>
-    bool operator()(propagator_state_t& state, const stepper_t&) const {
-      const auto& logger = state.options.logger;
-      if (state.navigation.currentSurface == target) {
-        ACTS_VERBOSE("Surface aborter does its job");
-        return true;
-      }
-      return false;
-    }
-  };
 
   /// @brief The fit function for the standard navigator
   template <typename source_link_t, typename start_parameters_t,
@@ -743,9 +544,51 @@ struct GaussianSumFitter {
       const std::vector<source_link_t>& sourcelinks,
       const start_parameters_t& sParameters,
       const GsfOptions<calibrator_t, outlier_finder_t>& options) const {
+    // Check if we have the correct navigator
+    static_assert(std::is_same_v<Navigator, typename propagator_t::Navigator>);
+
+    // Create the ActionList and AbortList
+    using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
+                           calibrator_t, GainMatrixSmoother>;
+
+    // Initialize the forward propagation with the DirectNavigator
+    auto fwdPropInitializer = [](const auto& options, const auto& logger) {
+      using Actors = ActionList<GSFActor>;
+      using Aborters = AbortList<EndOfWorldReached>;
+
+      PropagatorOptions<Actors, Aborters> propOptions(
+          options.geoContext, options.magFieldContext, logger);
+      
+      return propOptions;
+    };
+
+    // Initialize the backward propagation with the DirectNavigator
+    auto bwdPropInitializer = [](const auto& options, const auto& logger) {
+      using Actors = ActionList<GSFActor>;
+      using Aborters = AbortList<EndOfWorldReached>;
+
+      PropagatorOptions<Actors, Aborters> propOptions(
+          options.geoContext, options.magFieldContext, logger);
+      propOptions.maxSteps = 50;
+      
+      return propOptions;
+    };
+
+    return fit_impl(sourcelinks, sParameters, options, fwdPropInitializer,
+                    bwdPropInitializer);
+  }
+
+  template <typename source_link_t, typename start_parameters_t,
+            typename calibrator_t, typename outlier_finder_t,
+            typename fwd_prop_initializer_t, typename bwd_prop_initializer_t>
+  Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit_impl(
+      const std::vector<source_link_t>& sourcelinks,
+      const start_parameters_t& sParameters,
+      const GsfOptions<calibrator_t, outlier_finder_t>& options,
+      const fwd_prop_initializer_t& fwdPropInitializer,
+      const bwd_prop_initializer_t& bwdPropInitializer) const {
     static_assert(SourceLinkConcept<source_link_t>,
                   "Source link does not fulfill SourceLinkConcept");
-    static_assert(std::is_same_v<Navigator, typename propagator_t::Navigator>);
 
     // The logger
     const auto& logger = options.logger;
@@ -764,31 +607,8 @@ struct GaussianSumFitter {
     throw_assert(sParameters.covariance() != std::nullopt,
                  "we need a covariance here...");
 
-    ////////////////////
-    // Common Settings
-    ////////////////////
-
-    // Create the ActionList and AbortList
     using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
                            calibrator_t, GainMatrixSmoother>;
-
-    using Actors = ActionList<GSFActor>;
-    using Aborters = AbortList<EndOfWorldReached>;
-
-    // Create relevant options for the propagation options
-    PropagatorOptions<Actors, Aborters> propOptions(
-        options.geoContext, options.magFieldContext, logger);
-
-    // Catch the actor and set the measurements
-    auto& actor = propOptions.actionList.template get<GSFActor>();
-    actor.m_config.inputMeasurements = inputMeasurements;
-    actor.m_config.maxComponents = options.maxComponents;
-    actor.m_calibrator = options.calibrator;
-    actor.m_outlierFinder = options.outlierFinder;
-    actor.m_config.abortOnError = options.throwOnError;
-
-    // TODO This seems so solve some issues in the navigation
-    //     propOptions.tolerance = 1e-5;
 
     /////////////////
     // Forward pass
@@ -796,14 +616,25 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("+-----------------------------+");
     ACTS_VERBOSE("| Gsf: Do forward propagation |");
     ACTS_VERBOSE("+-----------------------------+");
+
     auto fwdResult = [&]() -> Result<GsfResult<source_link_t>> {
       MultiComponentBoundTrackParameters<SinglyCharged> params(
           sParameters.referenceSurface().getSharedPtr(),
           sParameters.parameters(), sParameters.covariance());
 
-      propOptions.direction = Acts::forward;
+      auto fwdPropOptions = fwdPropInitializer(options, logger);
 
-      auto propResult = m_propagator.propagate(params, propOptions);
+      // Catch the actor and set the measurements
+      auto& actor = fwdPropOptions.actionList.template get<GSFActor>();
+      actor.m_config.inputMeasurements = inputMeasurements;
+      actor.m_config.maxComponents = options.maxComponents;
+      actor.m_calibrator = options.calibrator;
+      actor.m_outlierFinder = options.outlierFinder;
+      actor.m_config.abortOnError = options.throwOnError;
+
+      fwdPropOptions.direction = Acts::forward;
+
+      auto propResult = m_propagator.propagate(params, fwdPropOptions);
 
       if (!propResult.ok()) {
         return propResult.error();
@@ -832,29 +663,18 @@ struct GaussianSumFitter {
     //////////////////
     // Backward pass
     //////////////////
-
     ACTS_VERBOSE("+------------------------------+");
     ACTS_VERBOSE("| Gsf: Do backward propagation |");
     ACTS_VERBOSE("+------------------------------+");
-    auto bwdResult = [&]() -> Result<GsfResult<source_link_t>> {
+
+    auto bwdResult =
+        [&]() -> Result<std::tuple<GsfResult<source_link_t>,
+                                   std::unique_ptr<BoundTrackParameters>>> {
       const auto params = detail::extractMultiComponentState(
           fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
           fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
 
-      const Surface* backwardTarget = nullptr;
-      fwdGsfResult.fittedStates.visitBackwards(
-          fwdGsfResult.currentTips.front(), [&](const auto& state) {
-            backwardTarget = &state.referenceSurface();
-          });
-
-      using BwdActors = ActionList<GSFActor>;
-      using BwdAborters = AbortList<SurfaceAborter>;
-
-      PropagatorOptions<BwdActors, BwdAborters> bwdPropOptions(
-          options.geoContext, options.magFieldContext, logger);
-
-      bwdPropOptions.abortList.template get<SurfaceAborter>().target =
-          backwardTarget;
+      auto bwdPropOptions = bwdPropInitializer(options, logger);
 
       auto& actor = bwdPropOptions.actionList.template get<GSFActor>();
       actor.m_config.inputMeasurements = inputMeasurements;
@@ -891,10 +711,11 @@ struct GaussianSumFitter {
 
       bwdPropOptions.direction = Acts::backward;
 
-      //       ACTS_VERBOSE("Backward propagation with target surface "
-      //                    << backwardTarget->geometryId());
       auto propResult =
-          m_propagator.propagate(params, /**backwardTarget,*/ bwdPropOptions);
+          m_propagator
+              .template propagate<decltype(params), decltype(bwdPropOptions),
+                                  MultiStepperSurfaceReached>(
+                  params, *options.referenceSurface, bwdPropOptions);
 
       if (!propResult.ok()) {
         return propResult.error();
@@ -911,67 +732,24 @@ struct GaussianSumFitter {
         return GsfError::NoStatesCreated;
       }
 
-      return gsfResult;
+      return std::make_tuple(std::move(gsfResult),
+                             std::move((*propResult).endParameters));
     }();
 
     if (!bwdResult.ok()) {
       return bwdResult.error();
     }
 
-    const auto& bwdGsfResult = *bwdResult;
+    const auto& [bwdGsfResult, finalParameters] = *bwdResult;
 
-    //////////////////////////////
-    // Last part towards perigee
-    //////////////////////////////
-
-    const auto lastMultiPars = [&]() {
-      if (options.multiComponentPropagationToPerigee) {
-        return detail::multiTrajectoryToMultiComponentParameters(
-            bwdGsfResult.currentTips, bwdGsfResult.fittedStates,
-            bwdGsfResult.weightsOfStates, detail::StatesType::ePredicted);
-      } else {
-        using Projector =
-            detail::MultiTrajectoryProjector<detail::StatesType::ePredicted,
-                                             source_link_t>;
-        const auto [lastPars, lastCov] = detail::combineComponentRange(
-            bwdGsfResult.currentTips.begin(), bwdGsfResult.currentTips.end(),
-            Projector{bwdGsfResult.fittedStates, bwdGsfResult.weightsOfStates});
-
-        const auto& surface =
-            bwdGsfResult.fittedStates
-                .getTrackState(bwdGsfResult.currentTips.front())
-                .referenceSurface();
-
-        return MultiComponentBoundTrackParameters<SinglyCharged>(
-            surface.getSharedPtr(), lastPars, lastCov);
-      }
-    }();
-
-    PropagatorOptions<
-        Acts::ActionList<FinalizePositionPrinter, DirectNavigator::Initializer>,
-        Acts::AbortList<>>
-        lastPropOptions(options.geoContext, options.magFieldContext, logger);
-
-    lastPropOptions.actionList.template get<DirectNavigator::Initializer>()
-        .navSurfaces = {options.referenceSurface};
-    lastPropOptions.direction = NavigationDirection::backward;
-
-    ACTS_VERBOSE("+-------------------+");
-    ACTS_VERBOSE("| Gsf: Do Last Part |");
-    ACTS_VERBOSE("+-------------------+");
-
-    auto lastPropRes = detail::swapNavigator(m_propagator, DirectNavigator{})
-                           .propagate(lastMultiPars, *options.referenceSurface,
-                                      lastPropOptions);
-
-    if (!lastPropRes.ok()) {
-      return lastPropRes.error();
+    if (finalParameters->referenceSurface().geometryId() !=
+        options.referenceSurface->geometryId()) {
+      return KalmanFitterError::ReverseNavigationFailed;
     }
 
     ////////////////////////////////////
     // Smooth and create Kalman Result
     ////////////////////////////////////
-
     ACTS_VERBOSE("Gsf: Do smoothing");
 
     const auto [combinedTraj, lastTip] = detail::smoothAndCombineTrajectories(
@@ -986,7 +764,7 @@ struct GaussianSumFitter {
     kalmanResult.reversed = true;
     kalmanResult.finished = true;
     kalmanResult.lastMeasurementIndex = lastTip;
-    kalmanResult.fittedParameters = *((*lastPropRes).endParameters);
+    kalmanResult.fittedParameters = *finalParameters;
 
     return kalmanResult;
   }
