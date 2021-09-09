@@ -75,7 +75,7 @@ struct GsfOptions {
 
   std::size_t maxComponents = 4;
 
-  bool multiComponentPropagationToPerigee = true;
+  std::size_t maxSteps = 100;
 };
 
 template <typename source_link_t>
@@ -555,6 +555,7 @@ struct GaussianSumFitter {
 
       PropagatorOptions<Actors, Aborters> propOptions(
           options.geoContext, options.magFieldContext, logger);
+      propOptions.maxSteps = options.maxSteps;
 
       return propOptions;
     };
@@ -566,7 +567,7 @@ struct GaussianSumFitter {
 
       PropagatorOptions<Actors, Aborters> propOptions(
           options.geoContext, options.magFieldContext, logger);
-      propOptions.maxSteps = 50;
+      propOptions.maxSteps = options.maxSteps;
 
       return propOptions;
     };

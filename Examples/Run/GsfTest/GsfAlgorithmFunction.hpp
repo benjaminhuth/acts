@@ -12,7 +12,8 @@
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
-std::shared_ptr<ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
+std::shared_ptr<
+    ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
 makeGsfDirectFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
@@ -29,3 +30,6 @@ bool getGsfAbortOnError();
 
 void setGsfMaxComponents(std::size_t);
 std::size_t getGsfMaxComponents();
+
+void setGsfMaxSteps(std::size_t);
+std::size_t getGsfMaxSteps();

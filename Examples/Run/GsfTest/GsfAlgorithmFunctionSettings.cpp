@@ -11,6 +11,7 @@
 namespace {
 bool gsfAbortOnError = false;
 std::size_t maxComponents = 4;
+std::size_t maxSteps = 100;
 }  // namespace
 
 void setGsfAbortOnError(bool aoe) {
@@ -27,4 +28,12 @@ void setGsfMaxComponents(std::size_t c) {
 
 std::size_t getGsfMaxComponents() {
   return maxComponents;
+}
+
+void setGsfMaxSteps(std::size_t s) {
+  maxSteps = s;
+}
+
+std::size_t getGsfMaxSteps() {
+  return maxSteps;
 }

@@ -6,8 +6,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include "GsfAlgorithmFunction.hpp"
-
 #include "Acts/Propagator/Navigator.hpp"
 #include "Acts/Propagator/Propagator.hpp"
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
@@ -15,9 +13,9 @@
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
 
+#include "GsfAlgorithmFunction.hpp"
 #include "GsfInfrastructure/GaussianSumFitter.hpp"
 #include "GsfInfrastructure/MultiEigenStepperLoop.hpp"
-
 
 // Kalman Components
 using Updater = Acts::GainMatrixUpdater;
@@ -58,14 +56,16 @@ struct GsfDirectFitterFunction
         kalmanOptions.referenceSurface,
         kalmanOptions.logger,
         getGsfAbortOnError(),
-        getGsfMaxComponents()};
+        getGsfMaxComponents(),
+        getGsfMaxSteps()};
 
     return trackFitter.fit(sourceLinks, initialParameters, gsfOptions,
                            sSequence);
   };
 };
 
-std::shared_ptr<ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
+std::shared_ptr<
+    ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
 makeGsfDirectFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> /*trackingGeometry*/,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,

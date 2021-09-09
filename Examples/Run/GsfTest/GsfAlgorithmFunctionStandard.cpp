@@ -6,8 +6,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include "GsfAlgorithmFunction.hpp"
-
 #include "Acts/Propagator/Navigator.hpp"
 #include "Acts/Propagator/Propagator.hpp"
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
@@ -15,6 +13,7 @@
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
 
+#include "GsfAlgorithmFunction.hpp"
 #include "GsfInfrastructure/GaussianSumFitter.hpp"
 #include "GsfInfrastructure/MultiEigenStepperLoop.hpp"
 
@@ -56,7 +55,8 @@ struct GsfStandardFitterFunction
         kalmanOptions.referenceSurface,
         kalmanOptions.logger,
         getGsfAbortOnError(),
-        getGsfMaxComponents()};
+        getGsfMaxComponents(),
+        getGsfMaxSteps()};
 
     return trackFitter.fit(sourceLinks, initialParameters, gsfOptions);
   };
@@ -82,4 +82,3 @@ makeGsfStandardFitterFunction(
   // build the fitter functions. owns the fitter object.
   return std::make_shared<GsfStandardFitterFunction>(std::move(trackFitter));
 }
-
