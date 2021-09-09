@@ -49,16 +49,6 @@
 
 namespace Acts {
 
-namespace detail {
-template <typename stepper_t, typename old_navigator_t,
-          typename new_navigator_t>
-auto swapNavigator(const Acts::Propagator<stepper_t, old_navigator_t>& old_prop,
-                   const new_navigator_t& new_nav) {
-  return Acts::Propagator<stepper_t, new_navigator_t>(old_prop.stepper(),
-                                                      new_nav);
-}
-}  // namespace detail
-
 template <typename calibrator_t, typename outlier_finder_t>
 struct GsfOptions {
   using Calibrator = calibrator_t;
@@ -714,7 +704,7 @@ struct GaussianSumFitter {
       auto propResult =
           m_propagator
               .template propagate<decltype(params), decltype(bwdPropOptions),
-                                  MultiStepperSurfaceReached>(
+                                  MultiStepperSurfaceReached2>(
                   params, *options.referenceSurface, bwdPropOptions);
 
       if (!propResult.ok()) {

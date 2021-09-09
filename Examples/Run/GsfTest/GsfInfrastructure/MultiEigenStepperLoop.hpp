@@ -37,7 +37,7 @@
 #include "GsfUtils.hpp"
 #include "MultiStepperError.hpp"
 
-#define PRINT_STEPSIZE_CHANGE
+// #define PRINT_STEPSIZE_CHANGE
 
 namespace Acts {
 
@@ -377,6 +377,7 @@ class MultiEigenStepperLoop
 #ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
 #endif
+    ACTS_VERBOSE("Call 'updateSurfaceStatus' as " << (stype == ConstrainedStep::Type::actor ? "actor" : "aborter"));
 
     for (auto& component : state.components) {
       component.status = detail::updateSingleSurfaceStatus<SingleStepper>(

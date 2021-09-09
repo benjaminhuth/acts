@@ -393,9 +393,6 @@ class Propagator final {
       BoundTrackParameters, typename propagator_options_t::action_list_type>>
   propagate(const parameters_t& start, const Surface& target,
             const propagator_options_t& options) const;
-            
-  const auto &stepper() const { return m_stepper; }
-  const auto &navigator() const {return m_navigator; }
 
  private:
   /// Implementation of propagation algorithm
