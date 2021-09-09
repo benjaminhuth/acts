@@ -15,7 +15,7 @@
 namespace Acts {
 namespace detail {
 
-ActsScalar logistic_sigmoid(ActsScalar x) {
+inline ActsScalar logistic_sigmoid(ActsScalar x) {
   return 1. / (1 + std::exp(-x));
 }
 

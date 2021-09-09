@@ -1,31 +1,65 @@
-#add_executable(MultiStepperTest TestMultiStepper.cpp)
-add_executable(GsfTelescopeTest TestGsfTelescope.cpp GsfAlgorithmFunction.cpp)
-#add_executable(TargetSurfaceTest TestTargetSurface.cpp)
-add_executable(GsfDD4hepTest TestGsfDD4hep.cpp GsfAlgorithmFunction.cpp)
+################################################
+# Library providing the GSF algorithm function #
+################################################
+add_library(GsfAlgorithmFunctionLib SHARED
+  GsfAlgorithmFunctionStandard.cpp
+  GsfAlgorithmFunctionDirect.cpp
+  GsfAlgorithmFunctionSettings.cpp
+  GsfInfrastructure/MultiStepperError.cpp
+  GsfInfrastructure/GsfError.cpp)
 
-set(EXAMPLES_LIBS
-    ActsExamplesFramework 
+target_include_directories(
+  GsfAlgorithmFunctionLib
+  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+
+target_link_libraries(
+  GsfAlgorithmFunctionLib
+  PUBLIC
+  ActsCore
+  ActsExamplesTrackFitting)
+
+
+#######################
+# Example executables #
+#######################
+
+set(COMMON_LIBS
+    ActsCore
+    ActsExamplesFramework
     ActsExamplesGenerators
-    ActsExamplesCommon 
-    ActsExamplesDigitizationCommon 
-    ActsExamplesFatras 
-    ActsExamplesDetectorTelescope 
+    ActsExamplesCommon
+    ActsExamplesDigitizationCommon
+    ActsExamplesFatras
+    ActsExamplesDetectorTelescope
     ActsExamplesTrackFitting
-    ActsExamplesIoPerformance 
-    ActsExamplesIoRoot 
+    ActsExamplesIoPerformance
+    ActsExamplesIoRoot
     ActsExamplesTrackFinding
     ActsExamplesIoObj
+    dfelibs
+    GsfAlgorithmFunctionLib
 )
 
+# Telescope
+add_executable(GsfTelescopeTest TestGsfTelescope.cpp)
+target_link_libraries(GsfTelescopeTest ${COMMON_LIBS})
+
+# DD4hep
+add_executable(GsfDD4hepTest TestGsfDD4hep.cpp)
+target_link_libraries(GsfDD4hepTest ${COMMON_LIBS} ActsPluginDD4hep ActsExamplesRecTracksCommon ActsExamplesDetectorDD4hep  Boost::program_options)
+
+#add_executable(MultiStepperTest TestMultiStepper.cpp)
 #target_link_libraries(MultiStepperTest ActsCore)
-target_link_libraries(GsfTelescopeTest ActsCore ${EXAMPLES_LIBS} dfelibs)
-target_link_libraries(GsfDD4hepTest ActsCore ActsPluginDD4hep ActsExamplesRecTracksCommon ${EXAMPLES_LIBS} ActsExamplesDetectorDD4hep dfelibs Boost::program_options)
-#target_link_libraries(TargetSurfaceTest ActsCore ActsExamplesFramework ActsExamplesGenerators ActsExamplesCommon ActsExamplesDigitizationCommon ActsExamplesFatras ActsExamplesDetectorTelescope ActsExamplesTrackFitting)
+
+#add_executable(TargetSurfaceTest TestTargetSurface.cpp)
+#target_link_libraries(TargetSurfaceTest ${COMMON_LIBS})
 
 add_executable(GeoIdDecoder DecodeGeoId.cpp)
 target_link_libraries(GeoIdDecoder ActsCore)
 
+#########
+# Tests #
+#########
 
-# Tests
 add_executable(TestComponentMerging TestComponentMerging.cpp)
 target_link_libraries(TestComponentMerging ActsCore Boost::unit_test_framework)

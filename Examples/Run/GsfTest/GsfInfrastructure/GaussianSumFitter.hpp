@@ -32,19 +32,26 @@
 #include "MultiStepperAborters.hpp"
 #include "MultiSteppingLogger.hpp"
 
-#define RETURN_ERROR_OR_ABORT(error) \
-  if (m_config.abortOnError) {       \
-    std::abort();                    \
-  } else {                           \
-    return error;                    \
+#define RETURN_ERROR_OR_ABORT_ACTOR(error) \
+  if (m_config.abortOnError) {             \
+    std::abort();                          \
+  } else {                                 \
+    return error;                          \
   }
 
-#define RETURN_OR_ABORT(error) \
-  if (m_config.abortOnError) { \
-    std::abort();              \
-  } else {                     \
-    result.result = error;     \
-    return;                    \
+#define SET_ERROR_AND_RETURN_OR_ABORT_ACTOR(error) \
+  if (m_config.abortOnError) {                     \
+    std::abort();                                  \
+  } else {                                         \
+    result.result = error;                         \
+    return;                                        \
+  }
+
+#define RETURN_ERROR_OR_ABORT_FIT(error) \
+  if (options.abortOnError) {            \
+    std::abort();                        \
+  } else {                               \
+    return error;                        \
   }
 
 namespace Acts {
@@ -64,7 +71,7 @@ struct GsfOptions {
 
   LoggerWrapper logger;
 
-  bool throwOnError = true;
+  bool abortOnError = true;
 
   std::size_t maxComponents = 4;
 
@@ -228,7 +235,7 @@ struct GaussianSumFitter {
                    << result.parentTips.size() << " vs "
                    << stepper.numberComponents(state.stepping));
 
-        RETURN_OR_ABORT(GsfError::ComponentNumberMismatch);
+        SET_ERROR_AND_RETURN_OR_ABORT_ACTOR(GsfError::ComponentNumberMismatch);
       }
 
       // We only need to do something if we are on a surface
@@ -302,8 +309,8 @@ struct GaussianSumFitter {
               ParametersCacheProjector{});
 
           ACTS_VERBOSE("kalman update...");
-          kalmanUpdate(state, found_source_link->second, result,
-                       componentCache);
+          result.result = kalmanUpdate(state, found_source_link->second, result,
+                                       componentCache);
           result.parentTips = result.currentTips;
 
           ACTS_VERBOSE("reweight components...");
@@ -348,8 +355,8 @@ struct GaussianSumFitter {
                                     detail::ComponentForwarder{},
                                     m_config.doCovTransport, componentCache);
 
-          kalmanUpdate(state, found_source_link->second, result,
-                       componentCache);
+          result.result = kalmanUpdate(state, found_source_link->second, result,
+                                       componentCache);
           result.parentTips = result.currentTips;
 
           detail::reweightComponents(componentCache, mapToProxyAndWeight);
@@ -417,7 +424,7 @@ struct GaussianSumFitter {
 
           if (!updateRes.ok()) {
             ACTS_ERROR("Update step failed: " << updateRes.error());
-            RETURN_ERROR_OR_ABORT(updateRes.error());
+            RETURN_ERROR_OR_ABORT_ACTOR(updateRes.error());
           }
 
           trackProxy.typeFlags().set(TrackStateFlag::MeasurementFlag);
@@ -548,7 +555,7 @@ struct GaussianSumFitter {
 
       PropagatorOptions<Actors, Aborters> propOptions(
           options.geoContext, options.magFieldContext, logger);
-      
+
       return propOptions;
     };
 
@@ -560,7 +567,7 @@ struct GaussianSumFitter {
       PropagatorOptions<Actors, Aborters> propOptions(
           options.geoContext, options.magFieldContext, logger);
       propOptions.maxSteps = 50;
-      
+
       return propOptions;
     };
 
@@ -620,7 +627,7 @@ struct GaussianSumFitter {
       actor.m_config.maxComponents = options.maxComponents;
       actor.m_calibrator = options.calibrator;
       actor.m_outlierFinder = options.outlierFinder;
-      actor.m_config.abortOnError = options.throwOnError;
+      actor.m_config.abortOnError = options.abortOnError;
 
       fwdPropOptions.direction = Acts::forward;
 
@@ -645,7 +652,7 @@ struct GaussianSumFitter {
     }();
 
     if (!fwdResult.ok()) {
-      return fwdResult.error();
+      RETURN_ERROR_OR_ABORT_FIT(fwdResult.error());
     }
 
     const auto& fwdGsfResult = *fwdResult;
@@ -671,7 +678,7 @@ struct GaussianSumFitter {
       actor.m_config.maxComponents = options.maxComponents;
       actor.m_calibrator = options.calibrator;
       actor.m_outlierFinder = options.outlierFinder;
-      actor.m_config.abortOnError = options.throwOnError;
+      actor.m_config.abortOnError = options.abortOnError;
 
       // Workaround to get the first state into the MultiTrajectory seems also
       // to be necessary for standard navigator to prevent double kalman update
@@ -704,7 +711,7 @@ struct GaussianSumFitter {
       auto propResult =
           m_propagator
               .template propagate<decltype(params), decltype(bwdPropOptions),
-                                  MultiStepperSurfaceReached2>(
+                                  MultiStepperSurfaceReached>(
                   params, *options.referenceSurface, bwdPropOptions);
 
       if (!propResult.ok()) {
@@ -727,14 +734,14 @@ struct GaussianSumFitter {
     }();
 
     if (!bwdResult.ok()) {
-      return bwdResult.error();
+      RETURN_ERROR_OR_ABORT_FIT(bwdResult.error());
     }
 
     const auto& [bwdGsfResult, finalParameters] = *bwdResult;
 
     if (finalParameters->referenceSurface().geometryId() !=
         options.referenceSurface->geometryId()) {
-      return KalmanFitterError::ReverseNavigationFailed;
+      RETURN_ERROR_OR_ABORT_FIT(KalmanFitterError::ReverseNavigationFailed);
     }
 
     ////////////////////////////////////

@@ -358,30 +358,15 @@ class MultiEigenStepperLoop
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck,
-      LoggerWrapper extLogger = getDummyLogger()) const {
-    return updateSurfaceStatusImpl(state, surface, bcheck, extLogger,
-                                   ConstrainedStep::actor);
-  }
-
-  /// Update surface status as aborter. This is needed for the MultiStepping Aborter
-  Intersection3D::Status updateSurfaceStatusAsAborter(
-      State& state, const Surface& surface, const BoundaryCheck& bcheck) const {
-    return updateSurfaceStatusImpl(state, surface, bcheck, getDummyLogger(),
-                                   ConstrainedStep::aborter);
-  }
-
-  Intersection3D::Status updateSurfaceStatusImpl(
-      State& state, const Surface& surface, const BoundaryCheck& bcheck,
-      LoggerWrapper extLogger, ConstrainedStep::Type stype) const {
+      LoggerWrapper /*extLogger*/ = getDummyLogger()) const {
     std::array<int, 4> counts = {0, 0, 0, 0};
 #ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
 #endif
-    ACTS_VERBOSE("Call 'updateSurfaceStatus' as " << (stype == ConstrainedStep::Type::actor ? "actor" : "aborter"));
 
     for (auto& component : state.components) {
       component.status = detail::updateSingleSurfaceStatus<SingleStepper>(
-          *this, component.state, surface, bcheck, extLogger, stype);
+          *this, component.state, surface, bcheck, logger);
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
@@ -441,15 +426,15 @@ class MultiEigenStepperLoop
       const auto& surface = *oIntersection.representation;
       const auto intersection = surface.intersect(
           component.state.geoContext, SingleStepper::position(component.state),
-          /*state.navDir * */ SingleStepper::direction(component.state), false);
+          state.navDir * SingleStepper::direction(component.state), false);
 
       // TODO why does this give the wrong sign if we multiply with navDir?
-      throw_assert(std::signbit(oIntersection.intersection.pathLength) ==
-                       std::signbit(intersection.intersection.pathLength),
-                   "sign error: averaged pathLength = "
-                       << oIntersection.intersection.pathLength
-                       << ", component pathLength = "
-                       << intersection.intersection.pathLength);
+//       throw_assert(std::signbit(oIntersection.intersection.pathLength) ==
+//                        std::signbit(intersection.intersection.pathLength),
+//                    "sign error: averaged pathLength = "
+//                        << oIntersection.intersection.pathLength
+//                        << ", component pathLength = "
+//                        << intersection.intersection.pathLength);
 
       SingleStepper::updateStepSize(component.state, intersection, release);
     }

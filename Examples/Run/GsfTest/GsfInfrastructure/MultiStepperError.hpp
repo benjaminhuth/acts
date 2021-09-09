@@ -27,33 +27,3 @@ namespace std {
 template <>
 struct is_error_code_enum<Acts::MultiStepperError> : std::true_type {};
 }  // namespace std
-
-// On the long run, this can be in a C++ file
-namespace {
-
-class MultiStepperErrorCategory : public std::error_category {
- public:
-  // Return a short descriptive name for the category.
-  const char* name() const noexcept final { return "MultiStepperError"; }
-
-  // Return what each enum means in text.
-  std::string message(int c) const final {
-    using Acts::MultiStepperError;
-
-    switch (static_cast<MultiStepperError>(c)) {
-      case MultiStepperError::ComponentNotOnSurface:
-        return "Component is not on a surface";
-      case MultiStepperError::StateOfMultipleComponentsRequested:
-        return "The global BoundState/CurvilinearState can only be computed if only one component exists";
-      default:
-        return "unknown";
-    }
-  }
-};
-
-}  // namespace
-
-std::error_code Acts::make_error_code(Acts::MultiStepperError e) {
-  static MultiStepperErrorCategory c;
-  return {static_cast<int>(e), c};
-}

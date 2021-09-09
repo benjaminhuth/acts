@@ -249,7 +249,7 @@ void extractComponents(propagator_state_t &state, const stepper_t &stepper,
 }
 
 /// @brief reweight MultiComponentState
-void normalizeMultiComponentState(MultiComponentState &state) {
+inline void normalizeMultiComponentState(MultiComponentState &state) {
   ActsScalar sum{0.0};
 
   for (const auto &[weight, pars, cov] : state.second) {
@@ -418,7 +418,7 @@ void reweightComponents(std::vector<component_t> &cmps,
 
 /// @brief Combine a forward pass and a backward pass to a smoothed trajectory.
 /// This is part of the Weighted-Mean-Smoother implementation for the GSF
-std::vector<BoundTrackParameters> combineForwardAndBackwardPass(
+inline std::vector<BoundTrackParameters> combineForwardAndBackwardPass(
     const std::vector<BoundTrackParameters> &forward,
     const std::vector<BoundTrackParameters> &backward) {
   throw_assert(forward.size() == backward.size(),
@@ -465,7 +465,7 @@ std::vector<BoundTrackParameters> combineForwardAndBackwardPass(
 /// Enumeration type used in extractMultiComponentStates(...)
 enum class StatesType { ePredicted, eFiltered, eSmoothed };
 
-std::ostream &operator<<(std::ostream &os, StatesType type) {
+inline std::ostream &operator<<(std::ostream &os, StatesType type) {
   constexpr static std::array names = {"predicted", "filtered", "smoothed"};
   os << names[static_cast<int>(type)];
   return os;
@@ -520,7 +520,7 @@ auto extractMultiComponentState(const MultiTrajectory<source_link_t> &traj,
 /// forward MultiComponentState and a backward MultiComponentState into a new
 /// MultiComponentState. The result is not normalized, and also not component
 /// reduction is done
-auto bayesianSmoothing(const MultiComponentState &fwd,
+inline auto bayesianSmoothing(const MultiComponentState &fwd,
                        const MultiComponentState &bwd) {
   MultiComponentState smoothedState;
   std::get<1>(smoothedState)
