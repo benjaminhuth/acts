@@ -29,13 +29,10 @@ namespace detail {
 /// @param state [in,out] The stepping state (thread-local cache)
 /// @param surface [in] The surface provided
 /// @param bcheck [in] The boundary check for this status update
-/// @param logger [in] Logger object to allow logging
-/// @param stype [in] The type of the StepSize that should be updated
 template <typename stepper_t>
 Acts::Intersection3D::Status updateSingleSurfaceStatus(
     const stepper_t& stepper, typename stepper_t::State& state,
-    const Surface& surface, const BoundaryCheck& bcheck, LoggerWrapper logger,
-    ConstrainedStep::Type stype = ConstrainedStep::actor) {
+    const Surface& surface, const BoundaryCheck& bcheck, LoggerWrapper logger) {
   ACTS_VERBOSE("Update single surface status for surface: " << &surface);
 
   auto sIntersection =
@@ -56,10 +53,11 @@ Acts::Intersection3D::Status updateSingleSurfaceStatus(
       double cLimit = intersection.pathLength;
       ACTS_VERBOSE(" -> pLimit, oLimit, cLimit: " << pLimit << ", " << oLimit
                                                   << ", " << cLimit);
-      bool accept = (cLimit > oLimit and cLimit * cLimit < pLimit * pLimit);
+      // TODO check why in some multistepping target cases <= seems necessary
+      bool accept = (cLimit > oLimit and cLimit * cLimit <= pLimit * pLimit);
       if (accept) {
         ACTS_VERBOSE("Intersection is WITHIN limit");
-        stepper.setStepSize(state, state.navDir * cLimit, stype);
+        stepper.setStepSize(state, state.navDir * cLimit);
       }
 
       else {
@@ -100,7 +98,7 @@ Acts::Intersection3D::Status updateSingleSurfaceStatus(
 /// @param oIntersection [in] The object that yielded this step size
 /// @param release [in] A release flag
 template <typename object_intersection_t>
-void updateSingleStepSize(ConstrainedStep& stepSize,
+void updateSingleStepSize(ConstrainedStep &stepSize,
                           const object_intersection_t& oIntersection,
                           bool release = true) {
   double size = oIntersection.intersection.pathLength;
