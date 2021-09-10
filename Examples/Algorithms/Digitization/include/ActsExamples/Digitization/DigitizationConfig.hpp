@@ -110,6 +110,9 @@ class DigitizationConfig {
       Acts::GeometryHierarchyMap<DigiComponentsConfig> &&digiCfgs);
 
   DigitizationConfig(
+      Acts::GeometryHierarchyMap<DigiComponentsConfig> &&digiCfgs);
+  
+  DigitizationConfig(
       bool merge, bool merges, bool mergec, const std::vector<int> &volumes,
       const std::vector<Options::VariableIntegers> &indices,
       const std::vector<Options::VariableIntegers> &types,
@@ -145,7 +148,7 @@ class DigitizationConfig {
 
   std::vector<
       std::pair<Acts::GeometryIdentifier, std::vector<Acts::BoundIndices>>>
-  getBoundIndices();
+  getBoundIndices() const;
 
  private:
   // Private initializer for SmearingAlgorithm
