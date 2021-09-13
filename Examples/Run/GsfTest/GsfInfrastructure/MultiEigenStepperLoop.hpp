@@ -429,12 +429,13 @@ class MultiEigenStepperLoop
           state.navDir * SingleStepper::direction(component.state), false);
 
       // TODO why does this give the wrong sign if we multiply with navDir?
-//       throw_assert(std::signbit(oIntersection.intersection.pathLength) ==
-//                        std::signbit(intersection.intersection.pathLength),
-//                    "sign error: averaged pathLength = "
-//                        << oIntersection.intersection.pathLength
-//                        << ", component pathLength = "
-//                        << intersection.intersection.pathLength);
+      //       throw_assert(std::signbit(oIntersection.intersection.pathLength)
+      //       ==
+      //                        std::signbit(intersection.intersection.pathLength),
+      //                    "sign error: averaged pathLength = "
+      //                        << oIntersection.intersection.pathLength
+      //                        << ", component pathLength = "
+      //                        << intersection.intersection.pathLength);
 
       SingleStepper::updateStepSize(component.state, intersection, release);
     }
@@ -731,14 +732,22 @@ class MultiEigenStepperLoop
       }
     }
 
-    if (results.empty())
+    if (results.empty()) {
       return 0.0;
+    }
 
     std::vector<Result<double>*> ok_results;
-    for (auto& res : results)
-      ok_results.push_back(&res);
+    for (auto& res : results) {
+      if (res.ok()) {
+        ok_results.push_back(&res);
+      }
+    }
 
-    ACTS_VERBOSE("Performed steps: " << ss.str());
+    if (ok_results.size() == results.size()) {
+      ACTS_VERBOSE("Performed steps: " << ss.str());
+    } else {
+      ACTS_WARNING("Performed steps with errors: " << ss.str());
+    }
 
     if (ok_results.empty())
       return results.front().error();

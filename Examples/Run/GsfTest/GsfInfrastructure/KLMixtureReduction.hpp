@@ -32,7 +32,9 @@ auto computeKLDistance(const component_t &a, const component_t &b,
   const auto kl = covA * (1 / covB) + covB * (1 / covA) +
                   (parsA - parsB) * (1 / covA + 1 / covB) * (parsA - parsB);
 
-  throw_assert(kl >= 0.0, "kl-distance should be positive");
+  throw_assert(kl >= 0.0, "kl-distance should be positive, but is: "
+                              << kl << "(qop_a: " << parsA << "+-" << covA
+                              << ", qop_b: " << parsB << "+-" << covB << ")");
   return kl;
 }
 
@@ -64,7 +66,7 @@ class SymmetricKLDistanceMatrix {
  public:
   template <typename component_t, typename projector_t>
   SymmetricKLDistanceMatrix(const std::vector<component_t> &cmps,
-                                    const projector_t &proj)
+                            const projector_t &proj)
       : m_data(cmps.size() * (cmps.size() - 1) / 2),
         m_mapToPair(m_data.size()),
         m_N(cmps.size()) {
@@ -159,7 +161,8 @@ void reduceWithKLDistance(std::vector<component_t> &cmpCache,
     // Reset removed components so that it won't have the shortest distance
     // ever, and so that we can sort them by weight in the end to remove them
     proj(cmpCache[minJ]).weight = -1.0;
-    proj(cmpCache[minJ]).boundPars[eBoundQOverP] = std::numeric_limits<double>::max();
+    proj(cmpCache[minJ]).boundPars[eBoundQOverP] =
+        std::numeric_limits<double>::max();
     (*proj(cmpCache[minJ]).boundCov)(eBoundQOverP, eBoundQOverP) =
         std::numeric_limits<double>::max();
     distances.resetAssociatedDistances(minJ,
@@ -168,10 +171,13 @@ void reduceWithKLDistance(std::vector<component_t> &cmpCache,
 
   // Remove all components which are labled with weight -1
   std::sort(cmpCache.begin(), cmpCache.end(),
-            [&](const auto &a, const auto &b) { return proj(a).weight < proj(b).weight; });
-  cmpCache.erase(std::remove_if(cmpCache.begin(), cmpCache.end(),
-                                [&](const auto &a) { return proj(a).weight == -1.0; }),
-                 cmpCache.end());
+            [&](const auto &a, const auto &b) {
+              return proj(a).weight < proj(b).weight;
+            });
+  cmpCache.erase(
+      std::remove_if(cmpCache.begin(), cmpCache.end(),
+                     [&](const auto &a) { return proj(a).weight == -1.0; }),
+      cmpCache.end());
 
   throw_assert(cmpCache.size() == maxCmpsAfterMerge,
                "size mismatch, should be " << maxCmpsAfterMerge << ", but is "

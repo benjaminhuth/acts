@@ -40,13 +40,22 @@ set(COMMON_LIBS
     GsfAlgorithmFunctionLib
 )
 
+add_library(GsfTestLib TestGsfGeneric.cpp)
+target_link_libraries(GsfTestLib ${COMMON_LIBS})
+
 # Telescope
 add_executable(GsfTelescopeTest TestGsfTelescope.cpp)
-target_link_libraries(GsfTelescopeTest ${COMMON_LIBS})
+target_link_libraries(GsfTelescopeTest ${COMMON_LIBS} GsfTestLib)
 
 # DD4hep
 add_executable(GsfDD4hepTest TestGsfDD4hep.cpp)
-target_link_libraries(GsfDD4hepTest ${COMMON_LIBS} ActsPluginDD4hep ActsExamplesRecTracksCommon ActsExamplesDetectorDD4hep  Boost::program_options)
+target_link_libraries(GsfDD4hepTest 
+    ${COMMON_LIBS}
+    ActsPluginDD4hep
+    ActsExamplesRecTracksCommon
+    ActsExamplesDetectorDD4hep
+    Boost::program_options
+    GsfTestLib)
 
 #add_executable(MultiStepperTest TestMultiStepper.cpp)
 #target_link_libraries(MultiStepperTest ActsCore)
