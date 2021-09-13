@@ -168,8 +168,8 @@ Result<void> updateStepper(propagator_state_t &state, const stepper_t &stepper,
 /// parameters, covariance)
 /// TODO We could make propagator_state const here if the component proxy
 /// of the stepper would accept it
-template <typename propagator_state_t, typename stepper_t,
-          typename component_t, typename component_processor_t>
+template <typename propagator_state_t, typename stepper_t, typename component_t,
+          typename component_processor_t>
 void extractComponents(propagator_state_t &state, const stepper_t &stepper,
                        const std::vector<std::size_t> &parentTrajectoryIdxs,
                        const component_processor_t &componentProcessor,
@@ -218,7 +218,7 @@ void extractComponents(propagator_state_t &state, const stepper_t &stepper,
                "momentum mismatch, initial: " << initialQOverP
                                               << ", final: " << checkQOverPSum);
   throw_assert(std::abs(checkWeightSum - 1.0) < 1.e-8,
-               "must sum up to 1 but is " << checkWeightSum);
+               "must sum up to 1 but is " << checkWeightSum << ", difference: " << std::abs(checkWeightSum - 1.0));
 
   // Approximate bethe-heitler distribution as gaussian mixture
   for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
@@ -279,6 +279,8 @@ auto combineComponentRange(const component_iterator_t begin,
                            const component_iterator_t end,
                            projector_t &&projector = projector_t{},
                            bool checkIfNormalized = false) {
+  throw_assert(std::distance(begin, end) > 0, "empty component range");
+
   using ret_type = std::tuple<BoundVector, std::optional<BoundSymMatrix>>;
   BoundVector mean = BoundVector::Zero();
   BoundSymMatrix cov1 = BoundSymMatrix::Zero();
@@ -521,7 +523,7 @@ auto extractMultiComponentState(const MultiTrajectory<source_link_t> &traj,
 /// MultiComponentState. The result is not normalized, and also not component
 /// reduction is done
 inline auto bayesianSmoothing(const MultiComponentState &fwd,
-                       const MultiComponentState &bwd) {
+                              const MultiComponentState &bwd) {
   MultiComponentState smoothedState;
   std::get<1>(smoothedState)
       .reserve(std::get<1>(fwd).size() + std::get<1>(bwd).size());
@@ -625,7 +627,8 @@ auto smoothAndCombineTrajectories(
     const std::map<std::size_t, double> &fwdWeights,
     const MultiTrajectory<source_link_t> bwd,
     const std::vector<std::size_t> &bwdStartTips,
-    const std::map<std::size_t, double> &bwdWeights) {
+    const std::map<std::size_t, double> &bwdWeights,
+    LoggerWrapper logger = getDummyLogger()) {
   // Use backward trajectory as basic trajectory, so that final trajectory is
   // ordered correctly. We ensure also that they are unique.
   std::vector<std::size_t> bwdTips = bwdStartTips;
@@ -642,53 +645,62 @@ auto smoothAndCombineTrajectories(
   })) {
     const auto firstBwdState = bwd.getTrackState(bwdTips.front());
 
-    lastTip = finalTrajectory.addTrackState(TrackStatePropMask::All, lastTip);
-    auto proxy = finalTrajectory.getTrackState(lastTip);
-
-    // This way I hope we copy all relevant flags and the calibrated field
-    proxy.copyFrom(firstBwdState);
-
     // Search corresponding forward tips
+    const auto bwdGeoId = firstBwdState.referenceSurface().geometryId();
     std::vector<std::size_t> fwdTips;
 
     for (const auto tip : fwdStartTips) {
       fwd.visitBackwards(tip, [&](const auto &state) {
-        if (state.referenceSurface().geometryId() ==
-            firstBwdState.referenceSurface().geometryId()) {
+        if (state.referenceSurface().geometryId() == bwdGeoId) {
           fwdTips.push_back(state.index());
         }
       });
     }
 
-    std::sort(fwdTips.begin(), fwdTips.end());
-    fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()), fwdTips.end());
+    // Check if we have forward tips
+    if (!fwdTips.empty()) {
+      // Ensure we have no duplicates
+      std::sort(fwdTips.begin(), fwdTips.end());
+      fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()), fwdTips.end());
 
-    // Evaluate the predicted, filtered and smoothed state
-    using PredProjector =
-        MultiTrajectoryProjector<StatesType::ePredicted, source_link_t>;
-    using FiltProjector =
-        MultiTrajectoryProjector<StatesType::eFiltered, source_link_t>;
+      // Add state to MultiTrajectory
+      lastTip = finalTrajectory.addTrackState(TrackStatePropMask::All, lastTip);
+      auto proxy = finalTrajectory.getTrackState(lastTip);
 
-    const auto [fwdMeanPred, fwdCovPred] = combineComponentRange(
-        fwdTips.begin(), fwdTips.end(), PredProjector{fwd, fwdWeights});
-    proxy.predicted() = fwdMeanPred;
-    proxy.predictedCovariance() = fwdCovPred.value();
+      // This way I hope we copy all relevant flags and the calibrated field
+      proxy.copyFrom(firstBwdState);
 
-    const auto [bwdMeanFilt, bwdCovFilt] = combineComponentRange(
-        bwdTips.begin(), bwdTips.end(), FiltProjector{bwd, bwdWeights});
-    proxy.filtered() = bwdMeanFilt;
-    proxy.filteredCovariance() = bwdCovFilt.value();
+      // Evaluate the predicted, filtered and smoothed state
+      using PredProjector =
+          MultiTrajectoryProjector<StatesType::ePredicted, source_link_t>;
+      using FiltProjector =
+          MultiTrajectoryProjector<StatesType::eFiltered, source_link_t>;
 
-    const auto smoothedState = bayesianSmoothing(
-        fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
-        PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
-    const auto [smoothedMean, smoothedCov] =
-        combineComponentRange(smoothedState.begin(), smoothedState.end());
-    proxy.smoothed() = smoothedMean;
-    proxy.smoothedCovariance() = smoothedCov.value();
+      const auto [fwdMeanPred, fwdCovPred] = combineComponentRange(
+          fwdTips.begin(), fwdTips.end(), PredProjector{fwd, fwdWeights});
+      proxy.predicted() = fwdMeanPred;
+      proxy.predictedCovariance() = fwdCovPred.value();
 
-    throw_assert(proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag),
-                 "must be a measurment");
+      const auto [bwdMeanFilt, bwdCovFilt] = combineComponentRange(
+          bwdTips.begin(), bwdTips.end(), FiltProjector{bwd, bwdWeights});
+      proxy.filtered() = bwdMeanFilt;
+      proxy.filteredCovariance() = bwdCovFilt.value();
+
+      const auto smoothedState = bayesianSmoothing(
+          fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
+          PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
+
+      const auto [smoothedMean, smoothedCov] =
+          combineComponentRange(smoothedState.begin(), smoothedState.end());
+      proxy.smoothed() = smoothedMean;
+      proxy.smoothedCovariance() = smoothedCov.value();
+
+      throw_assert(
+          proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag),
+          "must be a measurment");
+    } else {
+      ACTS_WARNING("Did not find forward states on surface " << bwdGeoId);
+    }
 
     // Update bwdTips to the next state
     for (auto &tip : bwdTips) {

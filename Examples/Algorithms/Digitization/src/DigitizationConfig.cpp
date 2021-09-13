@@ -84,6 +84,15 @@ ActsExamples::DigitizationConfig::DigitizationConfig(
     smearingConfig(vars);
 }
 
+ActsExamples::DigitizationConfig::DigitizationConfig(
+    Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
+    : isSimpleSmearer(false),
+      doMerge(false),
+      mergeNsigma(1.0),
+      mergeCommonCorner(false) {
+  digitizationConfigs = std::move(digiCfgs);
+}
+
 void ActsExamples::DigitizationConfig::smearingConfig(
     const Options::Variables& variables) {
   ACTS_LOCAL_LOGGER(
@@ -216,7 +225,7 @@ ActsExamples::createDigitizationAlgorithm(ActsExamples::DigitizationConfig& cfg,
 
 std::vector<
     std::pair<Acts::GeometryIdentifier, std::vector<Acts::BoundIndices>>>
-ActsExamples::DigitizationConfig::getBoundIndices() {
+ActsExamples::DigitizationConfig::getBoundIndices() const {
   std::vector<
       std::pair<Acts::GeometryIdentifier, std::vector<Acts::BoundIndices>>>
       bIndexInput;

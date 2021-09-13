@@ -74,6 +74,7 @@ struct GsfOptions {
   bool abortOnError = true;
 
   std::size_t maxComponents = 4;
+  std::size_t maxSteps = 1000;
 
   std::size_t maxSteps = 100;
 };
@@ -753,7 +754,7 @@ struct GaussianSumFitter {
     const auto [combinedTraj, lastTip] = detail::smoothAndCombineTrajectories(
         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates);
+        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
 
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
     kalmanResult.lastTrackIndex = lastTip;

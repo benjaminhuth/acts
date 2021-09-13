@@ -232,6 +232,10 @@ resultType = "res"
 doSurfacePlots = True
 nBins = 40
 
+if sys.argv.count("--no-surface-plots") > 0:
+    logging.info("Surface plots disabled by command line option")
+    doSurfacePlots = False
+    
 pdf_filename = "analysis_{}_{}.pdf".format(resultType, datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
 pdf = matplotlib.backends.backend_pdf.PdfPages(pdf_filename)
 
