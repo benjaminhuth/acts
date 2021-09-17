@@ -19,6 +19,44 @@ namespace Acts {
 
 namespace detail {
 
+
+template<typename component_cache_t, typename projector_t>
+bool componentWeightsAreNormalized(const std::vector<component_cache_t> &cmps, const projector_t &proj)
+{
+    double sum_of_weights = 0.0;
+
+    for(const auto &[variant, meta] : cmps) {
+        const auto &[weight, pars, cov] = proj(variant);
+        sum_of_weights += weight;
+    }
+
+    if( std::abs(sum_of_weights - 1.0) < 1.e-8 ) {
+        return true;
+    } else {
+        std::cout << "difference = " << std::abs(sum_of_weights - 1.0);
+        return false;
+    }
+}
+
+
+template<typename component_cache_t, typename projector_t>
+void normalizeWeights(std::vector<component_cache_t> &cmps, const projector_t &proj)
+{
+    double sum_of_weights = 0.0;
+
+    for(const auto &[variant, meta] : cmps) {
+        const auto &[weight, pars, cov] = proj(variant);
+        sum_of_weights += weight;
+    }
+
+    for(auto &[variant, meta] : cmps) {
+        auto tuple = proj(variant);
+        auto &[weight, pars, cov] = tuple;
+        weight /= sum_of_weights;
+    }
+}
+
+
 /// Stores meta information about the components
 struct GsfComponentMetaCache {
   /// Where to find the parent component in the MultiTrajectory
@@ -62,6 +100,7 @@ struct ComponentSplitter {
                   const double old_weight,
                   const GsfComponentMetaCache &metaCache,
                   std::vector<component_cache_t> &componentCaches) const {
+    const auto &logger = state.options.logger;
     const auto p_prev = old_bound.absoluteMomentum();
     const auto slab =
         state.navigation.currentSurface->surfaceMaterial()->materialSlab(
@@ -72,6 +111,15 @@ struct ComponentSplitter {
 
     // Create all possible new components
     for (const auto &gaussian : mixture) {
+      // Here we combine the new child weight with the parent weight.
+      // However, this must be later re-adjusted
+      const auto new_weight = gaussian.weight * old_weight;
+
+      if( new_weight < 1.e-8 ) {
+          ACTS_VERBOSE("Skip component with weight " << new_weight);
+          continue;
+      }
+
       // compute delta p from mixture and update parameters
       auto new_pars = old_bound.parameters();
 
@@ -101,9 +149,6 @@ struct ComponentSplitter {
 
         (*new_cov)(eBoundQOverP, eBoundQOverP) += varInvP;
       }
-      // Here we combine the new child weight with the parent weight.
-      // However, this must be later re-adjusted
-      const auto new_weight = gaussian.weight * old_weight;
 
       // Set the remaining things and push to vector
       componentCaches.push_back(
@@ -214,11 +259,33 @@ void extractComponents(propagator_state_t &state, const stepper_t &stepper,
     }
   }
 
-  throw_assert(std::abs(checkQOverPSum - initialQOverP) < 1.e-8,
-               "momentum mismatch, initial: " << initialQOverP
-                                              << ", final: " << checkQOverPSum);
-  throw_assert(std::abs(checkWeightSum - 1.0) < 1.e-8,
-               "must sum up to 1 but is " << checkWeightSum << ", difference: " << std::abs(checkWeightSum - 1.0));
+  throw_assert(
+      std::abs(checkQOverPSum - initialQOverP) < 1.e-8,
+      "momentum mismatch, initial: " << initialQOverP
+                                     << ", final: " << checkQOverPSum
+                                     << ", component summary: " <<
+          [&]() {
+            std::stringstream ss;
+            for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
+              typename stepper_t::ComponentProxy cmp(stepping, i);
+              ss << "  #" << i << ": qop = " << cmp.pars()[eFreeQOverP] << "\n";
+            }
+            return ss.str();
+          }());
+
+  throw_assert(
+      std::abs(checkWeightSum - 1.0) < 1.e-8,
+      "must sum up to 1 but is "
+          << checkWeightSum
+          << ", difference: " << std::abs(checkWeightSum - 1.0)
+          << ", component summary: " << [&]() {
+               std::stringstream ss;
+               for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
+                 typename stepper_t::ComponentProxy cmp(stepping, i);
+                 ss << "  #" << i << ": weight = " << cmp.weight() << "\n";
+               }
+               return ss.str();
+             }());
 
   // Approximate bethe-heitler distribution as gaussian mixture
   for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
@@ -411,7 +478,7 @@ void reweightComponents(std::vector<component_t> &cmps,
   }
 
   throw_assert(sumOfWeights > 0.,
-               "The sum of the weights needs to be positive");
+               "The sum of the weights needs to be positive, but is " << sumOfWeights);
 
   for (auto &cmp : cmps) {
     std::get<1>(proj(cmp)) *= (1. / sumOfWeights);

@@ -68,6 +68,12 @@ ActsExamples::TrackParamsEstimationAlgorithm::TrackParamsEstimationAlgorithm(
   m_covariance(Acts::eBoundTime, Acts::eBoundTime) =
       m_cfg.initialVarInflation[Acts::eBoundTime] * m_cfg.sigmaT0 *
       m_cfg.sigmaT0;
+
+  std::cout << "default value = " << 1400 * Acts::UnitConstants::s << "\n";
+  std::cout << "sigmaT = " << m_cfg.sigmaT0 << "\n";
+  std::cout << "covariante in TrackParamsEstimationAlgorithm:\n";
+  std::cout << m_covariance;
+  std::cout << "\n";
 }
 
 ActsExamples::SimSeedContainer

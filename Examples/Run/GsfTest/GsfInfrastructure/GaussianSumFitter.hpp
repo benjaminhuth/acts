@@ -75,8 +75,6 @@ struct GsfOptions {
 
   std::size_t maxComponents = 4;
   std::size_t maxSteps = 1000;
-
-  std::size_t maxSteps = 100;
 };
 
 template <typename source_link_t>
@@ -286,10 +284,15 @@ struct GaussianSumFitter {
           return std::tie(proxy, result.weightsOfStates.at(proxy.index()));
         };
 
-        auto mapProxyToWeightParsCov = [&](const auto& variant) {
+        auto mapProxyToWeightParsCov = [&](auto& variant) {
           auto& proxy = std::get<TrackProxy>(variant);
           return std::make_tuple(result.weightsOfStates.at(proxy.index()),
                                  proxy.filtered(), proxy.filteredCovariance());
+        };
+
+        auto mapCacheToWeightParsCov = [&](auto& variant) {
+          auto& c = std::get<detail::GsfComponentParameterCache>(variant);
+          return std::tie(c.weight, c.boundPars, c.boundCov);
         };
 
         ///////////////////////////////////////////
@@ -320,6 +323,10 @@ struct GaussianSumFitter {
           ACTS_VERBOSE("update stepper...");
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
+
+          throw_assert(detail::componentWeightsAreNormalized(
+                           componentCache, mapProxyToWeightParsCov),
+                       "weights not normalized (material & measurement)");
         }
         /////////////////////////////////////////////
         // Component Splitting BUT NO Kalman Update
@@ -342,10 +349,16 @@ struct GaussianSumFitter {
             result.parentTips.push_back(meta.parentIndex);
           }
 
+          detail::normalizeWeights(componentCache, mapCacheToWeightParsCov);
+
           detail::updateStepper(
               state, stepper, componentCache, [&](const auto& variant) {
                 return std::get<detail::GsfComponentParameterCache>(variant);
               });
+
+          throw_assert(detail::componentWeightsAreNormalized(
+                           componentCache, mapCacheToWeightParsCov),
+                       "weights not normalized (only material)");
         }
         /////////////////////////////////////////////
         // Kalman Update BUT NO Component Splitting
@@ -364,6 +377,10 @@ struct GaussianSumFitter {
 
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
+
+          throw_assert(detail::componentWeightsAreNormalized(
+                           componentCache, mapProxyToWeightParsCov),
+                       "weights not normalized (only measurement)");
         }
       }
     }
@@ -755,6 +772,11 @@ struct GaussianSumFitter {
         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
+
+    // Some test
+    if( lastTip == SIZE_MAX ) {
+        return KalmanFitterError::NoMeasurementFound;
+    }
 
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
     kalmanResult.lastTrackIndex = lastTip;
