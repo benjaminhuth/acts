@@ -19,43 +19,40 @@ namespace Acts {
 
 namespace detail {
 
+template <typename component_cache_t, typename projector_t>
+bool componentWeightsAreNormalized(const std::vector<component_cache_t> &cmps,
+                                   const projector_t &proj) {
+  double sum_of_weights = 0.0;
 
-template<typename component_cache_t, typename projector_t>
-bool componentWeightsAreNormalized(const std::vector<component_cache_t> &cmps, const projector_t &proj)
-{
-    double sum_of_weights = 0.0;
+  for (const auto &[variant, meta] : cmps) {
+    const auto &[weight, pars, cov] = proj(variant);
+    sum_of_weights += weight;
+  }
 
-    for(const auto &[variant, meta] : cmps) {
-        const auto &[weight, pars, cov] = proj(variant);
-        sum_of_weights += weight;
-    }
-
-    if( std::abs(sum_of_weights - 1.0) < 1.e-8 ) {
-        return true;
-    } else {
-        std::cout << "difference = " << std::abs(sum_of_weights - 1.0);
-        return false;
-    }
+  if (std::abs(sum_of_weights - 1.0) < 1.e-8) {
+    return true;
+  } else {
+    std::cout << "difference = " << std::abs(sum_of_weights - 1.0);
+    return false;
+  }
 }
 
+template <typename component_cache_t, typename projector_t>
+void normalizeWeights(std::vector<component_cache_t> &cmps,
+                      const projector_t &proj) {
+  double sum_of_weights = 0.0;
 
-template<typename component_cache_t, typename projector_t>
-void normalizeWeights(std::vector<component_cache_t> &cmps, const projector_t &proj)
-{
-    double sum_of_weights = 0.0;
+  for (const auto &[variant, meta] : cmps) {
+    const auto &[weight, pars, cov] = proj(variant);
+    sum_of_weights += weight;
+  }
 
-    for(const auto &[variant, meta] : cmps) {
-        const auto &[weight, pars, cov] = proj(variant);
-        sum_of_weights += weight;
-    }
-
-    for(auto &[variant, meta] : cmps) {
-        auto tuple = proj(variant);
-        auto &[weight, pars, cov] = tuple;
-        weight /= sum_of_weights;
-    }
+  for (auto &[variant, meta] : cmps) {
+    auto tuple = proj(variant);
+    auto &[weight, pars, cov] = tuple;
+    weight /= sum_of_weights;
+  }
 }
-
 
 /// Stores meta information about the components
 struct GsfComponentMetaCache {
@@ -115,9 +112,9 @@ struct ComponentSplitter {
       // However, this must be later re-adjusted
       const auto new_weight = gaussian.weight * old_weight;
 
-      if( new_weight < 1.e-8 ) {
-          ACTS_VERBOSE("Skip component with weight " << new_weight);
-          continue;
+      if (new_weight < 1.e-8) {
+        ACTS_VERBOSE("Skip component with weight " << new_weight);
+        continue;
       }
 
       // compute delta p from mixture and update parameters
@@ -473,12 +470,17 @@ void reweightComponents(std::vector<component_t> &cmps,
     const double chi2 = std::get<0>(proj(cmp)).chi2() - minChi2;
     const double detR = computeDetR(std::get<0>(proj(cmp)));
 
-    std::get<1>(proj(cmp)) *= std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
-    sumOfWeights += std::get<1>(proj(cmp));
+    if (std::isnan(chi2) || std::isnan(detR)) {
+      sumOfWeights += std::get<1>(proj(cmp));
+    } else {
+      std::get<1>(proj(cmp)) *= std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
+      sumOfWeights += std::get<1>(proj(cmp));
+    }
   }
 
-  throw_assert(sumOfWeights > 0.,
-               "The sum of the weights needs to be positive, but is " << sumOfWeights);
+  throw_assert(
+      sumOfWeights > 0.,
+      "The sum of the weights needs to be positive, but is " << sumOfWeights);
 
   for (auto &cmp : cmps) {
     std::get<1>(proj(cmp)) *= (1. / sumOfWeights);

@@ -101,15 +101,15 @@ int main(int argc, char **argv) {
 
   // Read some standard options
   settings.globalLogLevel =
-      vm["v"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::INFO;
+      vm["v"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::ERROR;
   settings.gsfLogLevel =
-      vm["v-gsf"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::INFO;
+      vm["v-gsf"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::ERROR;
   settings.doGsf = not vm["no-gsf"].as<bool>();
   settings.doKalman = not vm["no-kalman"].as<bool>();
   settings.numParticles = vm["n"].as<int>();
   settings.estimateParsFromSeed = vm["pars-from-seeds"].as<bool>();
   settings.maxComponents = vm["c"].as<int>();
-  settings.inflation = 1.0;
+  settings.inflation = 100.0;
   settings.maxSteps = 1000;
   settings.gsfAbortOnError = false;
 
