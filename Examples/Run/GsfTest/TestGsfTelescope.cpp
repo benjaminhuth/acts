@@ -151,12 +151,6 @@ int main(int argc, char **argv) {
     return 1.0;
   }();
 
-  // Export the seed for reproducibility
-  {
-    std::ofstream seedFile("seed.txt", std::ios_base::trunc);
-    seedFile << settings.seed;
-  }
-
   // Make the telescope detector
   const typename ActsExamples::Telescope::TelescopeDetectorElement::ContextType
       detectorContext;

@@ -147,6 +147,9 @@ struct GaussianSumFitter {
       /// Whether to abort immediately when an error occurs
       bool abortOnError = false;
 
+      /// When to discard components
+      double weightCutoff = 1.0e-8;
+
       /// A not so nice workaround to get the first backward state in the
       /// MultiTrajectory for the DirectNavigator
       std::function<void(result_type&, const LoggerWrapper&)>
@@ -261,8 +264,8 @@ struct GaussianSumFitter {
         if (!result.currentTips.empty()) {
           bool alreadyVisited = false;
           result.fittedStates.visitBackwards(
-              result.currentTips.front(), [&](const auto& state) {
-                if (state.referenceSurface().geometryId() ==
+              result.currentTips.front(), [&](const auto& proxy) {
+                if (proxy.referenceSurface().geometryId() ==
                     surface.geometryId()) {
                   alreadyVisited = true;
                 }
@@ -299,28 +302,24 @@ struct GaussianSumFitter {
         // Component Splitting AND Kalman Update
         ///////////////////////////////////////////
         if (haveMaterial && haveMeasurement) {
-          ACTS_VERBOSE("Material and measurement");
           detail::extractComponents(
               state, stepper, result.parentTips,
-              detail::ComponentSplitter{m_config.bethe_heitler_approx},
+              detail::ComponentSplitter{m_config.bethe_heitler_approx,
+                                        m_config.weightCutoff},
               m_config.doCovTransport, componentCache);
 
-          ACTS_VERBOSE("reduce component number...");
           detail::reduceWithKLDistance(
               componentCache,
               std::min(static_cast<std::size_t>(stepper.maxComponents),
                        m_config.maxComponents),
               ParametersCacheProjector{});
 
-          ACTS_VERBOSE("kalman update...");
           result.result = kalmanUpdate(state, found_source_link->second, result,
                                        componentCache);
-          result.parentTips = result.currentTips;
+          detail::reweightComponents(componentCache, mapToProxyAndWeight,
+                                     m_config.weightCutoff);
+          result.currentTips = updateCurrentTips(componentCache, result.currentTips, mapProxyToWeightParsCov);
 
-          ACTS_VERBOSE("reweight components...");
-          detail::reweightComponents(componentCache, mapToProxyAndWeight);
-
-          ACTS_VERBOSE("update stepper...");
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
 
@@ -335,7 +334,8 @@ struct GaussianSumFitter {
           ACTS_VERBOSE("Only Material");
           detail::extractComponents(
               state, stepper, result.parentTips,
-              detail::ComponentSplitter{m_config.bethe_heitler_approx},
+              detail::ComponentSplitter{m_config.bethe_heitler_approx,
+                                        m_config.weightCutoff},
               m_config.doCovTransport, componentCache);
 
           detail::reduceWithKLDistance(
@@ -343,11 +343,6 @@ struct GaussianSumFitter {
               std::min(static_cast<std::size_t>(stepper.maxComponents),
                        m_config.maxComponents),
               ParametersCacheProjector{});
-
-          result.parentTips.clear();
-          for (const auto& [variant, meta] : componentCache) {
-            result.parentTips.push_back(meta.parentIndex);
-          }
 
           detail::normalizeWeights(componentCache, mapCacheToWeightParsCov);
 
@@ -371,18 +366,58 @@ struct GaussianSumFitter {
 
           result.result = kalmanUpdate(state, found_source_link->second, result,
                                        componentCache);
-          result.parentTips = result.currentTips;
 
-          detail::reweightComponents(componentCache, mapToProxyAndWeight);
+          detail::reweightComponents(componentCache, mapToProxyAndWeight,
+                                     m_config.weightCutoff);
+          result.currentTips = updateCurrentTips(componentCache, result.currentTips, mapProxyToWeightParsCov);
 
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
+
+          result.parentTips = result.currentTips;
 
           throw_assert(detail::componentWeightsAreNormalized(
                            componentCache, mapProxyToWeightParsCov),
                        "weights not normalized (only measurement)");
         }
+
+        ACTS_VERBOSE("Components after processing:");
+        for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
+          typename stepper_t::ComponentProxy cmp(state.stepping, i);
+
+          if (cmp.status() == Acts::Intersection3D::Status::missed) {
+            ACTS_VERBOSE(
+                "  #" << i << " missed/unreachable, weight: " << cmp.weight());
+          } else {
+            ACTS_VERBOSE(
+                "  #" << i << " pos: "
+                      << cmp.pars().template segment<3>(eFreePos0).transpose()
+                      << ", dir: "
+                      << cmp.pars().template segment<3>(eFreeDir0).transpose()
+                      << ", weight: " << cmp.weight());
+          }
+        }
       }
+    }
+
+    /// This is not very nice, include this in other functions or so
+    template <typename projector_t>
+    auto updateCurrentTips(const std::vector<ComponentCache>& components,
+                      const std::vector<std::size_t>& currentTips,
+                      const projector_t& proj) const {
+      throw_assert(components.size() == currentTips.size(), "size mismatch");
+      std::vector<std::size_t> newCurrentTips;
+      for (auto i = 0; components.size(); ++i) {
+        const auto& [variant, meta] = components[i];
+        const auto& [weight, pars, cov] = proj(variant);
+
+        if (weight == 0) {
+          continue;
+        } else {
+          newCurrentTips.push_back(currentTips[i]);
+        }
+      }
+      return newCurrentTips;
     }
 
     template <typename propagator_state_t>
@@ -516,13 +551,13 @@ struct GaussianSumFitter {
                            calibrator_t, GainMatrixSmoother>;
 
     // Initialize the forward propagation with the DirectNavigator
-    auto fwdPropInitializer = [&sSequence](const auto& options,
+    auto fwdPropInitializer = [&sSequence](const auto& opts,
                                            const auto& logger) {
       using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
       using Aborters = AbortList<>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
-          options.geoContext, options.magFieldContext, logger);
+          opts.geoContext, opts.magFieldContext, logger);
 
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = sSequence;
@@ -530,17 +565,17 @@ struct GaussianSumFitter {
     };
 
     // Initialize the backward propagation with the DirectNavigator
-    auto bwdPropInitializer = [&sSequence](const auto& options,
+    auto bwdPropInitializer = [&sSequence](const auto& opts,
                                            const auto& logger) {
       using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
       using Aborters = AbortList<>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
-          options.geoContext, options.magFieldContext, logger);
+          opts.geoContext, opts.magFieldContext, logger);
 
       std::vector<const Surface*> backwardSequence(
           std::next(sSequence.rbegin()), sSequence.rend());
-      backwardSequence.push_back(options.referenceSurface);
+      backwardSequence.push_back(opts.referenceSurface);
 
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = std::move(backwardSequence);
@@ -567,25 +602,25 @@ struct GaussianSumFitter {
                            calibrator_t, GainMatrixSmoother>;
 
     // Initialize the forward propagation with the DirectNavigator
-    auto fwdPropInitializer = [](const auto& options, const auto& logger) {
+    auto fwdPropInitializer = [](const auto& opts, const auto& logger) {
       using Actors = ActionList<GSFActor>;
       using Aborters = AbortList<EndOfWorldReached>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
-          options.geoContext, options.magFieldContext, logger);
-      propOptions.maxSteps = options.maxSteps;
+          opts.geoContext, opts.magFieldContext, logger);
+      propOptions.maxSteps = opts.maxSteps;
 
       return propOptions;
     };
 
     // Initialize the backward propagation with the DirectNavigator
-    auto bwdPropInitializer = [](const auto& options, const auto& logger) {
+    auto bwdPropInitializer = [](const auto& opts, const auto& logger) {
       using Actors = ActionList<GSFActor>;
       using Aborters = AbortList<EndOfWorldReached>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
-          options.geoContext, options.magFieldContext, logger);
-      propOptions.maxSteps = options.maxSteps;
+          opts.geoContext, opts.magFieldContext, logger);
+      propOptions.maxSteps = opts.maxSteps;
 
       return propOptions;
     };
@@ -700,9 +735,10 @@ struct GaussianSumFitter {
       actor.m_config.abortOnError = options.abortOnError;
 
       // Workaround to get the first state into the MultiTrajectory seems also
-      // to be necessary for standard navigator to prevent double kalman update
-      // on the last surface
-      actor.m_config.multiTrajectoryInitializer = [&](auto& result,
+      // to be necessary for standard navigator to prevent double kalman
+      // update on the last surface
+      actor.m_config.multiTrajectoryInitializer = [&fwdGsfResult](
+                                                      auto& result,
                                                       const auto& logger) {
         result.currentTips.clear();
 
@@ -774,8 +810,8 @@ struct GaussianSumFitter {
         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
 
     // Some test
-    if( lastTip == SIZE_MAX ) {
-        return KalmanFitterError::NoMeasurementFound;
+    if (lastTip == SIZE_MAX) {
+      return KalmanFitterError::NoMeasurementFound;
     }
 
     Acts::KalmanFitterResult<source_link_t> kalmanResult;

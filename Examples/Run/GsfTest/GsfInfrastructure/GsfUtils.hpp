@@ -88,8 +88,10 @@ using MultiComponentState =
 template <typename bethe_heitler_t>
 struct ComponentSplitter {
   const bethe_heitler_t &betheHeitler;
+  const double weightCutoff;
 
-  ComponentSplitter(const bethe_heitler_t &bh) : betheHeitler(bh) {}
+  ComponentSplitter(const bethe_heitler_t &bh, double cutoff)
+      : betheHeitler(bh), weightCutoff(cutoff) {}
 
   template <typename propagator_state_t, typename component_cache_t>
   void operator()(const propagator_state_t &state,
@@ -112,7 +114,7 @@ struct ComponentSplitter {
       // However, this must be later re-adjusted
       const auto new_weight = gaussian.weight * old_weight;
 
-      if (new_weight < 1.e-8) {
+      if (new_weight < weightCutoff) {
         ACTS_VERBOSE("Skip component with weight " << new_weight);
         continue;
       }
@@ -172,6 +174,7 @@ struct ComponentForwarder {
 };
 
 /// Function that updates the stepper with the component Cache
+/// @note components with weight 0 are ignored and not added to the stepper.
 template <typename propagator_state_t, typename stepper_t, typename component_t,
           typename projector_t>
 Result<void> updateStepper(propagator_state_t &state, const stepper_t &stepper,
@@ -183,6 +186,10 @@ Result<void> updateStepper(propagator_state_t &state, const stepper_t &stepper,
 
   for (const auto &[variant, meta] : componentCache) {
     const auto &[weight, pars, cov] = proj(variant);
+
+    if (weight == 0.0) {
+      continue;
+    }
 
     auto res = stepper.addComponent(
         state.stepping, BoundTrackParameters(surface.getSharedPtr(), pars, cov),
@@ -430,8 +437,8 @@ void reduceNumberOfComponents(std::vector<component_t> &components,
 /// Expects that the projector maps the component to something like a
 /// std::pair< trackProxy&, double& > so that it can be extracted with std::get
 template <typename component_t, typename projector_t>
-void reweightComponents(std::vector<component_t> &cmps,
-                        const projector_t &proj) {
+void reweightComponents(std::vector<component_t> &cmps, const projector_t &proj,
+                        const double weightCutoff) {
   // Helper Function to compute detR
   auto computeDetR = [](const auto &trackState) -> ActsScalar {
     const auto predictedCovariance = trackState.predictedCovariance();
@@ -473,8 +480,14 @@ void reweightComponents(std::vector<component_t> &cmps,
     if (std::isnan(chi2) || std::isnan(detR)) {
       sumOfWeights += std::get<1>(proj(cmp));
     } else {
-      std::get<1>(proj(cmp)) *= std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
-      sumOfWeights += std::get<1>(proj(cmp));
+      const auto newWeight = std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
+
+      if (newWeight < weightCutoff) {
+        std::get<1>(proj(cmp)) = 0;
+      } else {
+        std::get<1>(proj(cmp)) *= newWeight;
+        sumOfWeights += std::get<1>(proj(cmp));
+      }
     }
   }
 

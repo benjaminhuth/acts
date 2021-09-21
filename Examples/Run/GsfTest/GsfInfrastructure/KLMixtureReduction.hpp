@@ -45,8 +45,8 @@ auto mergeComponents(const component_t &a, const component_t &b,
 
   std::array range = {std::ref(proj(a)), std::ref(proj(b))};
   auto [mergedPars, mergedCov] =
-      combineComponentRange(range.begin(), range.end(), [](auto &a) {
-        return std::tie(a.get().weight, a.get().boundPars, a.get().boundCov);
+      combineComponentRange(range.begin(), range.end(), [](auto &c) {
+        return std::tie(c.get().weight, c.get().boundPars, c.get().boundCov);
       });
 
   component_t ret = a;

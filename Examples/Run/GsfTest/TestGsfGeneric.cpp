@@ -142,6 +142,12 @@ int testGsf(const GsfTestSettings &settings) {
   ActsExamples::RandomNumbers::Config rndCfg{settings.seed};
   auto rnd = std::make_shared<ActsExamples::RandomNumbers>(rndCfg);
 
+  // Export the seed for reproducibility
+  {
+    std::ofstream seedFile("seed.txt", std::ios_base::trunc);
+    seedFile << settings.seed << "\n";
+  }
+
   // Gsf settings
   setGsfMaxComponents(settings.maxComponents);
   setGsfAbortOnError(settings.gsfAbortOnError);

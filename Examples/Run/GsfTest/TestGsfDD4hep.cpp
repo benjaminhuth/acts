@@ -73,8 +73,10 @@ int main(int argc, char **argv) {
     opt("n", po::value<int>()->default_value(1),
         "Number of generated particles");
     opt("c", po::value<int>()->default_value(16), "Max number of components");
+    opt("s", po::value<std::size_t>()->default_value(123456), "Seed for RNG");
     opt("loglevel", po::value<std::size_t>()->default_value(2),
         "LogLevel for compatibility, with almost no impact");
+    opt("log-info", po::bool_switch(), "Use info as default loglevel");
     opt("pars-from-seeds", po::bool_switch(),
         "Use track parameters estimated from truth tracks");
     opt("v", po::bool_switch(), "All algorithms verbose (except the GSF)");
@@ -83,7 +85,6 @@ int main(int argc, char **argv) {
     opt("no-gsf", po::bool_switch(), "Disable the Kalman Filter");
 
     detector->addOptions(desc);
-    Options::addRandomNumbersOptions(desc);
     Options::addGeometryOptions(desc);
     Options::addMaterialOptions(desc);
     Options::addInputOptions(desc);
@@ -99,19 +100,24 @@ int main(int argc, char **argv) {
 
   GsfTestSettings settings;
 
+  // Override default error log level
+  const auto default_log_level =
+      vm["log-info"].as<bool>() ? Acts::Logging::INFO : Acts::Logging::ERROR;
+
   // Read some standard options
   settings.globalLogLevel =
-      vm["v"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::ERROR;
+      vm["v"].as<bool>() ? Acts::Logging::VERBOSE : default_log_level;
   settings.gsfLogLevel =
-      vm["v-gsf"].as<bool>() ? Acts::Logging::VERBOSE : Acts::Logging::ERROR;
+      vm["v-gsf"].as<bool>() ? Acts::Logging::VERBOSE : default_log_level;
   settings.doGsf = not vm["no-gsf"].as<bool>();
   settings.doKalman = not vm["no-kalman"].as<bool>();
   settings.numParticles = vm["n"].as<int>();
   settings.estimateParsFromSeed = vm["pars-from-seeds"].as<bool>();
   settings.maxComponents = vm["c"].as<int>();
-  settings.inflation = 100.0;
+  settings.inflation = 1.0;
   settings.maxSteps = 1000;
   settings.gsfAbortOnError = false;
+  settings.seed = vm["s"].as<std::size_t>();
 
   // Setup detector geometry
   const auto [geometry, decorators] =
@@ -143,6 +149,6 @@ int main(int argc, char **argv) {
   settings.thetaMax = 135._degree;
   settings.pMin = 1.0_GeV;
   settings.pMax = 10.0_GeV;
-  
+
   return testGsf(settings);
 }
