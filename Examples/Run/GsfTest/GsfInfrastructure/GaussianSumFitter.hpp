@@ -318,7 +318,9 @@ struct GaussianSumFitter {
                                        componentCache);
           detail::reweightComponents(componentCache, mapToProxyAndWeight,
                                      m_config.weightCutoff);
-          result.currentTips = updateCurrentTips(componentCache, result.currentTips, mapProxyToWeightParsCov);
+          result.currentTips = updateCurrentTips(
+              componentCache, result.currentTips, mapProxyToWeightParsCov);
+          result.parentTips = result.currentTips;
 
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
@@ -343,6 +345,11 @@ struct GaussianSumFitter {
               std::min(static_cast<std::size_t>(stepper.maxComponents),
                        m_config.maxComponents),
               ParametersCacheProjector{});
+
+          result.parentTips.clear();
+          for (const auto& [variant, meta] : componentCache) {
+            result.parentTips.push_back(meta.parentIndex);
+          }
 
           detail::normalizeWeights(componentCache, mapCacheToWeightParsCov);
 
@@ -369,18 +376,20 @@ struct GaussianSumFitter {
 
           detail::reweightComponents(componentCache, mapToProxyAndWeight,
                                      m_config.weightCutoff);
-          result.currentTips = updateCurrentTips(componentCache, result.currentTips, mapProxyToWeightParsCov);
+          
+          result.currentTips = updateCurrentTips(
+              componentCache, result.currentTips, mapProxyToWeightParsCov);
+          result.parentTips = result.currentTips;
 
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
-
-          result.parentTips = result.currentTips;
 
           throw_assert(detail::componentWeightsAreNormalized(
                            componentCache, mapProxyToWeightParsCov),
                        "weights not normalized (only measurement)");
         }
 
+        // Finally print the Components at the end
         ACTS_VERBOSE("Components after processing:");
         for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
           typename stepper_t::ComponentProxy cmp(state.stepping, i);
@@ -403,15 +412,15 @@ struct GaussianSumFitter {
     /// This is not very nice, include this in other functions or so
     template <typename projector_t>
     auto updateCurrentTips(const std::vector<ComponentCache>& components,
-                      const std::vector<std::size_t>& currentTips,
-                      const projector_t& proj) const {
+                           const std::vector<std::size_t>& currentTips,
+                           const projector_t& proj) const {
       throw_assert(components.size() == currentTips.size(), "size mismatch");
       std::vector<std::size_t> newCurrentTips;
-      for (auto i = 0; components.size(); ++i) {
+      for (auto i = 0ul; i < components.size(); ++i) {
         const auto& [variant, meta] = components[i];
         const auto& [weight, pars, cov] = proj(variant);
 
-        if (weight == 0) {
+        if (weight == 0.0) {
           continue;
         } else {
           newCurrentTips.push_back(currentTips[i]);
@@ -501,37 +510,6 @@ struct GaussianSumFitter {
     }
   };
 
-  struct FinalizePositionPrinter {
-    using result_type = char;
-
-    template <typename propagator_state_t, typename stepper_t>
-    void operator()(propagator_state_t& state, const stepper_t& stepper,
-                    result_type&) const {
-      const auto& logger = state.options.logger;
-
-      ACTS_VERBOSE("Finalizer step at mean position "
-                   << stepper.position(state.stepping).transpose()
-                   << " with direction "
-                   << stepper.direction(state.stepping).transpose());
-
-      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-        typename stepper_t::ComponentProxy cmp(state.stepping, i);
-
-        if (cmp.status() == Acts::Intersection3D::Status::missed) {
-          ACTS_VERBOSE("  #"
-                       << i << " missed/unreachable, weight: " << cmp.weight());
-        } else {
-          ACTS_VERBOSE("  #"
-                       << i << " pos: "
-                       << cmp.pars().template segment<3>(eFreePos0).transpose()
-                       << ", dir: "
-                       << cmp.pars().template segment<3>(eFreeDir0).transpose()
-                       << ", weight: " << cmp.weight());
-        }
-      }
-    }
-  };
-
   /// The propagator instance used by the fit function
   propagator_t m_propagator;
 
@@ -559,6 +537,7 @@ struct GaussianSumFitter {
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
 
+      propOptions.loopFraction = 0.8;
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = sSequence;
       return propOptions;
@@ -577,6 +556,7 @@ struct GaussianSumFitter {
           std::next(sSequence.rbegin()), sSequence.rend());
       backwardSequence.push_back(opts.referenceSurface);
 
+      propOptions.loopFraction = 0.8;
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = std::move(backwardSequence);
 
@@ -609,6 +589,7 @@ struct GaussianSumFitter {
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
       propOptions.maxSteps = opts.maxSteps;
+      propOptions.loopFraction = 0.8;
 
       return propOptions;
     };
@@ -621,6 +602,7 @@ struct GaussianSumFitter {
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
       propOptions.maxSteps = opts.maxSteps;
+      propOptions.loopFraction = 0.8;
 
       return propOptions;
     };
@@ -639,10 +621,21 @@ struct GaussianSumFitter {
       const fwd_prop_initializer_t& fwdPropInitializer,
       const bwd_prop_initializer_t& bwdPropInitializer) const {
     static_assert(SourceLinkConcept<source_link_t>,
-                  "Source link does not fulfill SourceLinkConcept");
-
+                  "Source link does not fulfill SourceLinkConcept");    
     // The logger
     const auto& logger = options.logger;
+    
+    // Print some infos about the start parameters
+    ACTS_VERBOSE("Run Gsf with start parameters: \n" << sParameters);
+    
+    auto intersectionStatusStartSurface =
+      sParameters.referenceSurface().intersect(GeometryContext{}, sParameters.position(GeometryContext{}),
+                        sParameters.unitDirection(), true).intersection.status;
+                        
+    if( intersectionStatusStartSurface != Intersection3D::Status::onSurface ) {
+        ACTS_ERROR("Surface intersection of start parameters with bound-check failed");
+        return GsfError::StartParametersNotOnStartSurface;
+    }
 
     // To be able to find measurements later, we put them into a map
     // We need to copy input SourceLinks anyways, so the map can own them.
@@ -652,7 +645,6 @@ struct GaussianSumFitter {
       inputMeasurements.emplace(sl.geometryId(), sl);
     }
 
-    ACTS_VERBOSE("Run Gsf with start parameters: \n" << sParameters);
     ACTS_VERBOSE(
         "Gsf: Final measuerement map size: " << inputMeasurements.size());
     throw_assert(sParameters.covariance() != std::nullopt,

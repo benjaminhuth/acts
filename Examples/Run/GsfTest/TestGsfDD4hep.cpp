@@ -83,6 +83,7 @@ int main(int argc, char **argv) {
     opt("v-gsf", po::bool_switch(), "GSF algorithm verbose");
     opt("no-kalman", po::bool_switch(), "Disable the GSF");
     opt("no-gsf", po::bool_switch(), "Disable the Kalman Filter");
+    opt("abort-on-error", po::bool_switch(), "Abort GSF on error");
 
     detector->addOptions(desc);
     Options::addGeometryOptions(desc);
@@ -118,6 +119,7 @@ int main(int argc, char **argv) {
   settings.maxSteps = 1000;
   settings.gsfAbortOnError = false;
   settings.seed = vm["s"].as<std::size_t>();
+  settings.gsfAbortOnError = vm["abort-on-error"].as<bool>();
 
   // Setup detector geometry
   const auto [geometry, decorators] =

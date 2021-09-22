@@ -758,6 +758,9 @@ class MultiEigenStepperLoop
               [](auto sum, auto res) { return sum + res->value(); }) /
           static_cast<double>(ok_results.size());
       state.stepping.pathAccumulated += avg_step;
+      
+      ACTS_VERBOSE("  pathAccumulated: " << state.stepping.pathAccumulated);
+      
       return avg_step;
     }
   }

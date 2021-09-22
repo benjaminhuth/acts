@@ -263,22 +263,24 @@ void extractComponents(propagator_state_t &state, const stepper_t &stepper,
     }
   }
 
+  constexpr int prec = std::numeric_limits<long double>::digits10 + 1;
   throw_assert(
-      std::abs(checkQOverPSum - initialQOverP) < 1.e-8,
-      "momentum mismatch, initial: " << initialQOverP
-                                     << ", final: " << checkQOverPSum
-                                     << ", component summary: " <<
-          [&]() {
-            std::stringstream ss;
-            for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-              typename stepper_t::ComponentProxy cmp(stepping, i);
-              ss << "  #" << i << ": qop = " << cmp.pars()[eFreeQOverP] << "\n";
-            }
-            return ss.str();
-          }());
+      std::abs(checkQOverPSum - initialQOverP) < 1.e-4,
+      "momentum mismatch, initial: "
+          << std::setprecision(prec) << initialQOverP
+          << ", final: " << checkQOverPSum << ", component summary:\n"
+          << [&]() {
+               std::stringstream ss;
+               for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
+                 typename stepper_t::ComponentProxy cmp(stepping, i);
+                 ss << "  #" << i << ": qop = " << std::setprecision(prec)
+                    << cmp.pars()[eFreeQOverP] << "\n";
+               }
+               return ss.str();
+             }());
 
   throw_assert(
-      std::abs(checkWeightSum - 1.0) < 1.e-8,
+      std::abs(checkWeightSum - 1.0) < 1.e-4,
       "must sum up to 1 but is "
           << checkWeightSum
           << ", difference: " << std::abs(checkWeightSum - 1.0)

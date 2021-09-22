@@ -18,6 +18,7 @@ enum class GsfError {
   ComponentNumberMismatch = 2,
   NoComponentCreated = 3,
   NoStatesCreated = 4,
+  StartParametersNotOnStartSurface = 5
 };
 
 std::error_code make_error_code(Acts::GsfError e);
