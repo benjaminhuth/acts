@@ -150,7 +150,7 @@ int main(int argc, char **argv) {
   settings.thetaMin = 45._degree;
   settings.thetaMax = 135._degree;
   settings.pMin = 1.0_GeV;
-  settings.pMax = 10.0_GeV;
+  settings.pMax = 100.0_GeV;
 
   return testGsf(settings);
 }

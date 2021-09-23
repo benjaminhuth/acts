@@ -15,10 +15,11 @@ namespace Acts {
 enum class GsfError {
   // ensure all values are non-zero
   NavigationFailed = 1,
-  ComponentNumberMismatch = 2,
-  NoComponentCreated = 3,
-  NoStatesCreated = 4,
-  StartParametersNotOnStartSurface = 5
+  ComponentNumberMismatch,
+  NoComponentCreated,
+  NoStatesCreated,
+  StartParametersNotOnStartSurface,
+  PropagationEndedOnWrongSurface
 };
 
 std::error_code make_error_code(Acts::GsfError e);

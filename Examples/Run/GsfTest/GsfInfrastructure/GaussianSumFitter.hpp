@@ -20,8 +20,9 @@
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/KalmanFitter.hpp"
-#include "Acts/TrackFitting/KalmanFitterError.hpp"
 
+#include <fstream>
+#include <ios>
 #include <map>
 #include <numeric>
 
@@ -31,6 +32,33 @@
 #include "KLMixtureReduction.hpp"
 #include "MultiStepperAborters.hpp"
 #include "MultiSteppingLogger.hpp"
+
+using namespace std::string_literals;
+
+constexpr static auto myNAN =
+    std::numeric_limits<Acts::ActsScalar>::quiet_NaN();
+
+template <std::size_t N>
+class SimpleCsvWriter {
+  std::ofstream m_file;
+
+ public:
+  SimpleCsvWriter(const std::string& filename,
+                  const std::array<std::string, N>& headers)
+      : m_file(filename, std::ios::app) {
+    for (auto header : headers) {
+      m_file << header << ",";
+    }
+    m_file << "\n";
+  }
+
+  template <typename... Args>
+  void write(const Args&... args) {
+    static_assert(sizeof...(Args) == N);
+    ((m_file << args << ","), ...);
+    m_file << "\n";
+  }
+};
 
 #define RETURN_ERROR_OR_ABORT_ACTOR(error) \
   if (m_config.abortOnError) {             \
@@ -75,6 +103,7 @@ struct GsfOptions {
 
   std::size_t maxComponents = 4;
   std::size_t maxSteps = 1000;
+  bool loopProtection = false;
 };
 
 template <typename source_link_t>
@@ -105,10 +134,25 @@ struct GsfResult {
 template <typename propagator_t>
 struct GaussianSumFitter {
   GaussianSumFitter(propagator_t propagator)
-      : m_propagator(std::move(propagator)) {}
+      : m_propagator(std::move(propagator)),
+        m_failStatistics("gsf-fail-statistics.csv",
+                         {"errorMsg", "fwdSteps", "fwdPathlength", "bwdSteps",
+                          "bwdPathLenght", "absoluteMomentum",
+                          "transverseMomentum", "theta"}),
+        m_successStatistics(
+            "gsf-success-statistics.csv",
+            {"fwdSteps", "fwdPathlength", "bwdSteps", "bwdPathLenght",
+             "absoluteMomentum", "transverseMomentum", "theta"}) {}
 
   /// The navigator type
   using GsfNavigator = typename propagator_t::Navigator;
+
+  /// The propagator instance used by the fit function
+  propagator_t m_propagator;
+
+  /// Some output files for debugging
+  mutable SimpleCsvWriter<8> m_failStatistics;
+  mutable SimpleCsvWriter<7> m_successStatistics;
 
   template <typename source_link_t, typename updater_t,
             typename outlier_finder_t, typename calibrator_t,
@@ -161,8 +205,6 @@ struct GaussianSumFitter {
     outlier_finder_t m_outlierFinder;
     calibrator_t m_calibrator;
     smoother_t m_smoother;
-
-    SurfaceReached m_targetReachedAborter;
 
     /// Broadcast Cache Type
     using TrackProxy = typename MultiTrajectory<source_link_t>::TrackStateProxy;
@@ -376,7 +418,7 @@ struct GaussianSumFitter {
 
           detail::reweightComponents(componentCache, mapToProxyAndWeight,
                                      m_config.weightCutoff);
-          
+
           result.currentTips = updateCurrentTips(
               componentCache, result.currentTips, mapProxyToWeightParsCov);
           result.parentTips = result.currentTips;
@@ -510,9 +552,6 @@ struct GaussianSumFitter {
     }
   };
 
-  /// The propagator instance used by the fit function
-  propagator_t m_propagator;
-
   /// @brief The fit function for the Direct navigator
   template <typename source_link_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
@@ -537,7 +576,7 @@ struct GaussianSumFitter {
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
 
-      propOptions.loopFraction = 0.8;
+      propOptions.loopProtection = opts.loopProtection;
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = sSequence;
       return propOptions;
@@ -556,7 +595,7 @@ struct GaussianSumFitter {
           std::next(sSequence.rbegin()), sSequence.rend());
       backwardSequence.push_back(opts.referenceSurface);
 
-      propOptions.loopFraction = 0.8;
+      propOptions.loopProtection = opts.loopProtection;
       propOptions.actionList.template get<DirectNavigator::Initializer>()
           .navSurfaces = std::move(backwardSequence);
 
@@ -589,7 +628,7 @@ struct GaussianSumFitter {
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
       propOptions.maxSteps = opts.maxSteps;
-      propOptions.loopFraction = 0.8;
+      propOptions.loopProtection = opts.loopProtection;
 
       return propOptions;
     };
@@ -602,7 +641,7 @@ struct GaussianSumFitter {
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
       propOptions.maxSteps = opts.maxSteps;
-      propOptions.loopFraction = 0.8;
+      propOptions.loopProtection = opts.loopProtection;
 
       return propOptions;
     };
@@ -621,20 +660,28 @@ struct GaussianSumFitter {
       const fwd_prop_initializer_t& fwdPropInitializer,
       const bwd_prop_initializer_t& bwdPropInitializer) const {
     static_assert(SourceLinkConcept<source_link_t>,
-                  "Source link does not fulfill SourceLinkConcept");    
+                  "Source link does not fulfill SourceLinkConcept");
     // The logger
     const auto& logger = options.logger;
-    
+
     // Print some infos about the start parameters
     ACTS_VERBOSE("Run Gsf with start parameters: \n" << sParameters);
-    
+
     auto intersectionStatusStartSurface =
-      sParameters.referenceSurface().intersect(GeometryContext{}, sParameters.position(GeometryContext{}),
-                        sParameters.unitDirection(), true).intersection.status;
-                        
-    if( intersectionStatusStartSurface != Intersection3D::Status::onSurface ) {
-        ACTS_ERROR("Surface intersection of start parameters with bound-check failed");
-        return GsfError::StartParametersNotOnStartSurface;
+        sParameters.referenceSurface()
+            .intersect(GeometryContext{},
+                       sParameters.position(GeometryContext{}),
+                       sParameters.unitDirection(), true)
+            .intersection.status;
+
+    if (intersectionStatusStartSurface != Intersection3D::Status::onSurface) {
+      ACTS_ERROR(
+          "Surface intersection of start parameters with bound-check failed");
+      m_failStatistics.write("StartParametersNotOnStartSurface"s, myNAN, myNAN,
+                             myNAN, myNAN, sParameters.absoluteMomentum(),
+                             sParameters.transverseMomentum(),
+                             sParameters.template get<eBoundTheta>());
+      return GsfError::StartParametersNotOnStartSurface;
     }
 
     // To be able to find measurements later, we put them into a map
@@ -660,7 +707,7 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("| Gsf: Do forward propagation |");
     ACTS_VERBOSE("+-----------------------------+");
 
-    auto fwdResult = [&]() -> Result<GsfResult<source_link_t>> {
+    auto fwdResult = [&]() {
       MultiComponentBoundTrackParameters<SinglyCharged> params(
           sParameters.referenceSurface().getSharedPtr(),
           sParameters.parameters(), sParameters.covariance());
@@ -677,31 +724,36 @@ struct GaussianSumFitter {
 
       fwdPropOptions.direction = Acts::forward;
 
-      auto propResult = m_propagator.propagate(params, fwdPropOptions);
-
-      if (!propResult.ok()) {
-        return propResult.error();
-      }
-
-      GsfResult gsfResult =
-          (*propResult).template get<GsfResult<source_link_t>>();
-
-      if (!gsfResult.result.ok()) {
-        return gsfResult.result.error();
-      }
-
-      if (gsfResult.processedStates == 0) {
-        return GsfError::NoStatesCreated;
-      }
-
-      return gsfResult;
+      return m_propagator.propagate(params, fwdPropOptions);
     }();
 
     if (!fwdResult.ok()) {
+      m_failStatistics.write(fwdResult.error().message(), myNAN, myNAN, myNAN,
+                             myNAN, sParameters.absoluteMomentum(),
+                             sParameters.transverseMomentum(),
+                             sParameters.template get<eBoundTheta>());
       RETURN_ERROR_OR_ABORT_FIT(fwdResult.error());
     }
 
-    const auto& fwdGsfResult = *fwdResult;
+    auto& fwdGsfResult = (*fwdResult).template get<GsfResult<source_link_t>>();
+
+    if (!fwdGsfResult.result.ok()) {
+      m_failStatistics.write(fwdGsfResult.result.error().message(),
+                             (*fwdResult).steps, (*fwdResult).pathLength, myNAN,
+                             myNAN, sParameters.absoluteMomentum(),
+                             sParameters.transverseMomentum(),
+                             sParameters.template get<eBoundTheta>());
+      RETURN_ERROR_OR_ABORT_FIT(fwdGsfResult.result.error());
+    }
+
+    if (fwdGsfResult.processedStates == 0) {
+      m_failStatistics.write("noProcessedStates"s, (*fwdResult).steps,
+                             (*fwdResult).pathLength, myNAN, myNAN,
+                             sParameters.absoluteMomentum(),
+                             sParameters.transverseMomentum(),
+                             sParameters.template get<eBoundTheta>());
+      RETURN_ERROR_OR_ABORT_FIT(GsfError::NoStatesCreated);
+    }
 
     //////////////////
     // Backward pass
@@ -710,9 +762,7 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("| Gsf: Do backward propagation |");
     ACTS_VERBOSE("+------------------------------+");
 
-    auto bwdResult =
-        [&]() -> Result<std::tuple<GsfResult<source_link_t>,
-                                   std::unique_ptr<BoundTrackParameters>>> {
+    auto bwdResult = [&]() {
       const auto params = detail::extractMultiComponentState(
           fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
           fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
@@ -755,40 +805,51 @@ struct GaussianSumFitter {
 
       bwdPropOptions.direction = Acts::backward;
 
-      auto propResult =
-          m_propagator
-              .template propagate<decltype(params), decltype(bwdPropOptions),
-                                  MultiStepperSurfaceReached>(
-                  params, *options.referenceSurface, bwdPropOptions);
-
-      if (!propResult.ok()) {
-        return propResult.error();
-      }
-
-      GsfResult gsfResult =
-          (*propResult).template get<GsfResult<source_link_t>>();
-
-      if (!gsfResult.result.ok()) {
-        return gsfResult.result.error();
-      }
-
-      if (gsfResult.processedStates == 0) {
-        return GsfError::NoStatesCreated;
-      }
-
-      return std::make_tuple(std::move(gsfResult),
-                             std::move((*propResult).endParameters));
+      return m_propagator
+          .template propagate<decltype(params), decltype(bwdPropOptions),
+                              MultiStepperSurfaceReached>(
+              params, *options.referenceSurface, bwdPropOptions);
     }();
 
     if (!bwdResult.ok()) {
+      m_failStatistics.write(bwdResult.error().message(), (*fwdResult).steps,
+                             (*fwdResult).pathLength, myNAN, myNAN,
+                             sParameters.absoluteMomentum(),
+                             sParameters.transverseMomentum(),
+                             sParameters.template get<eBoundTheta>());
       RETURN_ERROR_OR_ABORT_FIT(bwdResult.error());
     }
 
-    const auto& [bwdGsfResult, finalParameters] = *bwdResult;
+    auto& bwdGsfResult = (*bwdResult).template get<GsfResult<source_link_t>>();
+
+    if (!bwdGsfResult.result.ok()) {
+      m_failStatistics.write(
+          bwdGsfResult.result.error().message(), (*fwdResult).steps,
+          (*fwdResult).pathLength, (*bwdResult).steps, (*bwdResult).pathLength,
+          sParameters.absoluteMomentum(), sParameters.transverseMomentum(),
+          sParameters.template get<eBoundTheta>());
+      RETURN_ERROR_OR_ABORT_FIT(bwdGsfResult.result.error());
+    }
+
+    if (bwdGsfResult.processedStates == 0) {
+      m_failStatistics.write(
+          "noProcessedStates"s, (*fwdResult).steps, (*fwdResult).pathLength,
+          (*bwdResult).steps, (*bwdResult).pathLength,
+          sParameters.absoluteMomentum(), sParameters.transverseMomentum(),
+          sParameters.template get<eBoundTheta>());
+      RETURN_ERROR_OR_ABORT_FIT(GsfError::NoStatesCreated);
+    }
+
+    const auto& finalParameters = (*bwdResult).endParameters;
 
     if (finalParameters->referenceSurface().geometryId() !=
         options.referenceSurface->geometryId()) {
-      RETURN_ERROR_OR_ABORT_FIT(KalmanFitterError::ReverseNavigationFailed);
+      m_failStatistics.write(
+          "PropagationEndedOnWrongSurface"s, (*fwdResult).steps,
+          (*fwdResult).pathLength, (*bwdResult).steps, (*bwdResult).pathLength,
+          sParameters.absoluteMomentum(), sParameters.transverseMomentum(),
+          sParameters.template get<eBoundTheta>());
+      RETURN_ERROR_OR_ABORT_FIT(GsfError::PropagationEndedOnWrongSurface);
     }
 
     ////////////////////////////////////
@@ -803,7 +864,12 @@ struct GaussianSumFitter {
 
     // Some test
     if (lastTip == SIZE_MAX) {
-      return KalmanFitterError::NoMeasurementFound;
+      m_failStatistics.write(
+          "NoStatesCreated", (*fwdResult).steps, (*fwdResult).pathLength,
+          (*bwdResult).steps, (*bwdResult).pathLength,
+          sParameters.absoluteMomentum(), sParameters.transverseMomentum(),
+          sParameters.template get<eBoundTheta>());
+      return GsfError::NoStatesCreated;
     }
 
     Acts::KalmanFitterResult<source_link_t> kalmanResult;
@@ -814,6 +880,12 @@ struct GaussianSumFitter {
     kalmanResult.finished = true;
     kalmanResult.lastMeasurementIndex = lastTip;
     kalmanResult.fittedParameters = *finalParameters;
+
+    m_successStatistics.write((*fwdResult).steps, (*fwdResult).pathLength,
+                              (*bwdResult).steps, (*bwdResult).pathLength,
+                              sParameters.absoluteMomentum(),
+                              sParameters.transverseMomentum(),
+                              sParameters.template get<eBoundTheta>());
 
     return kalmanResult;
   }
