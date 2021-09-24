@@ -116,7 +116,7 @@ int main(int argc, char **argv) {
   settings.estimateParsFromSeed = vm["pars-from-seeds"].as<bool>();
   settings.maxComponents = vm["c"].as<int>();
   settings.inflation = 1.0;
-  settings.maxSteps = 1000;
+  settings.maxSteps = 10000;
   settings.gsfAbortOnError = false;
   settings.seed = vm["s"].as<std::size_t>();
   settings.gsfAbortOnError = vm["abort-on-error"].as<bool>();
