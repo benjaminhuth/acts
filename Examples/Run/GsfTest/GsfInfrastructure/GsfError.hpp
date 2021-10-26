@@ -16,6 +16,7 @@ enum class GsfError {
   // ensure all values are non-zero
   NavigationFailed = 1,
   ComponentNumberMismatch,
+  AllComponentsSteppingError,
   NoComponentCreated,
   NoStatesCreated,
   StartParametersNotOnStartSurface,

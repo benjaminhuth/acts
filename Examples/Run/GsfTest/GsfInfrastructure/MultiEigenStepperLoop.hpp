@@ -188,6 +188,7 @@ class MultiEigenStepperLoop
     Covariance cov = Covariance::Zero();
     NavigationDirection navDir;
     double pathAccumulated = 0.;
+    int steps;
 
     /// geoContext
     std::reference_wrapper<const GeometryContext> geoContext;
@@ -731,6 +732,8 @@ class MultiEigenStepperLoop
         ss << "step error: " << results.back().error() << "\t";
       }
     }
+    
+    state.stepping.steps++;
 
     if (results.empty()) {
       return 0.0;
@@ -750,7 +753,7 @@ class MultiEigenStepperLoop
     }
 
     if (ok_results.empty())
-      return results.front().error();
+      return GsfError::AllComponentsSteppingError;
     else {
       const auto avg_step =
           std::accumulate(

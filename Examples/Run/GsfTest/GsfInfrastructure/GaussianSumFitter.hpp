@@ -235,7 +235,7 @@ struct GaussianSumFitter {
       const auto& logger = state.options.logger;
 
       // Some initial printing
-      ACTS_VERBOSE("Gsf step at mean position "
+      ACTS_VERBOSE("Gsf step " << state.stepping.steps << " at mean position "
                    << stepper.position(state.stepping).transpose()
                    << " with direction "
                    << stepper.direction(state.stepping).transpose());

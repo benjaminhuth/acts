@@ -66,6 +66,13 @@ target_link_libraries(GsfDD4hepTest
 add_executable(GeoIdDecoder DecodeGeoId.cpp)
 target_link_libraries(GeoIdDecoder ActsCore)
 
+add_executable(DD4hepSurfaceInfo DD4hepSurfaceInfo.cpp)
+target_link_libraries(DD4hepSurfaceInfo
+    ActsCore
+    ActsExamplesCommon
+    ActsExamplesDetectorDD4hep
+)
+
 #########
 # Tests #
 #########
