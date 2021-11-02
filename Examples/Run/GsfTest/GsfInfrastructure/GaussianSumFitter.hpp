@@ -123,6 +123,7 @@ struct GsfResult {
   /// The number of measurement states created
   std::size_t measurementStates = 0;
   std::size_t processedStates = 0;
+  std::set<Acts::GeometryIdentifier> visitedSurfaces;
 
   // Propagate potential errors to the outside
   Result<void> result{Result<void>::success()};
@@ -235,7 +236,8 @@ struct GaussianSumFitter {
       const auto& logger = state.options.logger;
 
       // Some initial printing
-      ACTS_VERBOSE("Gsf step " << state.stepping.steps << " at mean position "
+      ACTS_VERBOSE("Gsf step "
+                   << state.stepping.steps << " at mean position "
                    << stepper.position(state.stepping).transpose()
                    << " with direction "
                    << stepper.direction(state.stepping).transpose());
@@ -251,12 +253,12 @@ struct GaussianSumFitter {
           ACTS_VERBOSE("  #"
                        << i << " missed/unreachable, weight: " << cmp.weight());
         } else {
-          ACTS_VERBOSE("  #"
-                       << i << " pos: "
-                       << cmp.pars().template segment<3>(eFreePos0).transpose()
-                       << ", dir: "
-                       << cmp.pars().template segment<3>(eFreeDir0).transpose()
-                       << ", weight: " << cmp.weight());
+          auto getVector = [&](auto idx) {
+            return cmp.pars().template segment<3>(idx).transpose();
+          };
+          ACTS_VERBOSE("  #" << i << " pos: " << getVector(eFreePos0)
+                             << ", dir: " << getVector(eFreeDir0)
+                             << ", weight: " << cmp.weight());
         }
       }
 
@@ -287,6 +289,16 @@ struct GaussianSumFitter {
         const auto& surface = *state.navigation.currentSurface;
         ACTS_VERBOSE("Step is at surface " << surface.geometryId());
 
+        // Early return if we already were on this surface TODO why is this
+        // necessary
+        const auto [it, success] =
+            result.visitedSurfaces.insert(surface.geometryId());
+
+        if (!success) {
+          ACTS_VERBOSE("Already visited surface, return");
+          return;
+        }
+
         // Check what we have on this surface
         const auto found_source_link =
             m_config.inputMeasurements.find(surface.geometryId());
@@ -299,24 +311,6 @@ struct GaussianSumFitter {
         if (not haveMaterial && not haveMeasurement) {
           ACTS_VERBOSE("No material or measurement, return");
           return;
-        }
-
-        // Early return if we already were on this surface TODO why is this
-        // necessary
-        if (!result.currentTips.empty()) {
-          bool alreadyVisited = false;
-          result.fittedStates.visitBackwards(
-              result.currentTips.front(), [&](const auto& proxy) {
-                if (proxy.referenceSurface().geometryId() ==
-                    surface.geometryId()) {
-                  alreadyVisited = true;
-                }
-              });
-
-          if (alreadyVisited) {
-            ACTS_VERBOSE("Already visited surface, return");
-            return;
-          }
         }
 
         // Create Cache
@@ -344,6 +338,7 @@ struct GaussianSumFitter {
         // Component Splitting AND Kalman Update
         ///////////////////////////////////////////
         if (haveMaterial && haveMeasurement) {
+          ACTS_VERBOSE("Material and measurement");
           detail::extractComponents(
               state, stepper, result.parentTips,
               detail::ComponentSplitter{m_config.bethe_heitler_approx,
@@ -375,7 +370,7 @@ struct GaussianSumFitter {
         // Component Splitting BUT NO Kalman Update
         /////////////////////////////////////////////
         else if (haveMaterial && not haveMeasurement) {
-          ACTS_VERBOSE("Only Material");
+          ACTS_VERBOSE("Only material");
           detail::extractComponents(
               state, stepper, result.parentTips,
               detail::ComponentSplitter{m_config.bethe_heitler_approx,
@@ -480,6 +475,10 @@ struct GaussianSumFitter {
       const auto& surface = *state.navigation.currentSurface;
       result.currentTips.clear();
 
+      // Boolean flag, so that not every component increases the
+      // result.measurementStates counter
+      bool counted_as_measurement_state = false;
+
       for (auto& [variant, meta] : components) {
         // Create new track state
         result.currentTips.push_back(result.fittedStates.addTrackState(
@@ -533,8 +532,12 @@ struct GaussianSumFitter {
 
           trackProxy.typeFlags().set(TrackStateFlag::MeasurementFlag);
 
-          // We count the state with measurement
-          ++result.measurementStates;
+          // We count the state with measurement TODO does this metric make
+          // sense for a GSF?
+          if (!counted_as_measurement_state) {
+            ++result.measurementStates;
+            counted_as_measurement_state = true;
+          }
         } else {
           // TODO ACTS_VERBOSE message
           throw std::runtime_error(
@@ -755,6 +758,11 @@ struct GaussianSumFitter {
       RETURN_ERROR_OR_ABORT_FIT(GsfError::NoStatesCreated);
     }
 
+    ACTS_VERBOSE("Finished forward propagation");
+    ACTS_VERBOSE("- visited surfaces: " << fwdGsfResult.visitedSurfaces.size());
+    ACTS_VERBOSE("- processed states: " << fwdGsfResult.processedStates);
+    ACTS_VERBOSE("- measuerement states: " << fwdGsfResult.measurementStates);
+
     //////////////////
     // Backward pass
     //////////////////
@@ -800,6 +808,9 @@ struct GaussianSumFitter {
           // Because we are backwards, we use forward filtered as predicted
           proxy.predicted() = proxy.filtered();
           proxy.predictedCovariance() = proxy.filteredCovariance();
+
+          // Mark surface as visited
+          result.visitedSurfaces.insert(proxy.referenceSurface().geometryId());
         }
       };
 

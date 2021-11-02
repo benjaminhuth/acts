@@ -29,6 +29,7 @@ struct GsfTestSettings {
     
     bool doGsf;
     bool doKalman;
+    bool doRefit;
     bool doDirectNavigation;
     bool estimateParsFromSeed;
     

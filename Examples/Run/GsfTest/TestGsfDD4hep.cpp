@@ -83,6 +83,7 @@ int main(int argc, char **argv) {
     opt("v-gsf", po::bool_switch(), "GSF algorithm verbose");
     opt("no-kalman", po::bool_switch(), "Disable the GSF");
     opt("no-gsf", po::bool_switch(), "Disable the Kalman Filter");
+    opt("do-refit", po::bool_switch(), "Use GSF to refit Kalman result");
     opt("abort-on-error", po::bool_switch(), "Abort GSF on error");
 
     detector->addOptions(desc);
@@ -116,10 +117,11 @@ int main(int argc, char **argv) {
   settings.estimateParsFromSeed = vm["pars-from-seeds"].as<bool>();
   settings.maxComponents = vm["c"].as<int>();
   settings.inflation = 1.0;
-  settings.maxSteps = 10000;
+  settings.maxSteps = 1000;
   settings.gsfAbortOnError = false;
   settings.seed = vm["s"].as<std::size_t>();
   settings.gsfAbortOnError = vm["abort-on-error"].as<bool>();
+  settings.doRefit = vm["do-refit"].as<bool>();
 
   // Setup detector geometry
   const auto [geometry, decorators] =

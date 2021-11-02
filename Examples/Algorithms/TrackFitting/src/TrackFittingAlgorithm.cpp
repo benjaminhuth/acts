@@ -41,9 +41,9 @@ ActsExamples::TrackFittingAlgorithm::TrackFittingAlgorithm(
 }
 
 ActsExamples::TrackFittingAlgorithm::~TrackFittingAlgorithm() {
-  ACTS_INFO(name() << "(" << m_cfg.fitterType << "): " << m_failedFits << " / "
-                   << m_totalFits << " failed ("
-                   << (100. * m_failedFits) / m_totalFits << "%)");
+  ACTS_ERROR(name() << "(" << m_cfg.fitterType << "): " << m_failedFits << " / "
+                    << m_totalFits << " failed ("
+                    << (100. * m_failedFits) / m_totalFits << "%)");
 }
 
 ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(

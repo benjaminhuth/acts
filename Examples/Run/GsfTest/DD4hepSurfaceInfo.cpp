@@ -7,6 +7,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include "Acts/Geometry/GeometryIdentifier.hpp"
+#include "Acts/Surfaces/CylinderSurface.hpp"
 #include "Acts/Surfaces/PerigeeSurface.hpp"
 #include "Acts/Utilities/PdgParticle.hpp"
 #include "ActsExamples/DD4hepDetector/DD4hepDetector.hpp"
@@ -78,7 +79,7 @@ int main(int argc, char **argv) {
 
     if (volume.confinedLayers()) {
       for (const auto &layer : volume.confinedLayers()->arrayObjects()) {
-        if (layer) {
+        if (layer && layer->approachDescriptor()) {
           for (const auto surf :
                layer->approachDescriptor()->containedSurfaces()) {
             if (surf) {
@@ -88,6 +89,14 @@ int main(int argc, char **argv) {
 
           surfacesById[layer->surfaceRepresentation().geometryId()] =
               &layer->surfaceRepresentation();
+        }
+      }
+    }
+
+    if (volume.confinedVolumes()) {
+      for (const auto &vol : volume.confinedVolumes()->arrayObjects()) {
+        if (vol) {
+          collect_function(*vol, collect_function);
         }
       }
     }
@@ -137,8 +146,40 @@ int main(int argc, char **argv) {
   }();
 
   if (surfacesById.find(query_geoid) != surfacesById.end()) {
-    std::cout << "FOUND\n";
+    const auto surface = surfacesById[query_geoid];
+    std::cout << "FOUND surface " << query_geoid << "\n";
+
+
+    std::array<const char *, 8> surface_types = {{"Cone", "Cylinder", "Disc",
+                                                  "Perigee", "Plane", "Straw",
+                                                  "Curvilinear", "Other"}};
+
+    std::cout << "surface hast type " << surface_types[surface->type()]
+              << std::endl;
+
+    if (surface->type() == Acts::Surface::SurfaceType::Cylinder) {
+      const auto cylinder_surface =
+          static_cast<const Acts::CylinderSurface *>(surface);
+      const auto &cylinder_bounds = cylinder_surface->bounds();
+
+      const auto radius = cylinder_bounds.get(Acts::CylinderBounds::eR);
+      const auto half_z =
+          cylinder_bounds.get(Acts::CylinderBounds::eHalfLengthZ);
+      const auto half_phi_sector =
+          cylinder_bounds.get(Acts::CylinderBounds::eHalfPhiSector);
+      const auto avg_phi =
+          cylinder_bounds.get(Acts::CylinderBounds::eAveragePhi);
+
+      std::cout << "Cylinder info\n";
+      std::cout << "\tr =               " << radius << "\n";
+      std::cout << "\thalf_z =          " << half_z << "\n";
+      std::cout << "\thalf_phi_sector = " << half_phi_sector << "\n";
+      std::cout << "\tavg_phi =         " << avg_phi << "\n";
+    } else {
+      std::cout << "Other surface types than cylinder not yet supported!\n";
+    }
+
   } else {
-    std::cout << "NOT FOUND\n";
+    std::cout << "NOT FOUND surface " << query_geoid << "\n";
   }
 }

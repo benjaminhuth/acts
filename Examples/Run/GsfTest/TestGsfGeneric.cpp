@@ -63,6 +63,8 @@ const char *kMultiSteppingLogComponentsLoop = "component-tracks-loop-stepper";
 const char *kProtoTracks = "proto-tracks";
 const char *kSelectedProtoTracks = "selected-proto-tracks";
 const char *kProtoTrackParameters = "proto-track-parameters";
+const char *kTrackParametersFromKalman = "track-parameters-from-kalman";
+const char *kProtoTracksFromKalman = "proto-tracks-from-kalman";
 const char *kKalmanOutputTrajectories = "kalman-output";
 const char *kGsfOutputTrajectories = "gsf-output";
 
@@ -100,6 +102,99 @@ struct AbortIfAllTracksEmpty : ActsExamples::BareAlgorithm {
   }
 };
 
+struct AbortIfAllTrajectoriesEmpty : ActsExamples::BareAlgorithm {
+  struct Config {
+    std::string inTrajectories;
+  } m_cfg;
+
+  AbortIfAllTrajectoriesEmpty(const Config &cfg, Acts::Logging::Level lvl)
+      : ActsExamples::BareAlgorithm("AbortIfAllTrajectoriesEmpty", lvl),
+        m_cfg(cfg) {}
+
+  ActsExamples::ProcessCode execute(
+      const ActsExamples::AlgorithmContext &ctx) const override {
+    const auto &trajectories =
+        ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(
+            m_cfg.inTrajectories);
+
+    bool doAbort = true;
+    int empty = 0;
+
+    for (const auto &trajectory : trajectories) {
+      if (trajectory.empty()) {
+        empty++;
+      } else {
+        doAbort = false;
+      }
+    }
+
+    ACTS_INFO("Empty Trajectories: " << empty << " of " << trajectories.size());
+
+    if (doAbort) {
+      return ActsExamples::ProcessCode::ABORT;
+    }
+
+    return ActsExamples::ProcessCode::SUCCESS;
+  }
+};
+
+struct ExtractKalmanResultForGsf : ActsExamples::BareAlgorithm {
+  struct Config {
+    std::string inTrajectories;
+    std::string inProtoTracks;
+    std::string outTrackParameters;
+    std::string outProtoTracks;
+  } m_cfg;
+
+  ExtractKalmanResultForGsf(const Config &cfg, Acts::Logging::Level lvl)
+      : ActsExamples::BareAlgorithm("AbortIfAllTrajectoriesEmpty", lvl),
+        m_cfg(cfg) {}
+
+  ActsExamples::ProcessCode execute(
+      const ActsExamples::AlgorithmContext &ctx) const override {
+    const auto &inTrajectories =
+        ctx.eventStore.get<ActsExamples::TrajectoriesContainer>(
+            m_cfg.inTrajectories);
+    const auto &inProtoTracks =
+        ctx.eventStore.get<ActsExamples::ProtoTrackContainer>(
+            m_cfg.inProtoTracks);
+
+    ActsExamples::TrackParametersContainer outParameters;
+    ActsExamples::ProtoTrackContainer outProtoTracks;
+    
+    int invalid = 0;
+    
+    throw_assert(inTrajectories.size() == inProtoTracks.size(), "size mismatch");
+
+    for (auto i = 0ul; i < inTrajectories.size(); ++i) {
+      const auto &trajectory = inTrajectories[i];
+
+      const bool trajectoryValid =
+          !trajectory.empty() &&
+          trajectory.hasTrackParameters(trajectory.tips().at(0));
+          
+      if (trajectoryValid && !inProtoTracks[i].empty()) {
+        outParameters.push_back(
+            trajectory.trackParameters(trajectory.tips().front()));
+        outProtoTracks.push_back(inProtoTracks[i]);
+      } else {
+        outParameters.push_back(ActsExamples::TrackParameters({}, {}));
+        outProtoTracks.push_back(ActsExamples::ProtoTrack{});
+        invalid++;
+      }
+    }
+
+    throw_assert(outParameters.size() - invalid > 0, "no valid track left");
+    
+    ctx.eventStore.add<decltype(outParameters)>(m_cfg.outTrackParameters,
+                                                std::move(outParameters));
+    ctx.eventStore.add<decltype(outProtoTracks)>(m_cfg.outProtoTracks,
+                                                 std::move(outProtoTracks));
+
+    return ActsExamples::ProcessCode::SUCCESS;
+  }
+};
+
 int testGsf(const GsfTestSettings &settings) {
   // Logger
   auto mainLogger =
@@ -107,6 +202,13 @@ int testGsf(const GsfTestSettings &settings) {
   auto multiStepperLogger =
       Acts::getDefaultLogger("MultiStepper", settings.gsfLogLevel);
   ACTS_LOCAL_LOGGER(std::move(mainLogger));
+
+  // Some checks
+  //   if (settings.doRefit && !(settings.doKalman && settings.doGsf)) {
+  //     throw std::invalid_argument(
+  //         "if 'doRefit' is enabled, both Kalman Fitter and Gsf must be
+  //         enabled");
+  //   }
 
   // Summary
   ACTS_INFO("Parameters: numParticles = " << settings.numParticles);
@@ -117,6 +219,7 @@ int testGsf(const GsfTestSettings &settings) {
                .norm() /
            Acts::UnitConstants::T;
   }());
+  ACTS_INFO("Parameters: doRefit = " << std::boolalpha << settings.doRefit);
   ACTS_INFO("Parameters: RNG seed = " << settings.seed);
   ACTS_INFO("Parameters: " << (settings.doGsf ? "do GSF" : "no Gsf") << ", "
                            << (settings.doKalman ? "do Kalman" : "no Kalman"));
@@ -328,6 +431,47 @@ int testGsf(const GsfTestSettings &settings) {
   }
 #endif
 
+  ///////////////////
+  // Kalman Fitter //
+  ///////////////////
+  if (settings.doKalman) {
+    ActsExamples::TrackFittingAlgorithm::Config cfg;
+
+    cfg.inputMeasurements = kMeasurements;
+    cfg.inputSourceLinks = kSourceLinks;
+    cfg.inputProtoTracks = kSelectedProtoTracks;
+    cfg.inputInitialTrackParameters = kProtoTrackParameters;
+    cfg.outputTrajectories = kKalmanOutputTrajectories;
+    cfg.trackingGeometry = settings.geometry;
+    cfg.directNavigation = settings.doDirectNavigation;
+    if (settings.doDirectNavigation) {
+      cfg.dFit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
+          settings.magneticField);
+    } else {
+      cfg.fit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
+          settings.geometry, settings.magneticField);
+    }
+    cfg.fitterType = "Kalman";
+
+    sequencer.addAlgorithm(
+        std::make_shared<ActsExamples::TrackFittingAlgorithm>(
+            cfg, settings.globalLogLevel));
+  }
+
+  //////////////////////////////////////////////////////////////////////
+  // Extract start parameters from Kalman-Fitter in case of GSF-refit //
+  //////////////////////////////////////////////////////////////////////
+  if (settings.doRefit) {
+    ExtractKalmanResultForGsf::Config cfg;
+    cfg.inTrajectories = kKalmanOutputTrajectories;
+    cfg.inProtoTracks = kSelectedProtoTracks;
+    cfg.outTrackParameters = kTrackParametersFromKalman;
+    cfg.outProtoTracks = kProtoTracksFromKalman;
+
+    sequencer.addAlgorithm(std::make_shared<ExtractKalmanResultForGsf>(
+        cfg, settings.globalLogLevel));
+  }
+
   ////////////////////////
   // Gaussian Sum Filter
   ////////////////////////
@@ -336,8 +480,13 @@ int testGsf(const GsfTestSettings &settings) {
 
     cfg.inputMeasurements = kMeasurements;
     cfg.inputSourceLinks = kSourceLinks;
-    cfg.inputProtoTracks = kSelectedProtoTracks;
-    cfg.inputInitialTrackParameters = kProtoTrackParameters;
+    if (settings.doRefit) {
+      cfg.inputInitialTrackParameters = kTrackParametersFromKalman;
+      cfg.inputProtoTracks = kProtoTracksFromKalman;
+    } else {
+      cfg.inputInitialTrackParameters = kProtoTrackParameters;
+      cfg.inputProtoTracks = kSelectedProtoTracks;
+    }
     cfg.outputTrajectories = kGsfOutputTrajectories;
     cfg.trackingGeometry = settings.geometry;
     cfg.directNavigation = settings.doDirectNavigation;
@@ -355,33 +504,10 @@ int testGsf(const GsfTestSettings &settings) {
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(
             cfg, settings.gsfLogLevel));
-  }
 
-  //////////////////////////////////
-  // Kalman Fitter for comparison //
-  //////////////////////////////////
-  if (settings.doKalman) {
-    ActsExamples::TrackFittingAlgorithm::Config cfg;
-
-    cfg.inputMeasurements = kMeasurements;
-    cfg.inputSourceLinks = kSourceLinks;
-    cfg.inputProtoTracks = kSelectedProtoTracks;
-    cfg.inputInitialTrackParameters = kProtoTrackParameters;
-    cfg.outputTrajectories = kKalmanOutputTrajectories;
-    cfg.trackingGeometry = settings.geometry;
-    cfg.directNavigation = settings.doDirectNavigation;
-    if( settings.doDirectNavigation ) {
-    cfg.dFit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
-        settings.magneticField);
-    } else {
-        cfg.fit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
-        settings.geometry, settings.magneticField);
-    }
-    cfg.fitterType = "Kalman";
-
-    sequencer.addAlgorithm(
-        std::make_shared<ActsExamples::TrackFittingAlgorithm>(
-            cfg, settings.globalLogLevel));
+    //     sequencer.addAlgorithm(std::make_shared<AbortIfAllTrajectoriesEmpty>(
+    //         AbortIfAllTrajectoriesEmpty::Config{kGsfOutputTrajectories},
+    //         settings.globalLogLevel));
   }
 
   ////////////////////////////////////////////

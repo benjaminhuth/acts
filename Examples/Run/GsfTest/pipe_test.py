@@ -55,15 +55,21 @@ class ComponentsPlotter:
     def __init__(self):
         self.component_positions = []
         self.last_component = sys.maxsize
+        self.current_direction = "forward"
+        self.current_step = 0
         self.stages = []
         
     def parse_line(self, line):
         if line.count("Step is at surface") == 1:
             surface_name = line[line.find("vol"):]
             
-            self.stages.append((surface_name, copy.deepcopy(self.component_positions)))
+            self.stages.append((surface_name, self.current_direction, self.current_step, copy.deepcopy(self.component_positions)))
             self.component_positions = []
             self.last_component = sys.maxsize
+            
+        elif line.count("Do backward propagation") == 1:
+            self.current_direction = "backward"
+            self.current_step = 0
             
         elif re.match(r"^.*#[0-9]+\spos",line):
             line = line.replace(",","")
@@ -75,22 +81,21 @@ class ComponentsPlotter:
             
             if current_cmp < self.last_component:
                 self.component_positions.append([ pos ])
+                self.current_step += 1
             else:
                 self.component_positions[-1].append(pos)
                 
             self.last_component = current_cmp
             
     def process_data(self, odd_r, odd_z, odd_x, odd_y):
-        colors = ['b', 'g', 'r', 'c', 'm', 'y']
-        colorpool = cycle(colors)
+        colors = ['red', 'orangered', 'orange', 'gold', 'olive', 'forestgreen', 'lime', 'teal', 'cyan', 'blue', 'indigo', 'magenta', 'brown']
         
-        for target_surface, component_positions in self.stages:
-            if len(component_positions) < 50:
-                continue
+        for target_surface, direction, abs_step, component_positions in self.stages:
             
             fig, ax = plt.subplots(1,2)
             
-            fig.suptitle("Stepping towards {} ({} steps)".format(target_surface, len(component_positions)))
+            base_step = abs_step - len(component_positions)
+            fig.suptitle("Stepping {} towards {} ({} steps, starting from {})".format(direction, target_surface, len(component_positions), base_step))
             
             ax[0].scatter(odd_z, odd_r, c="grey")
             ax[0].set_ylabel("r")
@@ -108,33 +113,34 @@ class ComponentsPlotter:
             color_positions_y = { color: [] for color in colors }
             annotations = { color: [] for color in colors }
             
-            for step, (components, color) in enumerate(zip(component_positions, colorpool)):
+            for step, components in enumerate(component_positions):
                 if step > 300:
                     break
                 
                 positions = np.vstack(components)
                 
-                annotations[color] += [ "{}-{}".format(step, i) for i in range(len(components)) ]
-                
-                color_positions_r[color].append(np.sqrt(positions[:,0]**2 + positions[:,1]**2))
-                color_positions_z[color].append(positions[:,2])
-                color_positions_x[color].append(positions[:,0])
-                color_positions_y[color].append(positions[:,1])
+                for i, (cmp_pos, color) in enumerate(zip(positions, cycle(colors))):
+                    color_positions_r[color].append(np.sqrt(cmp_pos[0]**2 + cmp_pos[1]**2))
+                    color_positions_z[color].append(cmp_pos[2])
+                    color_positions_x[color].append(cmp_pos[0])
+                    color_positions_y[color].append(cmp_pos[1])
+                    
+                    annotations[color].append("{}-{}".format(step, i))
             
             for color in colors:
-                r = np.concatenate(color_positions_r[color])
-                z = np.concatenate(color_positions_z[color])
-                ax[0].scatter(z, r, c=color)
+                #r = np.concatenate(color_positions_r[color])
+                #z = np.concatenate(color_positions_z[color])
+                ax[0].scatter(color_positions_z[color], color_positions_r[color], c=color)
                 
                 
-                x = np.concatenate(color_positions_x[color])
-                y = np.concatenate(color_positions_y[color])
-                ax[1].scatter(x, y, c=color)
+                #x = np.concatenate(color_positions_x[color])
+                #y = np.concatenate(color_positions_y[color])
+                ax[1].scatter(color_positions_x[color], color_positions_y[color], c=color)
                 
                 
-                for i, txt in enumerate(annotations[color]):
-                    ax[0].annotate(txt, (z[i], r[i]))
-                    ax[1].annotate(txt, (x[i], y[i]))
+                #for i, txt in enumerate(annotations[color]):
+                    #ax[0].annotate(txt, (z[i], r[i]))
+                    #ax[1].annotate(txt, (x[i], y[i]))
             
             plt.show()
         

@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
   settings.doGsf = std::find(begin(args), end(args), "--no-gsf") == args.end();
   settings.doKalman =
       std::find(begin(args), end(args), "--no-kalman") == args.end();
-
+  settings.doRefit = false;
   settings.estimateParsFromSeed =
       std::find(begin(args), end(args), "--pars-from-seed") != args.end();
 

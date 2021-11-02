@@ -114,6 +114,9 @@ class MultiEigenStepperLoop
     : public EigenStepper<extensionlist_t, auctioneer_t> {
   const LoggerWrapper logger;
 
+  /// @brief Limits the number of steps after at least one component reached the surface
+  std::size_t m_stepLimitAfterFirstComponentOnSurface = 50;
+
  public:
   /// @brief Typedef to the Single-Component Eigen Stepper
   using SingleStepper = EigenStepper<extensionlist_t, auctioneer_t>;
@@ -188,13 +191,17 @@ class MultiEigenStepperLoop
     Covariance cov = Covariance::Zero();
     NavigationDirection navDir;
     double pathAccumulated = 0.;
-    int steps;
+    int steps = 0;
 
     /// geoContext
     std::reference_wrapper<const GeometryContext> geoContext;
 
     /// MagneticFieldContext
     std::reference_wrapper<const MagneticFieldContext> magContext;
+
+    /// Step-limit counter which limits the number of steps when one component
+    /// reached a surface
+    std::optional<std::size_t> stepCounterAfterFirstComponentOnSurface;
   };
 
   class ComponentProxy {
@@ -360,7 +367,10 @@ class MultiEigenStepperLoop
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck,
       LoggerWrapper /*extLogger*/ = getDummyLogger()) const {
+    using Status = Intersection3D::Status;
+
     std::array<int, 4> counts = {0, 0, 0, 0};
+
 #ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
 #endif
@@ -391,19 +401,29 @@ class MultiEigenStepperLoop
               << "\tAFTER" << outputStepSize(state) << std::endl;
 #endif
 
+    // Switch on stepCounter if one or more components reached a surface, but
+    // some are still in progress of reaching the surface
+    if (!state.stepCounterAfterFirstComponentOnSurface &&
+        counts[static_cast<std::size_t>(Status::onSurface)] > 0 &&
+        counts[static_cast<std::size_t>(Status::reachable)] > 0) {
+      state.stepCounterAfterFirstComponentOnSurface = 0;
+      ACTS_VERBOSE("started stepCounterAfterFirstComponentOnSurface");
+    }
+
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
     // somewhat importance)
-    using Status = Intersection3D::Status;
 
-    if (counts[static_cast<std::size_t>(Status::reachable)] > 0)
+    if (counts[static_cast<std::size_t>(Status::reachable)] > 0) {
       return Status::reachable;
-    else if (counts[static_cast<std::size_t>(Status::onSurface)] > 0)
+    } else if (counts[static_cast<std::size_t>(Status::onSurface)] > 0) {
+      state.stepCounterAfterFirstComponentOnSurface.reset();
       return Status::onSurface;
-    else if (counts[static_cast<std::size_t>(Status::unreachable)] > 0)
+    } else if (counts[static_cast<std::size_t>(Status::unreachable)] > 0) {
       return Status::unreachable;
-    else
+    } else {
       return Status::missed;
+    }
   }
 
   /// Update step size
@@ -422,21 +442,24 @@ class MultiEigenStepperLoop
 #ifdef PRINT_STEPSIZE_CHANGE
     const std::string before = outputStepSize(state);
 #endif
+    const Surface& surface = *oIntersection.representation;
 
     for (auto& component : state.components) {
-      const auto& surface = *oIntersection.representation;
-      const auto intersection = surface.intersect(
+      auto intersection = surface.intersect(
           component.state.geoContext, SingleStepper::position(component.state),
-          state.navDir * SingleStepper::direction(component.state), false);
+          SingleStepper::direction(component.state), true);
 
-      // TODO why does this give the wrong sign if we multiply with navDir?
-      //       throw_assert(std::signbit(oIntersection.intersection.pathLength)
-      //       ==
-      //                        std::signbit(intersection.intersection.pathLength),
-      //                    "sign error: averaged pathLength = "
-      //                        << oIntersection.intersection.pathLength
-      //                        << ", component pathLength = "
-      //                        << intersection.intersection.pathLength);
+      // We don't know whatever was done to manipulate the intersection before
+      // (e.g. in Layer.ipp:240), so we trust and just adjust the sign
+      if (std::signbit(oIntersection.intersection.pathLength) !=
+          std::signbit(intersection.intersection.pathLength)) {
+        intersection.intersection.pathLength *= -1;
+      }
+
+      if (std::signbit(oIntersection.alternative.pathLength) !=
+          std::signbit(intersection.alternative.pathLength)) {
+        intersection.alternative.pathLength *= -1;
+      }
 
       SingleStepper::updateStepSize(component.state, intersection, release);
     }
@@ -706,18 +729,66 @@ class MultiEigenStepperLoop
   /// algorithm, it can be modified by the stepper class during propagation.
   template <typename propagator_state_t>
   Result<double> step(propagator_state_t& state) const {
-    std::vector<Result<double>> results;
+    State& stepping = state.stepping;
 
+    // Update step count
+    stepping.steps++;
+
+    // Check if we abort because of m_stepLimitAfterFirstComponentOnSurface
+    if (stepping.stepCounterAfterFirstComponentOnSurface) {
+      (*stepping.stepCounterAfterFirstComponentOnSurface)++;
+
+      // If the limit is reached, remove all components which are not on a
+      // surface, reweight the components, perform no step and return 0
+      if (*stepping.stepCounterAfterFirstComponentOnSurface >=
+          m_stepLimitAfterFirstComponentOnSurface) {
+        auto& cmps = stepping.components;
+
+        // It is not possible to remove components from the vector, since the
+        // GSF actor relies on the fact that the ordering and number of
+        // components does not change
+        for (auto& cmp : cmps) {
+          if (cmp.status != Intersection3D::Status::onSurface) {
+            cmp.status = Intersection3D::Status::missed;
+            cmp.weight = 0.0;
+            cmp.state.pars.template segment<3>(eFreeDir0) = Vector3::Zero();
+          }
+        }
+
+        // Reweight
+        const auto sum_of_weights = std::accumulate(
+            begin(cmps), end(cmps), ActsScalar{0},
+            [](auto sum, const auto& cmp) { return sum + cmp.weight; });
+        for (auto& cmp : cmps) {
+          cmp.weight /= sum_of_weights;
+        }
+
+        ACTS_VERBOSE(
+            "hit m_stepLimitAfterFirstComponentOnSurface, "
+            "perform no step");
+
+        stepping.stepCounterAfterFirstComponentOnSurface.reset();
+
+        return 0.0;
+      }
+    }
+
+    // PropagationState which can be used with single component function
     struct SinglePropState {
       decltype(state.options)& options;
       decltype(state.navigation)& navigation;
       SingleState& stepping;
     };
 
+    // Loop over all components and collect results in vector, write some
+    // summary information to a stringstream
+    std::vector<Result<double>> results;
     std::stringstream ss;
 
-    for (auto& component : state.stepping.components) {
-      if (component.status != Intersection3D::Status::reachable) {
+    for (auto& component : stepping.components) {
+      // We must also propagate missed components for the case that all
+      // components miss the target we need to retarget
+      if (component.status == Intersection3D::Status::onSurface) {
         ss << "cmp skipped\t";
         continue;
       }
@@ -732,13 +803,13 @@ class MultiEigenStepperLoop
         ss << "step error: " << results.back().error() << "\t";
       }
     }
-    
-    state.stepping.steps++;
 
+    // Return no component was updated
     if (results.empty()) {
       return 0.0;
     }
 
+    // Collect pointers to results which are ok, since Result is not copyable
     std::vector<Result<double>*> ok_results;
     for (auto& res : results) {
       if (res.ok()) {
@@ -746,26 +817,27 @@ class MultiEigenStepperLoop
       }
     }
 
+    // Return error if there is no ok result
+    if (ok_results.empty()) {
+      return GsfError::AllComponentsSteppingError;
+    }
+
+    // Print the summary
     if (ok_results.size() == results.size()) {
       ACTS_VERBOSE("Performed steps: " << ss.str());
     } else {
       ACTS_WARNING("Performed steps with errors: " << ss.str());
     }
 
-    if (ok_results.empty())
-      return GsfError::AllComponentsSteppingError;
-    else {
-      const auto avg_step =
-          std::accumulate(
-              begin(ok_results), end(ok_results), 0.,
-              [](auto sum, auto res) { return sum + res->value(); }) /
-          static_cast<double>(ok_results.size());
-      state.stepping.pathAccumulated += avg_step;
-      
-      ACTS_VERBOSE("  pathAccumulated: " << state.stepping.pathAccumulated);
-      
-      return avg_step;
-    }
+    // Compute the average stepsize for the return value and the
+    // pathAccumulated
+    const auto avg_step =
+        std::accumulate(begin(ok_results), end(ok_results), 0.,
+                        [](auto sum, auto res) { return sum + res->value(); }) /
+        static_cast<double>(ok_results.size());
+    stepping.pathAccumulated += avg_step;
+
+    return avg_step;
   }
 };
 

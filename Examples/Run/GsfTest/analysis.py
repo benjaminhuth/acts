@@ -62,12 +62,36 @@ def importTree(tree, prefix):
 
     return totalResults, surfaceResults 
 
+def find_range_containing_x_percent(percent, data, bins):
+    bins, edges = np.histogram(data, bins=bins)
+    
+    max_bin = np.argmax(bins)
+    
+    print(edges)
+    
+    a = max_bin
+    b = max_bin + 1
+    
+    while np.sum(bins[a:b]) / len(data) < percent:
+        if a > 0:
+            a -= 1
+            
+        if b < len(bins):
+            b += 1
+        
+        if a == 0 and b == len(bins):
+            break
+        
+    data_min = edges[a]
+    data_max = edges[b]
+        
+    return data_min, data_max
+    
 
 def format_figure(fig):
     fig.set_size_inches(18,10)
     fig.tight_layout(pad=2.4, w_pad=2.5, h_pad=2.0)
     return fig
-
 
 def plotCollectionAllCoords(Collection, fitterType, resultType, pdf=None, nBins=20):
     fig, ax = plt.subplots(2,3)
@@ -209,6 +233,14 @@ def plotFinalPrediction(fitterType, pdf, nBins=20):
     for coor, axx in zip(boundNames(), axes):
         values = data[coor]
         assert len(values) > 0
+        
+        vmin, vmax = find_range_containing_x_percent(0.9, values, 100)
+        d = vmax - vmin
+        vmin -= 0.33*d
+        vmax += 0.33*d
+        
+        idxs = np.where(np.logical_and(values>=vmin, values<vmax))
+        values = values[idxs]
 
         mu, sigma = norm.fit(values)
         axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
@@ -240,7 +272,7 @@ pdf_filename = "analysis_{}_{}.pdf".format(resultType, datetime.datetime.now().s
 pdf = matplotlib.backends.backend_pdf.PdfPages(pdf_filename)
 
 logging.info("Plot start parameter estimation residuals...")
-plotStartParameterResiduals(pdf, nBins)
+#plotStartParameterResiduals(pdf, nBins)
 
 for fitterType in ["gsf", "kalman"]:
     logging.info("Plot {} of {}...".format(resultTypeTranslation()[resultType], fitterType))
