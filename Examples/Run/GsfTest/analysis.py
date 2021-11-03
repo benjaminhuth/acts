@@ -67,8 +67,6 @@ def find_range_containing_x_percent(percent, data, bins):
     
     max_bin = np.argmax(bins)
     
-    print(edges)
-    
     a = max_bin
     b = max_bin + 1
     
@@ -87,6 +85,14 @@ def find_range_containing_x_percent(percent, data, bins):
         
     return data_min, data_max
     
+def shrink_data(values, percent, bins, margin):
+    vmin, vmax = find_range_containing_x_percent(percent, values, bins)
+    d = vmax - vmin
+    vmin -= margin*d
+    vmax += margin*d
+    
+    idxs = np.where(np.logical_and(values>=vmin, values<vmax))
+    return values[idxs]
 
 def format_figure(fig):
     fig.set_size_inches(18,10)
@@ -167,6 +173,8 @@ def plotCollectionOneCoord(volLayerDict, volLayerList, coor, fitterType, resultT
                 values = np.asarray(values)[np.isfinite(values)]
                 assert np.isfinite(values).all()
 
+            values = shrink_data(values, 0.9, 100, 0.33)
+
             mu, sigma = norm.fit(values)
             axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
             legend.append("{} (µ={:.2f}, s={:.2f})".format(trackType, mu, sigma))
@@ -231,16 +239,17 @@ def plotFinalPrediction(fitterType, pdf, nBins=20):
     axes = [ ax[i//nCols, i%nCols] for i in range(nRows*nCols) ]
 
     for coor, axx in zip(boundNames(), axes):
-        values = data[coor]
+        values = np.array(data[coor])
+        
+        if not np.isfinite(values).all():
+            nan_percent = 100.0 * sum(np.logical_not(np.isfinite(values))) / len(values)
+            logging.warning("Final prediction for {} contain {}% non finite values".format(coor, nan_percent))
+            values = values[np.isfinite(values)]
+            assert np.isfinite(values).all()
+        
         assert len(values) > 0
         
-        vmin, vmax = find_range_containing_x_percent(0.9, values, 100)
-        d = vmax - vmin
-        vmin -= 0.33*d
-        vmax += 0.33*d
-        
-        idxs = np.where(np.logical_and(values>=vmin, values<vmax))
-        values = values[idxs]
+        values = shrink_data(values, 0.9, 100, 0.33)
 
         mu, sigma = norm.fit(values)
         axx.hist(values, nBins, histtype='step', stacked=False, fill=False, density=True)
@@ -262,7 +271,7 @@ logging.basicConfig(format='[%(levelname)s] %(asctime)s: %(message)s',level=logg
 
 resultType = "res"
 doSurfacePlots = True
-nBins = 40
+nBins = 80
 
 if sys.argv.count("--no-surface-plots") > 0:
     logging.info("Surface plots disabled by command line option")
