@@ -381,16 +381,13 @@ class MultiEigenStepperLoop
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
-    constexpr static std::array s = {"missed/unreachable", "reachable",
-                                     "onSurface"};
-
     ACTS_VERBOSE(
         "Component status wrt "
         << surface.geometryId() << " at {"
         << surface.center(state.geoContext).transpose() << "}:\t" << [&]() {
              std::stringstream ss;
              for (auto& component : state.components) {
-               ss << s[static_cast<std::size_t>(component.status)] << "\t";
+               ss << component.status << "\t";
              }
              return ss.str();
            }());
@@ -413,7 +410,6 @@ class MultiEigenStepperLoop
     // This is a 'any_of' criterium. As long as any of the components has a
     // certain state, this determines the total state (in the order of a
     // somewhat importance)
-
     if (counts[static_cast<std::size_t>(Status::reachable)] > 0) {
       return Status::reachable;
     } else if (counts[static_cast<std::size_t>(Status::onSurface)] > 0) {

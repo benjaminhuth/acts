@@ -246,12 +246,22 @@ struct GaussianSumFitter {
           << (state.stepping.navDir == forward ? "forward" : "backward")
           << " mode");
 
+      std::size_t missed_count = 0;
+      std::size_t reachable_count = 0;
+
       for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
         typename stepper_t::ComponentProxy cmp(state.stepping, i);
 
-        if (cmp.status() == Acts::Intersection3D::Status::missed) {
+        using Status = Acts::Intersection3D::Status;
+
+        if (cmp.status() == Status::missed ||
+            cmp.status() == Status::unreachable) {
+          missed_count++;
           ACTS_VERBOSE("  #"
                        << i << " missed/unreachable, weight: " << cmp.weight());
+        } else if (cmp.status() == Status::reachable) {
+          reachable_count++;
+          ACTS_VERBOSE("  #" << i << " reachable, weight: " << cmp.weight());
         } else {
           auto getVector = [&](auto idx) {
             return cmp.pars().template segment<3>(idx).transpose();
@@ -284,8 +294,14 @@ struct GaussianSumFitter {
         SET_ERROR_AND_RETURN_OR_ABORT_ACTOR(GsfError::ComponentNumberMismatch);
       }
 
+      // There seem to be cases where this is not always after initializing the
+      // navigation from a surface. Some later functions assume this criterium
+      // to be fulfilled.
+      bool on_surface = reachable_count == 0 &&
+                        missed_count < stepper.numberComponents(state.stepping);
+
       // We only need to do something if we are on a surface
-      if (state.navigation.currentSurface) {
+      if (state.navigation.currentSurface && on_surface) {
         const auto& surface = *state.navigation.currentSurface;
         ACTS_VERBOSE("Step is at surface " << surface.geometryId());
 

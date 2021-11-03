@@ -60,6 +60,13 @@ struct MultiStepperSurfaceReached {
       }
     }
 
+    // These values are changed by the single component aborters but must be
+    // reset if not all components are on the target
+    if (!reached) {
+      state.navigation.currentSurface = nullptr;
+      state.navigation.targetReached = false;
+    }
+    
     return reached;
   }
 };
