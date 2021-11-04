@@ -147,7 +147,7 @@ struct ExtractKalmanResultForGsf : ActsExamples::BareAlgorithm {
   } m_cfg;
 
   ExtractKalmanResultForGsf(const Config &cfg, Acts::Logging::Level lvl)
-      : ActsExamples::BareAlgorithm("AbortIfAllTrajectoriesEmpty", lvl),
+      : ActsExamples::BareAlgorithm("ExtractKalmanResultForGsf", lvl),
         m_cfg(cfg) {}
 
   ActsExamples::ProcessCode execute(
@@ -161,10 +161,11 @@ struct ExtractKalmanResultForGsf : ActsExamples::BareAlgorithm {
 
     ActsExamples::TrackParametersContainer outParameters;
     ActsExamples::ProtoTrackContainer outProtoTracks;
-    
+
     int invalid = 0;
-    
-    throw_assert(inTrajectories.size() == inProtoTracks.size(), "size mismatch");
+
+    throw_assert(inTrajectories.size() == inProtoTracks.size(),
+                 "size mismatch");
 
     for (auto i = 0ul; i < inTrajectories.size(); ++i) {
       const auto &trajectory = inTrajectories[i];
@@ -172,7 +173,7 @@ struct ExtractKalmanResultForGsf : ActsExamples::BareAlgorithm {
       const bool trajectoryValid =
           !trajectory.empty() &&
           trajectory.hasTrackParameters(trajectory.tips().at(0));
-          
+
       if (trajectoryValid && !inProtoTracks[i].empty()) {
         outParameters.push_back(
             trajectory.trackParameters(trajectory.tips().front()));
@@ -185,7 +186,7 @@ struct ExtractKalmanResultForGsf : ActsExamples::BareAlgorithm {
     }
 
     throw_assert(outParameters.size() - invalid > 0, "no valid track left");
-    
+
     ctx.eventStore.add<decltype(outParameters)>(m_cfg.outTrackParameters,
                                                 std::move(outParameters));
     ctx.eventStore.add<decltype(outProtoTracks)>(m_cfg.outProtoTracks,
@@ -505,9 +506,9 @@ int testGsf(const GsfTestSettings &settings) {
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(
             cfg, settings.gsfLogLevel));
 
-    //     sequencer.addAlgorithm(std::make_shared<AbortIfAllTrajectoriesEmpty>(
-    //         AbortIfAllTrajectoriesEmpty::Config{kGsfOutputTrajectories},
-    //         settings.globalLogLevel));
+    sequencer.addAlgorithm(std::make_shared<AbortIfAllTrajectoriesEmpty>(
+        AbortIfAllTrajectoriesEmpty::Config{kGsfOutputTrajectories},
+        settings.globalLogLevel));
   }
 
   ////////////////////////////////////////////

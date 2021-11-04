@@ -13,7 +13,7 @@ namespace {
 class GsfErrorCategory : public std::error_category {
  public:
   // Return a short descriptive name for the category.
-  const char* name() const noexcept final { return "MultiStepperError"; }
+  const char* name() const noexcept final { return "GsfError"; }
 
   // Return what each enum means in text.
   std::string message(int c) const final {
@@ -28,6 +28,14 @@ class GsfErrorCategory : public std::error_category {
         return "No component has been created in the filter step";
       case GsfError::NoStatesCreated:
         return "No states where created in the MultiTrajectory";
+      case GsfError::StartParametersNotOnStartSurface:
+        return "Start parameters don't lie in the start surface";
+      case GsfError::PropagationEndedOnWrongSurface:
+        return "The propagation did not reach the correct target surface";
+      case GsfError::LastStepParamsContainNan:
+        return "The parameters to start the last step with contain NAN values";
+      case GsfError::SmoothingFailed:
+        return "Smoothing failed because the difference between fwd and bwd was to big";
       default:
         return "unknown";
     }

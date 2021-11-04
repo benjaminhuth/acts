@@ -28,6 +28,7 @@
 
 #include "BetheHeitlerApprox.hpp"
 #include "GsfError.hpp"
+#include "GsfSmoothing.hpp"
 #include "GsfUtils.hpp"
 #include "KLMixtureReduction.hpp"
 #include "MultiStepperAborters.hpp"
@@ -257,19 +258,16 @@ struct GaussianSumFitter {
         if (cmp.status() == Status::missed ||
             cmp.status() == Status::unreachable) {
           missed_count++;
-          ACTS_VERBOSE("  #"
-                       << i << " missed/unreachable, weight: " << cmp.weight());
         } else if (cmp.status() == Status::reachable) {
           reachable_count++;
-          ACTS_VERBOSE("  #" << i << " reachable, weight: " << cmp.weight());
-        } else {
-          auto getVector = [&](auto idx) {
-            return cmp.pars().template segment<3>(idx).transpose();
-          };
-          ACTS_VERBOSE("  #" << i << " pos: " << getVector(eFreePos0)
-                             << ", dir: " << getVector(eFreeDir0)
-                             << ", weight: " << cmp.weight());
         }
+
+        auto getVector = [&](auto idx) {
+          return cmp.pars().template segment<3>(idx).transpose();
+        };
+        ACTS_VERBOSE("  #" << i << " pos: " << getVector(eFreePos0)
+                           << ", dir: " << getVector(eFreeDir0) << ", weight: "
+                           << cmp.weight() << ", status: " << cmp.status());
       }
 
       // Workaround to initialize MT in backward mode
@@ -345,9 +343,9 @@ struct GaussianSumFitter {
                                  proxy.filtered(), proxy.filteredCovariance());
         };
 
-        auto mapCacheToWeightParsCov = [&](auto& variant) {
-          auto& c = std::get<detail::GsfComponentParameterCache>(variant);
-          return std::tie(c.weight, c.boundPars, c.boundCov);
+        auto mapProxyToWeight = [&](const auto& cmp) {
+          return result.weightsOfStates.at(
+              std::get<1>(std::get<0>(cmp)).index());
         };
 
         ///////////////////////////////////////////
@@ -378,8 +376,8 @@ struct GaussianSumFitter {
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
 
-          throw_assert(detail::componentWeightsAreNormalized(
-                           componentCache, mapProxyToWeightParsCov),
+          throw_assert(detail::componentWeightsAreNormalized(componentCache,
+                                                             mapProxyToWeight),
                        "weights not normalized (material & measurement)");
         }
         /////////////////////////////////////////////
@@ -404,7 +402,9 @@ struct GaussianSumFitter {
             result.parentTips.push_back(meta.parentIndex);
           }
 
-          detail::normalizeWeights(componentCache, mapCacheToWeightParsCov);
+          detail::normalizeWeights(componentCache, [](auto& cmp) -> double& {
+            return std::get<0>(std::get<0>(cmp)).weight;
+          });
 
           detail::updateStepper(
               state, stepper, componentCache, [&](const auto& variant) {
@@ -412,7 +412,10 @@ struct GaussianSumFitter {
               });
 
           throw_assert(detail::componentWeightsAreNormalized(
-                           componentCache, mapCacheToWeightParsCov),
+                           componentCache,
+                           [](const auto& cmp) {
+                             return std::get<0>(std::get<0>(cmp)).weight;
+                           }),
                        "weights not normalized (only material)");
         }
         /////////////////////////////////////////////
@@ -437,8 +440,8 @@ struct GaussianSumFitter {
           detail::updateStepper(state, stepper, componentCache,
                                 mapProxyToWeightParsCov);
 
-          throw_assert(detail::componentWeightsAreNormalized(
-                           componentCache, mapProxyToWeightParsCov),
+          throw_assert(detail::componentWeightsAreNormalized(componentCache,
+                                                             mapProxyToWeight),
                        "weights not normalized (only measurement)");
         }
 
@@ -787,6 +790,7 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("+------------------------------+");
 
     auto bwdResult = [&]() {
+      // Use last forward state as start parameters for backward propagation
       const auto params = detail::extractMultiComponentState(
           fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
           fwdGsfResult.weightsOfStates, detail::StatesType::eFiltered);
@@ -832,6 +836,18 @@ struct GaussianSumFitter {
 
       bwdPropOptions.direction = Acts::backward;
 
+      // const auto targetSurface = [&]() {
+      //   const Surface* ts = nullptr;
+      //   fwdGsfResult.fittedStates.visitBackwards(
+      //       fwdGsfResult.currentTips.front(),
+      //       [&ts](const auto& state) { ts = &state.referenceSurface();
+      //       });
+      //   throw_assert(ts, "target surface must not be nullptr");
+      //   return ts;
+      // }();
+
+      // TODO somehow this proagation fails if we target the first measuerement
+      // surface, go instead back to beamline for now
       return m_propagator
           .template propagate<decltype(params), decltype(bwdPropOptions),
                               MultiStepperSurfaceReached>(
@@ -867,27 +883,20 @@ struct GaussianSumFitter {
       RETURN_ERROR_OR_ABORT_FIT(GsfError::NoStatesCreated);
     }
 
-    const auto& finalParameters = (*bwdResult).endParameters;
-
-    if (finalParameters->referenceSurface().geometryId() !=
-        options.referenceSurface->geometryId()) {
-      m_failStatistics.write(
-          "PropagationEndedOnWrongSurface"s, (*fwdResult).steps,
-          (*fwdResult).pathLength, (*bwdResult).steps, (*bwdResult).pathLength,
-          sParameters.absoluteMomentum(), sParameters.transverseMomentum(),
-          sParameters.template get<eBoundTheta>());
-      RETURN_ERROR_OR_ABORT_FIT(GsfError::PropagationEndedOnWrongSurface);
-    }
-
     ////////////////////////////////////
     // Smooth and create Kalman Result
     ////////////////////////////////////
     ACTS_VERBOSE("Gsf: Do smoothing");
 
-    const auto [combinedTraj, lastTip] = detail::smoothAndCombineTrajectories(
-        fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-        fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
+    const auto smoothResult =
+        detail::smoothAndCombineTrajectories<source_link_t, true>(
+            fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+            fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
+            bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
+
+    // Cannot use structured binding since they cannot be captured in lambda
+    const auto& combinedTraj = std::get<0>(smoothResult);
+    const auto lastTip = std::get<1>(smoothResult);
 
     // Some test
     if (lastTip == SIZE_MAX) {
@@ -906,7 +915,52 @@ struct GaussianSumFitter {
     kalmanResult.reversed = true;
     kalmanResult.finished = true;
     kalmanResult.lastMeasurementIndex = lastTip;
-    kalmanResult.fittedParameters = *finalParameters;
+
+    ///////////////////////////////////////////////////////
+    // Propagate back to origin with smoothed parameters //
+    ///////////////////////////////////////////////////////
+    ACTS_VERBOSE("+--------------------------------------+");
+    ACTS_VERBOSE("| Gsf: Do propagation back to beamline |");
+    ACTS_VERBOSE("+--------------------------------------+");
+    auto lastResult = [&]() -> Result<std::unique_ptr<BoundTrackParameters>> {
+      const auto& [surface, lastSmoothedState] =
+          std::get<2>(smoothResult).front();
+
+      throw_assert(
+          detail::componentWeightsAreNormalized(
+              lastSmoothedState,
+              [](const auto& tuple) { return std::get<double>(tuple); }),
+          "");
+
+      const MultiComponentBoundTrackParameters<SinglyCharged> params(
+          surface->getSharedPtr(), lastSmoothedState);
+
+      auto lastPropOptions = bwdPropInitializer(options, logger);
+
+      auto& actor = lastPropOptions.actionList.template get<GSFActor>();
+      actor.m_config.maxComponents = options.maxComponents;
+      actor.m_config.abortOnError = options.abortOnError;
+
+      lastPropOptions.direction = Acts::backward;
+
+      auto result =
+          m_propagator
+              .template propagate<decltype(params), decltype(lastPropOptions),
+                                  MultiStepperSurfaceReached>(
+                  params, *options.referenceSurface, lastPropOptions);
+
+      if (!result.ok()) {
+        return result.error();
+      } else {
+        return std::move((*result).endParameters);
+      }
+    }();
+
+    if (!lastResult.ok()) {
+      RETURN_ERROR_OR_ABORT_FIT(lastResult.error());
+    }
+
+    kalmanResult.fittedParameters = **lastResult;
 
     m_successStatistics.write((*fwdResult).steps, (*fwdResult).pathLength,
                               (*bwdResult).steps, (*bwdResult).pathLength,

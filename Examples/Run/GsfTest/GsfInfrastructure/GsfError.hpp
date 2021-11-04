@@ -20,7 +20,9 @@ enum class GsfError {
   NoComponentCreated,
   NoStatesCreated,
   StartParametersNotOnStartSurface,
-  PropagationEndedOnWrongSurface
+  PropagationEndedOnWrongSurface,
+  LastStepParamsContainNan,
+  SmoothingFailed,
 };
 
 std::error_code make_error_code(Acts::GsfError e);
