@@ -381,16 +381,16 @@ class MultiEigenStepperLoop
       ++counts[static_cast<std::size_t>(component.status)];
     }
 
-    ACTS_VERBOSE(
-        "Component status wrt "
-        << surface.geometryId() << " at {"
-        << surface.center(state.geoContext).transpose() << "}:\t" << [&]() {
-             std::stringstream ss;
-             for (auto& component : state.components) {
-               ss << component.status << "\t";
-             }
-             return ss.str();
-           }());
+    ACTS_VERBOSE("Component status wrt "
+                 << surface.geometryId() << " at {"
+                 << surface.center(state.geoContext).transpose() << "}:\t"
+                 << [&]() {
+                      std::stringstream ss;
+                      for (auto& component : state.components) {
+                        ss << component.status << "\t";
+                      }
+                      return ss.str();
+                    }());
 
 #ifdef PRINT_STEPSIZE_CHANGE
     std::cout << "MultiStepperLoop::updateSurfaceStatus(...):\n"

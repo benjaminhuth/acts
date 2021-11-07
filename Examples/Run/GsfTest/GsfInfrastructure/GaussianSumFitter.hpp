@@ -16,6 +16,7 @@
 #include "Acts/Material/ISurfaceMaterial.hpp"
 #include "Acts/Propagator/EigenStepper.hpp"
 #include "Acts/Propagator/StandardAborters.hpp"
+#include "Acts/Surfaces/CylinderSurface.hpp"
 #include "Acts/Surfaces/Surface.hpp"
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
@@ -348,6 +349,11 @@ struct GaussianSumFitter {
               std::get<1>(std::get<0>(cmp)).index());
         };
 
+        // Final component number
+        const auto final_cmp_number =
+            std::min(static_cast<std::size_t>(stepper.maxComponents),
+                     m_config.maxComponents);
+
         ///////////////////////////////////////////
         // Component Splitting AND Kalman Update
         ///////////////////////////////////////////
@@ -359,11 +365,19 @@ struct GaussianSumFitter {
                                         m_config.weightCutoff},
               m_config.doCovTransport, componentCache);
 
-          detail::reduceWithKLDistance(
-              componentCache,
-              std::min(static_cast<std::size_t>(stepper.maxComponents),
-                       m_config.maxComponents),
-              ParametersCacheProjector{});
+          // We must differ between the surface types here
+          if (surface.type() == Surface::Cylinder) {
+            detail::AngleDescription::Cylinder angle_desc;
+            std::get<0>(angle_desc).constant =
+                static_cast<const CylinderSurface&>(surface).bounds().get(
+                    CylinderBounds::eR);
+            detail::reduceWithKLDistance(componentCache, final_cmp_number,
+                                         ParametersCacheProjector{},
+                                         angle_desc);
+          } else {
+            detail::reduceWithKLDistance(componentCache, final_cmp_number,
+                                         ParametersCacheProjector{});
+          }
 
           result.result = kalmanUpdate(state, found_source_link->second, result,
                                        componentCache);
@@ -391,11 +405,19 @@ struct GaussianSumFitter {
                                         m_config.weightCutoff},
               m_config.doCovTransport, componentCache);
 
-          detail::reduceWithKLDistance(
-              componentCache,
-              std::min(static_cast<std::size_t>(stepper.maxComponents),
-                       m_config.maxComponents),
-              ParametersCacheProjector{});
+          // We must differ between the surface types here
+          if (surface.type() == Surface::Cylinder) {
+            detail::AngleDescription::Cylinder angle_desc;
+            std::get<0>(angle_desc).constant =
+                static_cast<const CylinderSurface&>(surface).bounds().get(
+                    CylinderBounds::eR);
+            detail::reduceWithKLDistance(componentCache, final_cmp_number,
+                                         ParametersCacheProjector{},
+                                         angle_desc);
+          } else {
+            detail::reduceWithKLDistance(componentCache, final_cmp_number,
+                                         ParametersCacheProjector{});
+          }
 
           result.parentTips.clear();
           for (const auto& [variant, meta] : componentCache) {
@@ -574,6 +596,28 @@ struct GaussianSumFitter {
     }
   };
 
+  struct NotInCurrentVolumeAborter {
+    NotInCurrentVolumeAborter() = default;
+
+    template <typename propagator_state_t, typename stepper_t>
+    bool operator()(propagator_state_t& state, const stepper_t& stepper) const {
+      const auto &logger = state.options.logger;
+      return false;
+      // This happens if the components diverge quite a lot and can distract the
+      // navigation
+      // TODO no general solution for this problem found yet
+      if (!state.navigation.currentVolume->inside(stepper.position(state.stepping))) {
+        ACTS_ERROR("The average track left the current volume in step "
+                   << state.stepping.steps);
+        return true;
+      }
+        ACTS_ERROR("sdfdfdfdfp "
+                   << state.stepping.steps);
+
+      return true;
+    }
+  };
+
   /// @brief The fit function for the Direct navigator
   template <typename source_link_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
@@ -593,7 +637,7 @@ struct GaussianSumFitter {
     auto fwdPropInitializer = [&sSequence](const auto& opts,
                                            const auto& logger) {
       using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
-      using Aborters = AbortList<>;
+      using Aborters = AbortList<NotInCurrentVolumeAborter>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
@@ -608,7 +652,7 @@ struct GaussianSumFitter {
     auto bwdPropInitializer = [&sSequence](const auto& opts,
                                            const auto& logger) {
       using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
-      using Aborters = AbortList<>;
+      using Aborters = AbortList<NotInCurrentVolumeAborter>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);

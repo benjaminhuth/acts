@@ -22,7 +22,7 @@ enum class GsfError {
   StartParametersNotOnStartSurface,
   PropagationEndedOnWrongSurface,
   LastStepParamsContainNan,
-  SmoothingFailed,
+  SmoothingFailed
 };
 
 std::error_code make_error_code(Acts::GsfError e);

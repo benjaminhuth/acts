@@ -38,16 +38,20 @@ auto computeKLDistance(const component_t &a, const component_t &b,
   return kl;
 }
 
-template <typename component_t, typename component_projector_t>
+template <typename component_t, typename component_projector_t,
+          typename angle_desc_t = AngleDescription::Default>
 auto mergeComponents(const component_t &a, const component_t &b,
-                     const component_projector_t &proj) {
+                     const component_projector_t &proj,
+                     const angle_desc_t &angle_desc = angle_desc_t{}) {
   throw_assert(proj(a).weight > 0.0 && proj(b).weight > 0.0, "weight error");
 
   std::array range = {std::ref(proj(a)), std::ref(proj(b))};
-  auto [mergedPars, mergedCov] =
-      combineComponentRange(range.begin(), range.end(), [](auto &c) {
+  auto [mergedPars, mergedCov] = combineComponentRange(
+      range.begin(), range.end(),
+      [](auto &c) {
         return std::tie(c.get().weight, c.get().boundPars, c.get().boundCov);
-      });
+      },
+      angle_desc);
 
   component_t ret = a;
   proj(ret).boundPars = mergedPars;
@@ -139,10 +143,12 @@ class SymmetricKLDistanceMatrix {
   }
 };
 
-template <typename component_t, typename component_projector_t>
+template <typename component_t, typename component_projector_t,
+          typename angle_desc_t = AngleDescription::Default>
 void reduceWithKLDistance(std::vector<component_t> &cmpCache,
                           std::size_t maxCmpsAfterMerge,
-                          const component_projector_t &proj) {
+                          const component_projector_t &proj,
+                          const angle_desc_t &angle_desc = angle_desc_t{}) {
   if (cmpCache.size() <= maxCmpsAfterMerge) {
     return;
   }
@@ -154,7 +160,8 @@ void reduceWithKLDistance(std::vector<component_t> &cmpCache,
   while (remainingComponents > maxCmpsAfterMerge) {
     const auto [minI, minJ] = distances.minDistancePair();
 
-    cmpCache[minI] = mergeComponents(cmpCache[minI], cmpCache[minJ], proj);
+    cmpCache[minI] =
+        mergeComponents(cmpCache[minI], cmpCache[minJ], proj, angle_desc);
     distances.recomputeAssociatedDistances(minI, cmpCache, proj);
     remainingComponents--;
 

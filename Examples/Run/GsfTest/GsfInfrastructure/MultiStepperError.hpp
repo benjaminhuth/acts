@@ -15,7 +15,8 @@ namespace Acts {
 enum class MultiStepperError {
   // ensure all values are non-zero
   ComponentNotOnSurface = 1,
-  StateOfMultipleComponentsRequested = 2
+  StateOfMultipleComponentsRequested = 2,
+  AverageTrackLeftCurrentVolume = 3
 };
 
 std::error_code make_error_code(Acts::MultiStepperError e);
