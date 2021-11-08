@@ -24,9 +24,12 @@ class AverageTrackPlotter:
         self.positions.append(np.array([ float(item) for item in line.split() ]))
 
     def process_data(self, odd_r, odd_z, odd_x, odd_y):
-        self.positions = np.vstack(self.positions)
+        if len(self.positions) == 0:
+            return
 
-        r = np.sqrt(self.positions[:,0]**2 + self.positions[:,1]**2)
+        positions = np.vstack(self.positions)
+
+        r = np.sqrt(positions[:,0]**2 + positions[:,1]**2)
 
         sep = 0
         for i in range(len(r)-1):
@@ -37,18 +40,20 @@ class AverageTrackPlotter:
         fig, ax = plt.subplots(1,2)
 
         ax[0].scatter(odd_z, odd_r, c="grey")
-        ax[0].plot(self.positions[:sep,2], r[:sep])
-        ax[0].scatter(self.positions[:sep,2], r[:sep])
+        ax[0].plot(positions[:sep,2], r[:sep])
+        ax[0].scatter(positions[:sep,2], r[:sep])
         ax[0].set_ylabel("r")
         ax[0].set_xlabel("z")
         ax[0].set_title("R-Z Plot forward ({} steps)".format(sep))
 
         ax[1].scatter(odd_x, odd_y, c="grey")
-        ax[1].plot(self.positions[:sep,0], self.positions[:sep,1])
-        ax[1].scatter(self.positions[:sep,0], self.positions[:sep,1])
+        ax[1].plot(positions[:sep,0], positions[:sep,1])
+        ax[1].scatter(positions[:sep,0], positions[:sep,1])
         ax[1].set_xlabel("x")
         ax[1].set_ylabel("y")
         ax[1].set_title("X-Y Plot foward ({} steps)".format(sep))
+
+        plt.show()
 
         
 class ComponentsPlotter:
@@ -150,7 +155,7 @@ class ComponentsPlotter:
 # Load ODD geometry #
 ######################
 
-odd_csv_file = "/home/benjamin/Documents/acts_project/run/odd_csv/event000000000-detectors.csv"
+odd_csv_file = "/home/benjamin/Documents/acts_project/OpenDataDetector/csv/event000000000-detectors.csv"
 assert os.path.exists(odd_csv_file)
 odd_data = pd.read_csv(odd_csv_file)
 
@@ -170,12 +175,17 @@ input_processors = {
 }
 
 selected_processors = []
-for arg in sys.argv:
-    if arg in input_processors:
+
+if "all" in sys.argv:
+    for arg in input_processors.keys():
         selected_processors.append(arg)
-    elif arg.count("help") > 0:
-        print("Usage: {} {}".format(os.path.basename(sys.argv[0]), input_processors.keys()))
-        exit(1)
+else:
+    for arg in sys.argv:
+        if arg in input_processors:
+            selected_processors.append(arg)
+        elif arg.count("help") > 0:
+            print("Usage: {} {} or 'all'".format(os.path.basename(sys.argv[0]), input_processors.keys()))
+            exit(1)
 
 if len(selected_processors) == 0:
     print("No valid component selected. Chose one of {}".format(input_processors.keys()))
@@ -187,14 +197,16 @@ if len(selected_processors) == 0:
 
 timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
 
+lines = 0
+
 with open("outfile-{}.txt".format(timestamp), 'w') as stdout_file:
     for line in sys.stdin.readlines():
         stdout_file.write(line)
+        lines += 1
         for name in selected_processors:
             input_processors[name].parse_line(line)
 
+print("Parsed {} lines, process input now...".format(lines))
 
 for name in selected_processors:
     input_processors[name].process_data(odd_r, odd_z, odd_x, odd_y)
-
-plt.show()

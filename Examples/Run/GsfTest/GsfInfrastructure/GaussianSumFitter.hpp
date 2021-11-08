@@ -324,6 +324,28 @@ struct GaussianSumFitter {
 
         // Early return if nothing happens
         if (not haveMaterial && not haveMeasurement) {
+          auto& tips = result.parentTips;
+          auto& cmps = state.stepping.components;
+
+          // First ensure the tips point still to the correct component
+          std::vector<size_t> new_tips;
+          for (auto i = 0ul; i < cmps.size(); ++i) {
+            if (cmps[i].status == Intersection3D::Status::onSurface) {
+              new_tips.push_back(tips[i]);
+            }
+          }
+          tips = new_tips;
+
+          // TODO Non-generic way, make better later
+          cmps.erase(std::remove_if(cmps.begin(), cmps.end(),
+                                    [](const auto& cmp) {
+                                      return cmp.status !=
+                                             Intersection3D::Status::onSurface;
+                                    }),
+                     cmps.end());
+
+          detail::normalizeWeights(cmps, [](auto &cmp) -> double& { return cmp.weight; });
+
           ACTS_VERBOSE("No material or measurement, return");
           return;
         }
@@ -601,18 +623,18 @@ struct GaussianSumFitter {
 
     template <typename propagator_state_t, typename stepper_t>
     bool operator()(propagator_state_t& state, const stepper_t& stepper) const {
-      const auto &logger = state.options.logger;
+      const auto& logger = state.options.logger;
       return false;
       // This happens if the components diverge quite a lot and can distract the
       // navigation
       // TODO no general solution for this problem found yet
-      if (!state.navigation.currentVolume->inside(stepper.position(state.stepping))) {
+      if (!state.navigation.currentVolume->inside(
+              stepper.position(state.stepping))) {
         ACTS_ERROR("The average track left the current volume in step "
                    << state.stepping.steps);
         return true;
       }
-        ACTS_ERROR("sdfdfdfdfp "
-                   << state.stepping.steps);
+      ACTS_ERROR("sdfdfdfdfp " << state.stepping.steps);
 
       return true;
     }
