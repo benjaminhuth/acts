@@ -28,6 +28,9 @@ makeGsfStandardFitterFunction(
 void setGsfAbortOnError(bool);
 bool getGsfAbortOnError();
 
+void setGsfLoopProtection(bool);
+bool getGsfLoopProtection();
+
 void setGsfMaxComponents(std::size_t);
 std::size_t getGsfMaxComponents();
 

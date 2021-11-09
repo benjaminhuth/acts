@@ -256,6 +256,7 @@ int testGsf(const GsfTestSettings &settings) {
   setGsfMaxComponents(settings.maxComponents);
   setGsfAbortOnError(settings.gsfAbortOnError);
   setGsfMaxSteps(settings.maxSteps);
+  setGsfLoopProtection(settings.gsfLoopProtection);
 
   /////////////////////
   // Particle gun

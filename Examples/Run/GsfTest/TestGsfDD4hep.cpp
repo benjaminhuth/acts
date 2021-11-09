@@ -122,6 +122,7 @@ int main(int argc, char **argv) {
   settings.seed = vm["s"].as<std::size_t>();
   settings.gsfAbortOnError = vm["abort-on-error"].as<bool>();
   settings.doRefit = vm["do-refit"].as<bool>();
+  settings.gsfLoopProtection = false;
 
   // Setup detector geometry
   const auto [geometry, decorators] =

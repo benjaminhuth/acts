@@ -36,6 +36,7 @@ struct GsfTestSettings {
     std::size_t maxComponents;
     std::size_t maxSteps;
     bool gsfAbortOnError;
+    bool gsfLoopProtection;
     
     double inflation;
     

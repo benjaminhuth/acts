@@ -56,7 +56,8 @@ struct GsfStandardFitterFunction
         kalmanOptions.logger,
         getGsfAbortOnError(),
         getGsfMaxComponents(),
-        getGsfMaxSteps()};
+        getGsfMaxSteps(),
+        getGsfLoopProtection()};
 
     return trackFitter.fit(sourceLinks, initialParameters, gsfOptions);
   };

@@ -10,6 +10,7 @@
 
 namespace {
 bool gsfAbortOnError = false;
+bool doLoopProtection = false;
 std::size_t maxComponents = 4;
 std::size_t maxSteps = 100;
 }  // namespace
@@ -36,4 +37,12 @@ void setGsfMaxSteps(std::size_t s) {
 
 std::size_t getGsfMaxSteps() {
   return maxSteps;
+}
+
+void setGsfLoopProtection(bool lp) {
+  doLoopProtection = lp;
+}
+
+bool getGsfLoopProtection() {
+  return doLoopProtection;
 }

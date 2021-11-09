@@ -24,6 +24,8 @@ class GsfErrorCategory : public std::error_category {
         return "Navigation failed, forward and backward pass incompatible";
       case GsfError::ComponentNumberMismatch:
         return "Component Number changed during two GSF calls";
+      case GsfError::AllComponentsSteppingError:
+        return "Stepping errors occurred in all components";
       case GsfError::NoComponentCreated:
         return "No component has been created in the filter step";
       case GsfError::NoStatesCreated:

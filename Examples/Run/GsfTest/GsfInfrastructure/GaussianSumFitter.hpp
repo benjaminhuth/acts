@@ -105,7 +105,7 @@ struct GsfOptions {
 
   std::size_t maxComponents = 4;
   std::size_t maxSteps = 1000;
-  bool loopProtection = false;
+  bool loopProtection = true;
 };
 
 template <typename source_link_t>
