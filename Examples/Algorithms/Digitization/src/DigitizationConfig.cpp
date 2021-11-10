@@ -13,7 +13,6 @@
 #include "Acts/Utilities/Logger.hpp"
 #include "ActsExamples/Digitization/DigitizationAlgorithm.hpp"
 #include "ActsExamples/Digitization/Smearers.hpp"
-#include "ActsExamples/Digitization/SmearingAlgorithm.hpp"
 #include "ActsExamples/Digitization/SmearingConfig.hpp"
 
 #include <numeric>
@@ -30,31 +29,6 @@ enum SmearingTypes : int {
   eUniform = 3,
   eDigital = 4,
 };
-
-constexpr size_t numConfigParametersForType(int type) {
-  // Gaussian smearing requires only a width/standard deviation parameter
-  // Everything else requires a width/pitch and a range
-  return (static_cast<SmearingTypes>(type) == eGauss) ? 1u : 3u;
-}
-
-ActsFatras::SingleParameterSmearFunction<ActsExamples::RandomEngine>
-makeSmearFunctionForType(SmearingTypes smearingType, const double* parameters) {
-  using namespace ActsExamples::Digitization;
-
-  switch (smearingType) {
-    case eGauss:
-      return Gauss(parameters[0]);
-    case eGaussTruncated:
-      return GaussTrunc(parameters[0], {parameters[1u], parameters[2u]});
-    case eGaussClipped:
-      return GaussClipped(parameters[0], {parameters[1u], parameters[2u]});
-    case eUniform:
-      return Uniform(parameters[0], {parameters[1u], parameters[2u]});
-    case eDigital:
-      return Digital(parameters[0], {parameters[1u], parameters[2u]});
-  }
-  return nullptr;
-}
 
 }  // namespace
 
@@ -75,21 +49,15 @@ ActsExamples::DigitizationConfig::DigitizationConfig(
 ActsExamples::DigitizationConfig::DigitizationConfig(
     const Options::Variables& vars,
     Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
-    : isSimpleSmearer(vars["digi-smear"].as<bool>()),
-      doMerge(vars["digi-merge"].as<bool>()),
+    : doMerge(vars["digi-merge"].as<bool>()),
       mergeNsigma(vars["digi-merge-nsigma"].as<double>()),
       mergeCommonCorner(vars["digi-merge-common-corner"].as<bool>()) {
   digitizationConfigs = std::move(digiCfgs);
-  if (isSimpleSmearer)
-    smearingConfig(vars);
 }
 
 ActsExamples::DigitizationConfig::DigitizationConfig(
     Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
-    : isSimpleSmearer(false),
-      doMerge(false),
-      mergeNsigma(1.0),
-      mergeCommonCorner(false) {
+    : doMerge(false), mergeNsigma(1.0), mergeCommonCorner(false) {
   digitizationConfigs = std::move(digiCfgs);
 }
 
@@ -234,15 +202,9 @@ ActsExamples::DigitizationConfig::getBoundIndices() const {
     Acts::GeometryIdentifier geoID = digitizationConfigs.idAt(ibi);
     const auto dCfg = digitizationConfigs.valueAt(ibi);
     std::vector<Acts::BoundIndices> boundIndices;
-    if (isSimpleSmearer) {
-      for (const auto& sConfig : dCfg.smearingDigiConfig) {
-        boundIndices.push_back(sConfig.index);
-      }
-    } else {
-      boundIndices.insert(boundIndices.end(),
-                          dCfg.geometricDigiConfig.indices.begin(),
-                          dCfg.geometricDigiConfig.indices.end());
-    }
+    boundIndices.insert(boundIndices.end(),
+                        dCfg.geometricDigiConfig.indices.begin(),
+                        dCfg.geometricDigiConfig.indices.end());
     bIndexInput.push_back({geoID, boundIndices});
   }
   return bIndexInput;

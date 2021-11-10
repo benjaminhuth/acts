@@ -145,10 +145,9 @@ struct CombinatorialKalmanFilterOptions {
   LoggerWrapper logger;
 };
 
-template <typename source_link_t>
 struct CombinatorialKalmanFilterResult {
   // Fitted states that the actor has handled.
-  MultiTrajectory<source_link_t> fittedStates;
+  MultiTrajectory fittedStates;
 
   // This is the indices of the 'tip' of the tracks stored in multitrajectory.
   // This correspond to the last measurment state in the multitrajectory.
@@ -257,10 +256,8 @@ class CombinatorialKalmanFilter {
         std::tuple<CurvilinearTrackParameters, BoundMatrix, double>;
     // The source link container type
     using SourceLinkContainer = typename source_link_accessor_t::Container;
-    // The SourceLink type fulfilling the @c SourceLinkConcept
-    using SourceLink = typename source_link_accessor_t::Value;
     /// Broadcast the result_type
-    using result_type = CombinatorialKalmanFilterResult<SourceLink>;
+    using result_type = CombinatorialKalmanFilterResult;
 
     /// The target surface
     const Surface* targetSurface = nullptr;
@@ -481,10 +478,12 @@ class CombinatorialKalmanFilter {
                          state.options.maxStepSize);
 
       // Reset the navigation state
+      // Set targetSurface to nullptr for forward filtering; it's only needed
+      // after smoothing
       state.navigation.reset(state.geoContext, stepper.position(state.stepping),
                              stepper.direction(state.stepping),
                              state.stepping.navDir,
-                             &currentState.referenceSurface(), targetSurface);
+                             &currentState.referenceSurface(), nullptr);
 
       // No Kalman filtering for the starting surface, but still need
       // to consider the material effects here
@@ -537,7 +536,7 @@ class CombinatorialKalmanFilter {
             m_sourcelinkAccessor.range(surface->geometryId());
         // Calibrate all the source links on the surface since the selection has
         // to be done based on calibrated measurement
-        std::vector<BoundVariantMeasurement<SourceLink>> measurements;
+        std::vector<BoundVariantMeasurement> measurements;
         measurements.reserve(nSourcelinks);
         for (auto it = lower_it; it != upper_it; ++it) {
           measurements.emplace_back(
@@ -709,9 +708,9 @@ class CombinatorialKalmanFilter {
             return res.error();
           }
           const auto boundState = *res;
-          // Add a hole track state to the multitrajectory
+          // Add a hole or material track state to the multitrajectory
           currentTip = addNonSourcelinkState(stateMask, boundState, result,
-                                             prevTip, logger);
+                                             isSensitive, prevTip, logger);
 
           // Check the branch
           if (not m_branchStopper(tipState)) {
@@ -774,7 +773,7 @@ class CombinatorialKalmanFilter {
     Result<std::pair<size_t, TipState>> addSourcelinkState(
         const TrackStatePropMask& stateMask, const BoundState& boundState,
         const SourceLink& sourcelink,
-        const BoundVariantMeasurement<SourceLink>& measurement, bool isOutlier,
+        const BoundVariantMeasurement& measurement, bool isOutlier,
         result_type& result, const GeometryContext& geoContext,
         const size_t& prevTip, const TipState& prevTipState,
         size_t neighborTip = SIZE_MAX, size_t sharedTip = SIZE_MAX,
@@ -818,7 +817,7 @@ class CombinatorialKalmanFilter {
         auto shared = result.fittedStates.getTrackState(sharedTip);
         trackStateProxy.data().iuncalibrated = shared.data().iuncalibrated;
       } else {
-        trackStateProxy.uncalibrated() = sourcelink;
+        trackStateProxy.setUncalibrated(sourcelink);
       }
       std::visit(
           [&](const auto& calibrated) {
@@ -864,24 +863,28 @@ class CombinatorialKalmanFilter {
       return std::make_pair(std::move(currentTip), std::move(tipState));
     }
 
-    /// @brief CombinatorialKalmanFilter actor operation : add hole track state
+    /// @brief CombinatorialKalmanFilter actor operation : add hole or material track state
     ///
     /// @param stateMask The bitmask that instructs which components to allocate
     /// @param boundState The bound state on current surface
     /// @param result is the mutable result state object
     /// and which to leave invalid
+    /// @param isSensitive The surface is sensitive or passive
     /// @param prevTip The index of the previous state
     /// @param logger The logger wrapper
     ///
     /// @return The tip of added state
     size_t addNonSourcelinkState(
         const TrackStatePropMask& stateMask, const BoundState& boundState,
-        result_type& result, size_t prevTip = SIZE_MAX,
+        result_type& result, bool isSensitive, size_t prevTip = SIZE_MAX,
         LoggerWrapper logger = getDummyLogger()) const {
       // Add a track state
       auto currentTip = result.fittedStates.addTrackState(stateMask, prevTip);
-      ACTS_VERBOSE("Creating Hole track state with tip = " << currentTip);
-
+      if (isSensitive) {
+        ACTS_VERBOSE("Creating Hole track state with tip = " << currentTip);
+      } else {
+        ACTS_VERBOSE("Creating Material track state with tip = " << currentTip);
+      }
       // now get track state proxy back
       auto trackStateProxy = result.fittedStates.getTrackState(currentTip);
 
@@ -955,7 +958,7 @@ class CombinatorialKalmanFilter {
                        << "varianceQoverP = " << interaction.varianceQoverP);
 
           // Update the state and stepper with material effects
-          interaction.updateState(state, stepper);
+          interaction.updateState(state, stepper, addNoise);
         }
       }
 
@@ -1158,19 +1161,15 @@ class CombinatorialKalmanFilter {
             typename start_parameters_container_t, typename calibrator_t,
             typename measurement_selector_t,
             typename parameters_t = BoundTrackParameters>
-  std::vector<Result<
-      CombinatorialKalmanFilterResult<typename source_link_accessor_t::Value>>>
-  findTracks(const typename source_link_accessor_t::Container& sourcelinks,
-             const start_parameters_container_t& initialParameters,
-             const CombinatorialKalmanFilterOptions<
-                 source_link_accessor_t, calibrator_t, measurement_selector_t>&
-                 tfOptions) const {
+  std::vector<Result<CombinatorialKalmanFilterResult>> findTracks(
+      const typename source_link_accessor_t::Container& sourcelinks,
+      const start_parameters_container_t& initialParameters,
+      const CombinatorialKalmanFilterOptions<
+          source_link_accessor_t, calibrator_t, measurement_selector_t>&
+          tfOptions) const {
     static_assert(
         SourceLinkAccessorConcept<source_link_accessor_t>,
         "The source link accessor does not fullfill SourceLinkAccessorConcept");
-    using SourceLink = typename source_link_accessor_t::Value;
-    static_assert(SourceLinkConcept<SourceLink>,
-                  "Source link does not fulfill SourceLinkConcept");
     static_assert(
         std::is_same_v<GeometryIdentifier,
                        typename source_link_accessor_t::Key>,
@@ -1188,8 +1187,6 @@ class CombinatorialKalmanFilter {
     using CombinatorialKalmanFilterActor =
         Actor<source_link_accessor_t, parameters_t, calibrator_t,
               measurement_selector_t>;
-    using CombinatorialKalmanFilterResult =
-        typename CombinatorialKalmanFilterActor::result_type;
     using Actors = ActionList<CombinatorialKalmanFilterActor>;
     using Aborters = AbortList<CombinatorialKalmanFilterAborter>;
 

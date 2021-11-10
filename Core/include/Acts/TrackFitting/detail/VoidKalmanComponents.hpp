@@ -8,7 +8,8 @@
 
 #pragma once
 
-#include "Acts/EventData/SourceLinkConcept.hpp"
+#include "Acts/Geometry/GeometryContext.hpp"
+#include "Acts/Utilities/Logger.hpp"
 #include "Acts/Utilities/Result.hpp"
 #include "Acts/Utilities/TypeTraits.hpp"
 
@@ -45,10 +46,12 @@ struct VoidKalmanUpdater {
   ///
   /// @return The copied predicted parameters
   template <typename track_state_t, typename predicted_state_t>
-  auto operator()(track_state_t& trackState,
-                  const predicted_state_t& predicted) const {
+  Acts::Result<void> operator()(const Acts::GeometryContext& /*gctx*/,
+                                track_state_t& trackState,
+                                const predicted_state_t& /*predicted*/,
+                                Acts::LoggerWrapper /*logger*/) const {
     (void)trackState;
-    return &(predicted.parameters);
+    return Result<void>::success();
   }
 };
 
@@ -61,10 +64,13 @@ struct VoidKalmanSmoother {
   /// @param trackStates The track states to be smoothed
   ///
   /// @return The resulting
-  template <typename parameters_t, typename track_states_t>
-  const parameters_t* operator()(track_states_t& trackStates) const {
+  template <typename track_states_t>
+  Acts::Result<void> operator()(const Acts::GeometryContext& /*gctx*/,
+                                track_states_t& trackStates,
+                                size_t /*lastMeasIndex*/,
+                                Acts::LoggerWrapper /*logger*/) const {
     (void)trackStates;
-    return nullptr;
+    return Result<void>::success();
   }
 };
 
@@ -77,6 +83,22 @@ struct VoidOutlierFinder {
   /// @param trackState The trackState to investigate
   ///
   /// @return Whether it's outlier or not
+  template <typename track_state_t>
+  constexpr bool operator()(const track_state_t& trackState) const {
+    (void)trackState;
+    return false;
+  }
+};
+
+/// @brief void smoothing logic
+struct VoidReverseFilteringLogic {
+  /// @brief Public call mimicking an outlier finder
+  ///
+  /// @tparam track_state_t Type of the track state
+  ///
+  /// @param trackState The trackState of the last measurement
+  ///
+  /// @return Whether to run filtering in reversed direction as smoothing or not
   template <typename track_state_t>
   constexpr bool operator()(const track_state_t& trackState) const {
     (void)trackState;
