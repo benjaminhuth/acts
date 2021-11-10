@@ -47,6 +47,8 @@ int main(int argc, char **argv) {
     auto opt = desc.add_options();
     opt("help", "Show help message");
     opt("geo-id", po::value<std::string>(), "GeoId to analyse");
+    opt("loc0", po::value<double>(), "LOC0 to transform to global");
+    opt("loc1", po::value<double>(), "LOC1 to transform to global");
 
     detector->addOptions(desc);
     Options::addGeometryOptions(desc);
@@ -156,6 +158,20 @@ int main(int argc, char **argv) {
 
     std::cout << "surface hast type " << surface_types[surface->type()]
               << std::endl;
+    std::cout << "surface position: " << surface->center(Acts::GeometryContext{}).transpose() << "\n";
+
+    if( vm.count("loc0") && vm.count("loc1") ) {
+      Acts::Vector2 lpos;
+      lpos << vm["loc0"].as<double>(), vm["loc1"].as<double>();
+
+      Acts::Vector3 momentum;
+      momentum << 1.0, 0.0, 0.0;
+
+      std::cout << "transform " << lpos.transpose() << " to global (with [1,0,0] momentum)\n";
+
+      const auto global = surface->localToGlobal(Acts::GeometryContext{}, lpos, momentum);
+      std::cout << "global position: " << global.transpose() << "\n";
+    }
 
     if (surface->type() == Acts::Surface::SurfaceType::Cylinder) {
       const auto cylinder_surface =

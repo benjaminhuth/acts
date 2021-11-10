@@ -19,8 +19,8 @@ namespace Acts {
 
 namespace detail {
 
-template <typename component_t, typename projector_t>
-bool componentWeightsAreNormalized(const std::vector<component_t> &cmps,
+template <typename component_range_t, typename projector_t>
+bool componentWeightsAreNormalized(const component_range_t &cmps,
                                    const projector_t &proj,
                                    double tol = 1.e-8) {
   double sum_of_weights = 0.0;
@@ -32,13 +32,6 @@ bool componentWeightsAreNormalized(const std::vector<component_t> &cmps,
   if (std::abs(sum_of_weights - 1.0) < tol) {
     return true;
   } else {
-    std::cout << "diff: " << std::setprecision(10)
-              << std::abs(sum_of_weights - 1.0) << "\n";
-    std::cout << "weights = ";
-    for (const auto &cmp : cmps) {
-      std::cout << proj(cmp) << " ";
-    }
-    std::cout << "]\n";
     return false;
   }
 }
@@ -214,7 +207,6 @@ Result<void> updateStepper(propagator_state_t &state, const stepper_t &stepper,
 
 /// @brief Expands all existing components to new components by using a
 /// gaussian-mixture approximation for the Bethe-Heitler distribution.
-///
 /// @return a std::vector with all new components (parent tip, weight,
 /// parameters, covariance)
 /// TODO We could make propagator_state const here if the component proxy
@@ -231,77 +223,9 @@ void extractComponents(propagator_state_t &state, const stepper_t &stepper,
   const auto &logger = state.options.logger;
   const auto &surface = *state.navigation.currentSurface;
 
-  // Adjust qop to account for lost energy due to lost components
-  // TODO do we need to adjust variance?
-  double sumW_loss = 0.0, sumWeightedQOverP_loss = 0.0;
-  double initialQOverP = 0.0;
-
-  for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-    typename stepper_t::ComponentProxy cmp(state.stepping, i);
-
-    if (cmp.status() != Intersection3D::Status::onSurface) {
-      sumW_loss += cmp.weight();
-      sumWeightedQOverP_loss += cmp.weight() * cmp.pars()[eFreeQOverP];
-    }
-
-    initialQOverP += cmp.weight() * cmp.pars()[eFreeQOverP];
-  }
-
-  double checkWeightSum = 0.0;
-  double checkQOverPSum = 0.0;
-
-  for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-    typename stepper_t::ComponentProxy cmp(stepping, i);
-
-    if (cmp.status() == Intersection3D::Status::onSurface) {
-      auto &weight = cmp.weight();
-      auto &qop = cmp.pars()[eFreeQOverP];
-
-      weight /= (1.0 - sumW_loss);
-      qop = qop * (1.0 - sumW_loss) + sumWeightedQOverP_loss;
-
-      checkWeightSum += weight;
-      checkQOverPSum += weight * qop;
-    }
-  }
-
-  constexpr int prec = std::numeric_limits<long double>::digits10 + 1;
-
-  throw_assert(
-      std::abs(checkQOverPSum - initialQOverP) < 1.e-4,
-      "momentum mismatch, initial: "
-          << std::setprecision(prec) << initialQOverP
-          << ", final: " << checkQOverPSum << ", component summary:\n"
-          << [&]() {
-               std::stringstream ss;
-               for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-                 typename stepper_t::ComponentProxy cmp(stepping, i);
-                 ss << "  #" << i << ": qop = " << std::setprecision(prec)
-                    << cmp.pars()[eFreeQOverP] << "\t(" << cmp.status()
-                    << ")\n";
-               }
-               return ss.str();
-             }());
-
-  throw_assert(
-      std::abs(checkWeightSum - 1.0) < 1.e-4,
-      "must sum up to 1 but is "
-          << checkWeightSum
-          << ", difference: " << std::abs(checkWeightSum - 1.0)
-          << ", component summary: " << [&]() {
-               std::stringstream ss;
-               for (auto i = 0ul; i < stepper.numberComponents(stepping); ++i) {
-                 typename stepper_t::ComponentProxy cmp(stepping, i);
-                 ss << "  #" << i << ": weight = " << cmp.weight() << "\t("
-                    << cmp.status() << ")\n";
-               }
-               return ss.str();
-             }());
-
   // Approximate bethe-heitler distribution as gaussian mixture
-  for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-    typename stepper_t::ComponentProxy old_cmp(state.stepping, i);
-
+  std::size_t i = 0;
+  for (auto old_cmp : stepper.componentIterable(stepping)) {
     if (old_cmp.status() != Intersection3D::Status::onSurface) {
       ACTS_VERBOSE("Skip component which is not on surface");
       continue;
@@ -317,9 +241,9 @@ void extractComponents(propagator_state_t &state, const stepper_t &stepper,
     const auto &[old_bound, jac, pathLength] = boundState.value();
 
     detail::GsfComponentMetaCache metaCache{
-        parentTrajectoryIdxs[i], jac,
-        old_cmp.jacToGlobal(),   old_cmp.jacTransport(),
-        old_cmp.derivative(),    pathLength};
+        parentTrajectoryIdxs[++i], jac,
+        old_cmp.jacToGlobal(),     old_cmp.jacTransport(),
+        old_cmp.derivative(),      pathLength};
 
     componentProcessor(state, old_bound, old_cmp.weight(), metaCache,
                        componentCache);
@@ -339,21 +263,21 @@ struct Identity {
 /// function
 namespace AngleDescription {
 
-template<BoundIndices Idx>
+template <BoundIndices Idx>
 struct CyclicAngle {
-    constexpr static BoundIndices idx = Idx;
-    constexpr static double constant = 1.0;
+  constexpr static BoundIndices idx = Idx;
+  constexpr static double constant = 1.0;
 };
 
-template<BoundIndices Idx>
+template <BoundIndices Idx>
 struct CyclicRadiusAngle {
-    constexpr static BoundIndices idx = Idx;
-    int constant = 1.0; // the radius
+  constexpr static BoundIndices idx = Idx;
+  int constant = 1.0;  // the radius
 };
-    
+
 using Default = std::tuple<CyclicAngle<eBoundPhi>>;
-using Cylinder = std::tuple<CyclicRadiusAngle<eBoundLoc0>,
-                            CyclicAngle<eBoundPhi>>;
+using Cylinder =
+    std::tuple<CyclicRadiusAngle<eBoundLoc0>, CyclicAngle<eBoundPhi>>;
 }  // namespace AngleDescription
 
 /// @brief Combine multiple components into one representative track state

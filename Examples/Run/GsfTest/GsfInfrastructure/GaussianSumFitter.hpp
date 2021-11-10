@@ -236,40 +236,79 @@ struct GaussianSumFitter {
     void operator()(propagator_state_t& state, const stepper_t& stepper,
                     result_type& result) const {
       const auto& logger = state.options.logger;
+      // A class that prints information about the state on construction and
+      // destruction
+      class ScopedInfoPrinter {
+        const propagator_state_t& m_state;
+        const stepper_t& m_stepper;
+        double m_p_initial;
 
-      // Some initial printing
-      ACTS_VERBOSE("Gsf step "
-                   << state.stepping.steps << " at mean position "
-                   << stepper.position(state.stepping).transpose()
-                   << " with direction "
-                   << stepper.direction(state.stepping).transpose());
-      ACTS_VERBOSE(
-          "Propagation is in "
-          << (state.stepping.navDir == forward ? "forward" : "backward")
-          << " mode");
+        const auto& logger() const { return m_state.options.logger(); }
 
-      std::size_t missed_count = 0;
-      std::size_t reachable_count = 0;
-
-      for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-        typename stepper_t::ComponentProxy cmp(state.stepping, i);
-
-        using Status = Acts::Intersection3D::Status;
-
-        if (cmp.status() == Status::missed ||
-            cmp.status() == Status::unreachable) {
-          missed_count++;
-        } else if (cmp.status() == Status::reachable) {
-          reachable_count++;
+        void print_component_stats() const {
+          std::size_t i = 0;
+          for (auto cmp : m_stepper.constComponentIterable(m_state.stepping)) {
+            auto getVector = [&](auto idx) {
+              return cmp.pars().template segment<3>(idx).transpose();
+            };
+            ACTS_VERBOSE("  #" << i++ << " pos: " << getVector(eFreePos0)
+                               << ", dir: " << getVector(eFreeDir0)
+                               << ", weight: " << cmp.weight()
+                               << ", status: " << cmp.status());
+          }
         }
 
-        auto getVector = [&](auto idx) {
-          return cmp.pars().template segment<3>(idx).transpose();
-        };
-        ACTS_VERBOSE("  #" << i << " pos: " << getVector(eFreePos0)
-                           << ", dir: " << getVector(eFreeDir0) << ", weight: "
-                           << cmp.weight() << ", status: " << cmp.status());
-      }
+       public:
+        ScopedInfoPrinter(const propagator_state_t& state,
+                          const stepper_t& stepper)
+            : m_state(state),
+              m_stepper(stepper),
+              m_p_initial(stepper.momentum(state.stepping)) {
+          // Some initial printing
+          ACTS_VERBOSE("Gsf step "
+                       << state.stepping.steps << " at mean position "
+                       << stepper.position(state.stepping).transpose()
+                       << " with direction "
+                       << stepper.direction(state.stepping).transpose());
+          ACTS_VERBOSE(
+              "Propagation is in "
+              << (state.stepping.navDir == forward ? "forward" : "backward")
+              << " mode");
+          print_component_stats();
+        }
+
+        ~ScopedInfoPrinter() {
+          if (m_state.navigation.currentSurface) {
+            const auto p_final = m_stepper.momentum(m_state.stepping);
+            ACTS_VERBOSE("Component status at end of step:");
+            print_component_stats();
+            ACTS_VERBOSE("Delta Momentum = " << std::setprecision(5)
+                                             << p_final - m_p_initial);
+          }
+        }
+      };
+
+      const ScopedInfoPrinter printer(state, stepper);
+
+      // Count the states of the components, this is necessary to evaluate if
+      // really all components are on a surface TODO Not sure why this is not
+      // garantueed by having currentSurface pointer set
+      const auto [missed_count, reachable_count] = [&]() {
+        std::size_t missed_count = 0;
+        std::size_t reachable_count = 0;
+        for (auto cmp : stepper.componentIterable(state.stepping)) {
+          using Status = Acts::Intersection3D::Status;
+
+          // clang-format off
+          switch (cmp.status()) {
+            break; case Status::missed: ++missed_count;
+            break; case Status::reachable: ++reachable_count;
+            break; default: {}
+          }
+          // clang-format on
+        }
+        return std::make_tuple(missed_count, reachable_count);
+      }();
 
       // Workaround to initialize MT in backward mode
       if (!result.haveInitializedMT && m_config.multiTrajectoryInitializer) {
@@ -304,6 +343,14 @@ struct GaussianSumFitter {
         const auto& surface = *state.navigation.currentSurface;
         ACTS_VERBOSE("Step is at surface " << surface.geometryId());
 
+        // Remove missed surfaces and adjust momenta
+        removeMissedComponents(state, stepper, result.parentTips);
+        throw_assert(result.parentTips.size() ==
+                         stepper.numberComponents(state.stepping),
+                     "size mismatch (parentTips="
+                         << result.parentTips.size() << ", nCmps="
+                         << stepper.numberComponents(state.stepping));
+
         // Early return if we already were on this surface TODO why is this
         // necessary
         const auto [it, success] =
@@ -324,28 +371,6 @@ struct GaussianSumFitter {
 
         // Early return if nothing happens
         if (not haveMaterial && not haveMeasurement) {
-          auto& tips = result.parentTips;
-          auto& cmps = state.stepping.components;
-
-          // First ensure the tips point still to the correct component
-          std::vector<size_t> new_tips;
-          for (auto i = 0ul; i < cmps.size(); ++i) {
-            if (cmps[i].status == Intersection3D::Status::onSurface) {
-              new_tips.push_back(tips[i]);
-            }
-          }
-          tips = new_tips;
-
-          // TODO Non-generic way, make better later
-          cmps.erase(std::remove_if(cmps.begin(), cmps.end(),
-                                    [](const auto& cmp) {
-                                      return cmp.status !=
-                                             Intersection3D::Status::onSurface;
-                                    }),
-                     cmps.end());
-
-          detail::normalizeWeights(cmps, [](auto &cmp) -> double& { return cmp.weight; });
-
           ACTS_VERBOSE("No material or measurement, return");
           return;
         }
@@ -488,25 +513,79 @@ struct GaussianSumFitter {
                                                              mapProxyToWeight),
                        "weights not normalized (only measurement)");
         }
+      }
+    }
 
-        // Finally print the Components at the end
-        ACTS_VERBOSE("Components after processing:");
-        for (auto i = 0ul; i < stepper.numberComponents(state.stepping); ++i) {
-          typename stepper_t::ComponentProxy cmp(state.stepping, i);
+    template <typename propagator_state_t, typename stepper_t>
+    void removeMissedComponents(propagator_state_t& state,
+                                const stepper_t& stepper,
+                                std::vector<std::size_t>& current_tips) const {
+      throw_assert(
+          stepper.numberComponents(state.stepping) == current_tips.size(),
+          "size mismatch");
+      auto components = stepper.componentIterable(state.stepping);
 
-          if (cmp.status() == Acts::Intersection3D::Status::missed) {
-            ACTS_VERBOSE(
-                "  #" << i << " missed/unreachable, weight: " << cmp.weight());
-          } else {
-            ACTS_VERBOSE(
-                "  #" << i << " pos: "
-                      << cmp.pars().template segment<3>(eFreePos0).transpose()
-                      << ", dir: "
-                      << cmp.pars().template segment<3>(eFreeDir0).transpose()
-                      << ", weight: " << cmp.weight());
-          }
+      // 1) Compute the summed momentum and weight of the lost components
+      double sumW_loss = 0.0;
+      double sumWeightedQOverP_loss = 0.0;
+      double initialQOverP = 0.0;
+
+      for (const auto cmp : components) {
+        if (cmp.status() != Intersection3D::Status::onSurface) {
+          sumW_loss += cmp.weight();
+          sumWeightedQOverP_loss += cmp.weight() * cmp.pars()[eFreeQOverP];
+        }
+
+        initialQOverP += cmp.weight() * cmp.pars()[eFreeQOverP];
+      }
+
+      // 2) Adjust the momentum of the remaining components AND update the
+      // current_tips vector
+      double checkWeightSum = 0.0;
+      double checkQOverPSum = 0.0;
+      std::vector<std::size_t> new_tips;
+
+      auto cmp_it = components.begin();
+      auto tip_it = current_tips.begin();
+
+      for (; tip_it != current_tips.end(); ++cmp_it, ++tip_it) {
+        if ((*cmp_it).status() == Intersection3D::Status::onSurface) {
+          auto& weight = (*cmp_it).weight();
+          auto& qop = (*cmp_it).pars()[eFreeQOverP];
+
+          weight /= (1.0 - sumW_loss);
+          qop = qop * (1.0 - sumW_loss) + sumWeightedQOverP_loss;
+
+          checkWeightSum += weight;
+          checkQOverPSum += weight * qop;
+
+          new_tips.push_back(*tip_it);
         }
       }
+
+      current_tips = new_tips;
+
+      // 3) Remove components
+      stepper.removeMissedComponents(state.stepping);
+
+      // 4) Some checks
+      throw_assert(std::abs(checkQOverPSum - initialQOverP) < 1.e-4,
+                   "momentum mismatch, initial: "
+                       << std::setprecision(8) << initialQOverP
+                       << ", final: " << checkQOverPSum);
+
+      throw_assert(
+          std::abs(checkWeightSum - 1.0) < 1.e-4,
+          "must sum up to 1 but is " << std::setprecision(8) << checkWeightSum);
+
+      throw_assert(detail::componentWeightsAreNormalized(
+                       stepper.constComponentIterable(state.stepping),
+                       [](const auto& cmp) { return cmp.weight(); }),
+                   "not normalized");
+
+      throw_assert(
+          stepper.numberComponents(state.stepping) == current_tips.size(),
+          "size mismatch");
     }
 
     /// This is not very nice, include this in other functions or so

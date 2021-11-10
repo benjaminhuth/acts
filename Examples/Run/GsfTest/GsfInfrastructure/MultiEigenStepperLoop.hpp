@@ -204,42 +204,39 @@ class MultiEigenStepperLoop
     std::optional<std::size_t> stepCounterAfterFirstComponentOnSurface;
   };
 
-  class ComponentProxy {
-    State& m_state;
-    std::size_t m_idx;
+  /// A proxy struct which allows access to a single component of the
+  /// multi-component state
+  struct ComponentProxy {
+    const State& m_state;
+    typename State::Component& m_cmp;
 
-    auto& cmp() { return m_state.components[m_idx]; }
-
-   public:
-    ComponentProxy(State& s, std::size_t i) : m_state(s), m_idx(i) {}
-
-    auto& status() { return cmp().status; }
-    auto status() const { return cmp().status; }
-    auto& weight() { return cmp().weight; }
-    auto weight() const { return cmp().weight; }
-    auto& charge() { return cmp().state.charge; }
-    auto charge() const { return cmp().state.charge; }
-    auto& pathLength() { return cmp().state.pathAccumulated; }
-    auto pathLength() const { return cmp().state.pathAccumulated; }
-    auto& pars() { return cmp().state.pars; }
-    const auto& pars() const { return cmp().state.pars; }
-    auto& derivative() { return cmp().state.derivative; }
-    const auto& derivative() const { return cmp().state.derivative; }
-    auto& jacTransport() { return cmp().state.jacTransport; }
-    const auto& jacTransport() const { return cmp().state.jacTransport; }
-    auto& cov() { return cmp().state.cov; }
-    const auto& cov() const { return cmp().state.cov; }
-    auto& jacobian() { return cmp().state.jacobian; }
-    const auto& jacobian() const { return cmp().state.jacobian; }
-    auto& jacToGlobal() { return cmp().state.jacToGlobal; }
-    const auto& jacToGlobal() const { return cmp().state.jacToGlobal; }
+    auto& status() { return m_cmp.status; }
+    auto status() const { return m_cmp.status; }
+    auto& weight() { return m_cmp.weight; }
+    auto weight() const { return m_cmp.weight; }
+    auto& charge() { return m_cmp.state.charge; }
+    auto charge() const { return m_cmp.state.charge; }
+    auto& pathLength() { return m_cmp.state.pathAccumulated; }
+    auto pathLength() const { return m_cmp.state.pathAccumulated; }
+    auto& pars() { return m_cmp.state.pars; }
+    const auto& pars() const { return m_cmp.state.pars; }
+    auto& derivative() { return m_cmp.state.derivative; }
+    const auto& derivative() const { return m_cmp.state.derivative; }
+    auto& jacTransport() { return m_cmp.state.jacTransport; }
+    const auto& jacTransport() const { return m_cmp.state.jacTransport; }
+    auto& cov() { return m_cmp.state.cov; }
+    const auto& cov() const { return m_cmp.state.cov; }
+    auto& jacobian() { return m_cmp.state.jacobian; }
+    const auto& jacobian() const { return m_cmp.state.jacobian; }
+    auto& jacToGlobal() { return m_cmp.state.jacToGlobal; }
+    const auto& jacToGlobal() const { return m_cmp.state.jacToGlobal; }
 
     Result<BoundState> boundState(const Surface& surface, bool transportCov) {
-      if (cmp().status == Intersection3D::Status::onSurface) {
+      if (m_cmp.status == Intersection3D::Status::onSurface) {
         return detail::boundState(m_state.geoContext, cov(), jacobian(),
                                   jacTransport(), derivative(), jacToGlobal(),
                                   pars(), m_state.covTransport && transportCov,
-                                  cmp().state.pathAccumulated, surface);
+                                  m_cmp.state.pathAccumulated, surface);
       } else {
         return MultiStepperError::ComponentNotOnSurface;
       }
@@ -247,23 +244,106 @@ class MultiEigenStepperLoop
 
     void update(const FreeVector& freeParams, const BoundVector& boundParams,
                 const Covariance& covariance, const Surface& surface) {
-      cmp().state.pars = freeParams;
-      cmp().state.cov = covariance;
-      cmp().state.jacToGlobal =
-          surface.boundToFreeJacobian(cmp().state.geoContext, boundParams);
+      m_cmp.state.pars = freeParams;
+      m_cmp.state.cov = covariance;
+      m_cmp.state.jacToGlobal =
+          surface.boundToFreeJacobian(m_state.geoContext, boundParams);
     }
   };
+
+  struct ConstComponentProxy
+  {
+    const State& m_state;
+    const typename State::Component& m_cmp;
+
+    auto status() const { return m_cmp.status; }
+    auto weight() const { return m_cmp.weight; }
+    auto charge() const { return m_cmp.state.charge; }
+    auto pathLength() const { return m_cmp.state.pathAccumulated; }
+    const auto& pars() const { return m_cmp.state.pars; }
+    const auto& derivative() const { return m_cmp.state.derivative; }
+    const auto& jacTransport() const { return m_cmp.state.jacTransport; }
+    const auto& cov() const { return m_cmp.state.cov; }
+    const auto& jacobian() const { return m_cmp.state.jacobian; }
+    const auto& jacToGlobal() const { return m_cmp.state.jacToGlobal; }
+  };
+
+  /// Creates an iterable which can be plugged into a range-based for-loop to
+  /// iterate over components
+  /// @note Use a for-loop with by-value semantics, since the Iterable returns a
+  /// proxy internally holding a reference
+  auto componentIterable(State& state) const {
+    struct Iterator {
+      typename decltype(state.components)::iterator it;
+      const State& state;
+
+      // clang-format off
+      auto& operator++() { ++it; return *this; }
+      auto operator!=(const Iterator& other) const { return it != other.it; }
+      auto operator*() const { return ComponentProxy{state, *it}; }
+      // clang-format on
+    };
+
+    struct Iterable {
+      State& state;
+
+      auto begin() { return Iterator{state.components.begin(), state}; }
+      auto end() { return Iterator{state.components.end(), state}; }
+    };
+
+    return Iterable{state};
+  }
+
+  /// Creates an constant iterable which can be plugged into a range-based for-loop to
+  /// iterate over components
+  /// @note Use a for-loop with by-value semantics, since the Iterable returns a
+  /// proxy internally holding a reference
+  auto constComponentIterable(const State& state) const {
+    struct ConstIterator {
+      typename decltype(state.components)::const_iterator it;
+      const State& state;
+
+      // clang-format off
+      auto& operator++() { ++it; return *this; }
+      auto operator!=(const ConstIterator& other) const { return it != other.it; }
+      auto operator*() const { return ConstComponentProxy{state, *it}; }
+      // clang-format on
+    };
+
+    struct Iterable {
+      const State& state;
+
+      auto begin() const { return ConstIterator{state.components.cbegin(), state}; }
+      auto end() const { return ConstIterator{state.components.cend(), state}; }
+    };
+
+    return Iterable{state};
+  }
 
   /// Get the number of components
   std::size_t numberComponents(const State& state) const {
     return state.components.size();
   }
 
+  /// Remove missed components from the component state
+  void removeMissedComponents(State& state) const {
+    auto new_end = std::remove_if(
+        state.components.begin(), state.components.end(), [](const auto& cmp) {
+          return cmp.status == Intersection3D::Status::missed;
+        });
+
+    state.components.erase(new_end, state.components.end());
+  }
+
   /// Reset the number of components
-  /// @note This function makes no garantuees about how new components are initialized, it is up to the caller to ensure that all components are valid in the end.
   void clearComponents(State& state) const { state.components.clear(); }
 
   /// Add a component to the Multistepper
+  /// @note This function makes no garantuees about how new components are
+  /// initialized, it is up to the caller to ensure that all components are
+  /// valid in the end.
+  /// @note The returned component-proxy is only garantueed to be valid until
+  /// the component number is again modified
   template <typename charge_t>
   Result<ComponentProxy> addComponent(
       State& state, const SingleBoundTrackParameters<charge_t>& pars,
@@ -274,7 +354,7 @@ class MultiEigenStepperLoop
                      state.navDir),
          weight, Intersection3D::Status::onSurface});
 
-    return ComponentProxy(state, state.components.size() - 1);
+    return ComponentProxy{state, state.components.back()};
   }
 
   /// Construct and initialize a state
