@@ -13,6 +13,7 @@
 #include "Acts/EventData/TrackParameters.hpp"
 #include "Acts/Utilities/Logger.hpp"
 
+#include <map>
 #include <numeric>
 
 namespace Acts {
@@ -186,9 +187,15 @@ Result<void> updateStepper(propagator_state_t &state, const stepper_t &stepper,
       continue;
     }
 
-    auto res = stepper.addComponent(
-        state.stepping, BoundTrackParameters(surface.getSharedPtr(), pars, cov),
-        weight);
+    const BoundTrackParameters bound(surface.getSharedPtr(), pars, cov);
+
+//     throw_assert(stepper.charge(state.stepping) == bound.charge(),
+//                  "charge mismatch (stepper state: "
+//                      << stepper.charge(state.stepping)
+//                      << ", new cmp: [q=" << bound.charge()
+//                      << ", qop=" << pars[eBoundQOverP] << "]");
+
+    auto res = stepper.addComponent(state.stepping, std::move(bound), weight);
 
     if (!res.ok()) {
       return res.error();
@@ -460,87 +467,11 @@ inline std::ostream &operator<<(std::ostream &os, StatesType type) {
 }
 
 /// @brief Extracts a MultiComponentState from a MultiTrajectory and a given list of indices
-template <typename source_link_t>
-auto extractMultiComponentState(const MultiTrajectory<source_link_t> &traj,
+auto extractMultiComponentState(const MultiTrajectory &traj,
                                 const std::vector<size_t> &tips,
                                 const std::map<size_t, ActsScalar> &weights,
-                                StatesType type) {
-  throw_assert(
-      !tips.empty(),
-      "need at least one component to extract trajectory of type " << type);
-
-  std::vector<std::tuple<double, BoundVector, BoundSymMatrix>> cmps;
-  std::shared_ptr<const Surface> surface;
-
-  for (auto &tip : tips) {
-    const auto proxy = traj.getTrackState(tip);
-
-    throw_assert(weights.find(tip) != weights.end(),
-                 "Could not find weight for idx " << tip);
-
-    switch (type) {
-      case StatesType::ePredicted:
-        cmps.push_back(
-            {weights.at(tip), proxy.predicted(), proxy.predictedCovariance()});
-        break;
-      case StatesType::eFiltered:
-        cmps.push_back(
-            {weights.at(tip), proxy.filtered(), proxy.filteredCovariance()});
-        break;
-      case StatesType::eSmoothed:
-        cmps.push_back(
-            {weights.at(tip), proxy.smoothed(), proxy.smoothedCovariance()});
-    }
-
-    if (!surface) {
-      surface = proxy.referenceSurface().getSharedPtr();
-    } else {
-      throw_assert(
-          surface->geometryId() == proxy.referenceSurface().geometryId(),
-          "surface mismatch");
-    }
-  }
-
-  return MultiComponentBoundTrackParameters<SinglyCharged>(surface, cmps);
-}
-
-template <typename source_link_t>
-auto multiTrajectoryToMultiComponentParameters(
-    const std::vector<std::size_t> &tips,
-    const MultiTrajectory<source_link_t> &mt,
-    const std::map<std::size_t, double> weights, StatesType type) {
-  std::shared_ptr<const Surface> surface =
-      mt.getTrackState(tips.front()).referenceSurface().getSharedPtr();
-
-  using Tuple = std::tuple<double, BoundVector, std::optional<BoundSymMatrix>>;
-  std::vector<Tuple> comps;
-
-  for (const auto tip : tips) {
-    const auto &state = mt.getTrackState(tip);
-
-    throw_assert(state.referenceSurface().geometryId() == surface->geometryId(),
-                 "surface mismatch");
-
-    switch (type) {
-      case StatesType::ePredicted: {
-        comps.push_back(Tuple{weights.at(tip), state.predicted(),
-                              state.predictedCovariance()});
-      } break;
-
-      case StatesType::eFiltered: {
-        comps.push_back(Tuple{weights.at(tip), state.filtered(),
-                              state.filteredCovariance()});
-      } break;
-
-      case StatesType::eSmoothed: {
-        comps.push_back(Tuple{weights.at(tip), state.smoothed(),
-                              state.smoothedCovariance()});
-      }
-    }
-  }
-
-  return MultiComponentBoundTrackParameters<SinglyCharged>(surface, comps);
-}
+                                StatesType type)
+    -> MultiComponentBoundTrackParameters<SinglyCharged>;
 
 }  // namespace detail
 

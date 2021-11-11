@@ -10,6 +10,7 @@
 
 #include "Acts/Surfaces/PerigeeSurface.hpp"
 #include "Acts/Utilities/PdgParticle.hpp"
+#include "ActsExamples/Digitization/DigitizationAlgorithm.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/Trajectories.hpp"
 #include "ActsExamples/Fatras/FatrasSimulation.hpp"
@@ -196,6 +197,30 @@ struct ExtractKalmanResultForGsf : ActsExamples::BareAlgorithm {
   }
 };
 
+struct PrintFinalParticleStats : ActsExamples::BareAlgorithm {
+  struct Config {
+    std::string simParticlesFinal;
+  } m_cfg;
+
+  PrintFinalParticleStats(const Config &cfg, Acts::Logging::Level lvl)
+      : ActsExamples::BareAlgorithm("PrintTrueParticleStats", lvl),
+        m_cfg(cfg) {}
+
+  ActsExamples::ProcessCode execute(
+      const ActsExamples::AlgorithmContext &ctx) const override {
+    const auto &particles =
+        ctx.eventStore.get<ActsExamples::SimParticleContainer>(
+            m_cfg.simParticlesFinal);
+
+    for (const auto &part : particles) {
+      ACTS_INFO("FinalParticle - pdg "
+                << part.pdg() << " momentum: " << part.absoluteMomentum());
+    }
+
+    return ActsExamples::ProcessCode::SUCCESS;
+  }
+};
+
 int testGsf(const GsfTestSettings &settings) {
   // Logger
   auto mainLogger =
@@ -315,6 +340,12 @@ int testGsf(const GsfTestSettings &settings) {
         std::move(cfg), settings.globalLogLevel));
   }
 
+  if (settings.numParticles == 1) {
+    sequencer.addAlgorithm(std::make_shared<PrintFinalParticleStats>(
+        PrintFinalParticleStats::Config{kSimulatedParticlesFinal},
+        settings.globalLogLevel));
+  }
+
   ///////////////////
   // Digitization
   ///////////////////
@@ -330,7 +361,8 @@ int testGsf(const GsfTestSettings &settings) {
     cfg.trackingGeometry = settings.geometry;
 
     sequencer.addAlgorithm(
-        createDigitizationAlgorithm(cfg, settings.globalLogLevel));
+        std::make_shared<ActsExamples::DigitizationAlgorithm>(
+            cfg, settings.globalLogLevel));
   }
 
   ///////////////////////////

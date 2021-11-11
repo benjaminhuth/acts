@@ -56,15 +56,6 @@ struct WeightedComponentReducerLoop {
         });
   }
 
-  template <typename component_t>
-  static ActsScalar toScalar(const std::vector<component_t>& comps,
-                             const FreeIndices i) {
-    return std::accumulate(begin(comps), end(comps), ActsScalar{0.},
-                           [i](const auto& sum, const auto& cmp) -> ActsScalar {
-                             return sum + cmp.weight * cmp.state.pars[i];
-                           });
-  }
-
   template <typename stepper_state_t>
   static Vector3 position(const stepper_state_t& s) {
     return toVector3(s.components, eFreePos0);
@@ -77,13 +68,35 @@ struct WeightedComponentReducerLoop {
 
   template <typename stepper_state_t>
   static ActsScalar momentum(const stepper_state_t& s) {
-    const auto q = s.components.front().state.q;
-    return 1 / (toScalar(s.components, eFreeQOverP) / q);
+    return std::accumulate(
+        begin(s.components), end(s.components), ActsScalar{0.},
+        [](const auto& sum, const auto& cmp) -> ActsScalar {
+          return sum +
+                 cmp.weight * (1 / (cmp.state.pars[eFreeQOverP] / cmp.state.q));
+        });
+  }
+
+  template <typename stepper_state_t>
+  static ActsScalar charge(const stepper_state_t& s) {
+    std::cout << "CHARGE_REDUCER\n";
+    for( const auto &cmp : s.components){
+        std::cout << "- w " << cmp.weight << " q " << cmp.state.q << "\n";
+    }
+
+    return std::accumulate(begin(s.components), end(s.components),
+                           ActsScalar{0.},
+                           [](const auto& sum, const auto& cmp) -> ActsScalar {
+                             return sum + cmp.weight * cmp.state.q;
+                           });
   }
 
   template <typename stepper_state_t>
   static ActsScalar time(const stepper_state_t& s) {
-    return toScalar(s.components, eFreeTime);
+    return std::accumulate(
+        begin(s.components), end(s.components), ActsScalar{0.},
+        [](const auto& sum, const auto& cmp) -> ActsScalar {
+          return sum + cmp.weight * cmp.state.pars[eFreeTime];
+        });
   }
 
   template <typename stepper_state_t>
@@ -251,8 +264,7 @@ class MultiEigenStepperLoop
     }
   };
 
-  struct ConstComponentProxy
-  {
+  struct ConstComponentProxy {
     const State& m_state;
     const typename State::Component& m_cmp;
 
@@ -294,8 +306,8 @@ class MultiEigenStepperLoop
     return Iterable{state};
   }
 
-  /// Creates an constant iterable which can be plugged into a range-based for-loop to
-  /// iterate over components
+  /// Creates an constant iterable which can be plugged into a range-based
+  /// for-loop to iterate over components
   /// @note Use a for-loop with by-value semantics, since the Iterable returns a
   /// proxy internally holding a reference
   auto constComponentIterable(const State& state) const {
@@ -313,7 +325,9 @@ class MultiEigenStepperLoop
     struct Iterable {
       const State& state;
 
-      auto begin() const { return ConstIterator{state.components.cbegin(), state}; }
+      auto begin() const {
+        return ConstIterator{state.components.cbegin(), state};
+      }
       auto end() const { return ConstIterator{state.components.cend(), state}; }
     };
 
@@ -423,9 +437,7 @@ class MultiEigenStepperLoop
   /// Charge access
   ///
   /// @param state [in] The stepping state (thread-local cache)
-  double charge(const State& state) const {
-    return SingleStepper::charge(state.components.front().state);
-  }
+  double charge(const State& state) const { return Reducer::charge(state); }
 
   /// Time access
   ///
@@ -806,6 +818,24 @@ class MultiEigenStepperLoop
   template <typename propagator_state_t>
   Result<double> step(propagator_state_t& state) const {
     State& stepping = state.stepping;
+
+    // Emit warning if charge is not the same for all componenents
+    {
+      std::stringstream ss;
+      bool charge_ambigous = false;
+      for (const auto& cmp : stepping.components) {
+        ss << cmp.state.q << " ";
+        if (cmp.state.q != stepping.components.front().state.q) {
+          charge_ambigous = true;
+        }
+      }
+
+      if (charge_ambigous) {
+        ACTS_VERBOSE(stepping.steps << "Charge of components is ambigous: " << ss.str());
+      } else {
+        ACTS_VERBOSE(stepping.steps << "Charge of components: " << ss.str());
+      }
+    }
 
     // Update step count
     stepping.steps++;

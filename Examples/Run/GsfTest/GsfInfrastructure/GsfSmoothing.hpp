@@ -72,9 +72,9 @@ auto bayesianSmoothing(component_iterator_t fwdBegin,
 /// @brief Projector type which maps a MultiTrajectory-Index to a tuple of
 /// [weight, parameters, covariance]. Therefore, it contains a MultiTrajectory
 /// and for now a std::map for the weights
-template <StatesType type, typename source_link_t>
+template <StatesType type>
 struct MultiTrajectoryProjector {
-  const MultiTrajectory<source_link_t> &mt;
+  const MultiTrajectory &mt;
   const std::map<std::size_t, double> &weights;
 
   auto operator()(std::size_t idx) const {
@@ -96,12 +96,12 @@ struct MultiTrajectoryProjector {
 /// @brief This function takes two MultiTrajectory objects and corresponding
 /// index lists (one of the backward pass, one of the forward pass), combines
 /// them, applies smoothing, and returns a new, single-component MultiTrajectory
-template <typename source_link_t, bool ReturnSmootedStates = false>
+template <bool ReturnSmootedStates = false>
 auto smoothAndCombineTrajectories(
-    const MultiTrajectory<source_link_t> &fwd,
+    const MultiTrajectory &fwd,
     const std::vector<std::size_t> &fwdStartTips,
     const std::map<std::size_t, double> &fwdWeights,
-    const MultiTrajectory<source_link_t> bwd,
+    const MultiTrajectory &bwd,
     const std::vector<std::size_t> &bwdStartTips,
     const std::map<std::size_t, double> &bwdWeights,
     LoggerWrapper logger = getDummyLogger()) {
@@ -117,7 +117,7 @@ auto smoothAndCombineTrajectories(
   std::sort(bwdTips.begin(), bwdTips.end());
   bwdTips.erase(std::unique(bwdTips.begin(), bwdTips.end()), bwdTips.end());
 
-  MultiTrajectory<source_link_t> finalTrajectory;
+  MultiTrajectory finalTrajectory;
 
   std::size_t lastTip = SIZE_MAX;
 
@@ -147,10 +147,8 @@ auto smoothAndCombineTrajectories(
       fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()), fwdTips.end());
 
       // Define some Projector types we need in the following
-      using PredProjector =
-          MultiTrajectoryProjector<StatesType::ePredicted, source_link_t>;
-      using FiltProjector =
-          MultiTrajectoryProjector<StatesType::eFiltered, source_link_t>;
+      using PredProjector = MultiTrajectoryProjector<StatesType::ePredicted>;
+      using FiltProjector = MultiTrajectoryProjector<StatesType::eFiltered>;
 
       // Do the smoothing
       auto smoothedStateResult = bayesianSmoothing(

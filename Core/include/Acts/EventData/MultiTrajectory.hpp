@@ -576,6 +576,7 @@ class TrackStateProxy {
 
   friend class Acts::MultiTrajectory;
   friend class TrackStateProxy<M, true>;
+  friend class TrackStateProxy<M, false>;
 };
 
 // implement track state visitor concept

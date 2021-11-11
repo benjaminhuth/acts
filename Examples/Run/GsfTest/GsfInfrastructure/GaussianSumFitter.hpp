@@ -11,7 +11,6 @@
 #include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
 #include "Acts/EventData/MultiTrajectory.hpp"
 #include "Acts/EventData/MultiTrajectoryHelpers.hpp"
-#include "Acts/EventData/SourceLinkConcept.hpp"
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "Acts/Material/ISurfaceMaterial.hpp"
 #include "Acts/Propagator/EigenStepper.hpp"
@@ -108,10 +107,9 @@ struct GsfOptions {
   bool loopProtection = true;
 };
 
-template <typename source_link_t>
 struct GsfResult {
   /// The multi-trajectory which stores the graph of components
-  MultiTrajectory<source_link_t> fittedStates;
+  MultiTrajectory fittedStates;
   std::map<size_t, ActsScalar> weightsOfStates;
 
   /// The current indexes for the newest components in the multi trajectory
@@ -157,15 +155,14 @@ struct GaussianSumFitter {
   mutable SimpleCsvWriter<8> m_failStatistics;
   mutable SimpleCsvWriter<7> m_successStatistics;
 
-  template <typename source_link_t, typename updater_t,
-            typename outlier_finder_t, typename calibrator_t,
-            typename smoother_t>
+  template <typename updater_t, typename outlier_finder_t,
+            typename calibrator_t, typename smoother_t>
   struct Actor {
     /// Enforce default construction
     Actor() = default;
 
     /// Broadcast the result_type
-    using result_type = GsfResult<source_link_t>;
+    using result_type = GsfResult;
 
     // Actor configuration
     struct Config {
@@ -173,7 +170,8 @@ struct GaussianSumFitter {
       std::size_t maxComponents = 16;
 
       /// Input measurements
-      std::map<GeometryIdentifier, source_link_t> inputMeasurements;
+      std::map<GeometryIdentifier, std::reference_wrapper<const SourceLink>>
+          inputMeasurements;
 
       /// Bethe Heitler Approximator
       detail::BHApprox bethe_heitler_approx =
@@ -210,7 +208,7 @@ struct GaussianSumFitter {
     smoother_t m_smoother;
 
     /// Broadcast Cache Type
-    using TrackProxy = typename MultiTrajectory<source_link_t>::TrackStateProxy;
+    using TrackProxy = typename MultiTrajectory::TrackStateProxy;
     using ComponentCache =
         std::tuple<std::variant<detail::GsfComponentParameterCache, TrackProxy>,
                    detail::GsfComponentMetaCache>;
@@ -236,6 +234,12 @@ struct GaussianSumFitter {
     void operator()(propagator_state_t& state, const stepper_t& stepper,
                     result_type& result) const {
       const auto& logger = state.options.logger;
+
+      throw_assert(detail::componentWeightsAreNormalized(
+                       stepper.constComponentIterable(state.stepping),
+                       [](const auto& cmp) { return cmp.weight(); }),
+                   "not normalized at start of operator()");
+
       // A class that prints information about the state on construction and
       // destruction
       class ScopedInfoPrinter {
@@ -254,7 +258,8 @@ struct GaussianSumFitter {
             ACTS_VERBOSE("  #" << i++ << " pos: " << getVector(eFreePos0)
                                << ", dir: " << getVector(eFreeDir0)
                                << ", weight: " << cmp.weight()
-                               << ", status: " << cmp.status());
+                               << ", status: " << cmp.status()
+                               << ", qop: " << cmp.pars()[eFreeQOverP]);
           }
         }
 
@@ -269,7 +274,9 @@ struct GaussianSumFitter {
                        << state.stepping.steps << " at mean position "
                        << stepper.position(state.stepping).transpose()
                        << " with direction "
-                       << stepper.direction(state.stepping).transpose());
+                       << stepper.direction(state.stepping).transpose()
+                       << " and momentum " << stepper.momentum(state.stepping)
+                       << " and charge " << stepper.momentum(state.stepping));
           ACTS_VERBOSE(
               "Propagation is in "
               << (state.stepping.navDir == forward ? "forward" : "backward")
@@ -610,7 +617,7 @@ struct GaussianSumFitter {
 
     template <typename propagator_state_t>
     Result<void> kalmanUpdate(const propagator_state_t& state,
-                              const source_link_t& source_link,
+                              const SourceLink& source_link,
                               result_type& result,
                               std::vector<ComponentCache>& components) const {
       const auto& logger = state.options.logger;
@@ -634,6 +641,7 @@ struct GaussianSumFitter {
 
         // Set track parameters
         trackProxy.predicted() = std::move(pars);
+
         if (cov) {
           trackProxy.predictedCovariance() = std::move(*cov);
         }
@@ -643,7 +651,7 @@ struct GaussianSumFitter {
         trackProxy.setReferenceSurface(surface.getSharedPtr());
 
         // assign the source link to the track state
-        trackProxy.uncalibrated() = source_link;
+        trackProxy.setUncalibrated(source_link);
 
         trackProxy.jacobian() = std::move(meta.jacobian);
         trackProxy.pathLength() = std::move(meta.pathLength);
@@ -720,10 +728,10 @@ struct GaussianSumFitter {
   };
 
   /// @brief The fit function for the Direct navigator
-  template <typename source_link_t, typename start_parameters_t,
+  template <typename source_link_it_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
-  Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit(
-      const std::vector<source_link_t>& sourcelinks,
+  Acts::Result<Acts::KalmanFitterResult> fit(
+      source_link_it_t begin, source_link_it_t end,
       const start_parameters_t& sParameters,
       const GsfOptions<calibrator_t, outlier_finder_t>& options,
       const std::vector<const Surface*>& sSequence) const {
@@ -731,8 +739,8 @@ struct GaussianSumFitter {
     static_assert(
         std::is_same_v<DirectNavigator, typename propagator_t::Navigator>);
 
-    using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
-                           calibrator_t, GainMatrixSmoother>;
+    using GSFActor = Actor<GainMatrixUpdater, outlier_finder_t, calibrator_t,
+                           GainMatrixSmoother>;
 
     // Initialize the forward propagation with the DirectNavigator
     auto fwdPropInitializer = [&sSequence](const auto& opts,
@@ -769,23 +777,23 @@ struct GaussianSumFitter {
       return propOptions;
     };
 
-    return fit_impl(sourcelinks, sParameters, options, fwdPropInitializer,
+    return fit_impl(begin, end, sParameters, options, fwdPropInitializer,
                     bwdPropInitializer);
   }
 
   /// @brief The fit function for the standard navigator
-  template <typename source_link_t, typename start_parameters_t,
+  template <typename source_link_it_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
-  Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit(
-      const std::vector<source_link_t>& sourcelinks,
+  Acts::Result<Acts::KalmanFitterResult> fit(
+      source_link_it_t begin, source_link_it_t end,
       const start_parameters_t& sParameters,
       const GsfOptions<calibrator_t, outlier_finder_t>& options) const {
     // Check if we have the correct navigator
     static_assert(std::is_same_v<Navigator, typename propagator_t::Navigator>);
 
     // Create the ActionList and AbortList
-    using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
-                           calibrator_t, GainMatrixSmoother>;
+    using GSFActor = Actor<GainMatrixUpdater, outlier_finder_t, calibrator_t,
+                           GainMatrixSmoother>;
 
     // Initialize the forward propagation with the DirectNavigator
     auto fwdPropInitializer = [](const auto& opts, const auto& logger) {
@@ -813,21 +821,19 @@ struct GaussianSumFitter {
       return propOptions;
     };
 
-    return fit_impl(sourcelinks, sParameters, options, fwdPropInitializer,
+    return fit_impl(begin, end, sParameters, options, fwdPropInitializer,
                     bwdPropInitializer);
   }
 
-  template <typename source_link_t, typename start_parameters_t,
+  template <typename source_link_it_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t,
             typename fwd_prop_initializer_t, typename bwd_prop_initializer_t>
-  Acts::Result<Acts::KalmanFitterResult<source_link_t>> fit_impl(
-      const std::vector<source_link_t>& sourcelinks,
+  Acts::Result<Acts::KalmanFitterResult> fit_impl(
+      source_link_it_t begin, source_link_it_t end,
       const start_parameters_t& sParameters,
       const GsfOptions<calibrator_t, outlier_finder_t>& options,
       const fwd_prop_initializer_t& fwdPropInitializer,
       const bwd_prop_initializer_t& bwdPropInitializer) const {
-    static_assert(SourceLinkConcept<source_link_t>,
-                  "Source link does not fulfill SourceLinkConcept");
     // The logger
     const auto& logger = options.logger;
 
@@ -853,10 +859,12 @@ struct GaussianSumFitter {
 
     // To be able to find measurements later, we put them into a map
     // We need to copy input SourceLinks anyways, so the map can own them.
-    ACTS_VERBOSE("Preparing " << sourcelinks.size() << " input measurements");
-    std::map<GeometryIdentifier, source_link_t> inputMeasurements;
-    for (const auto& sl : sourcelinks) {
-      inputMeasurements.emplace(sl.geometryId(), sl);
+    ACTS_VERBOSE("Preparing " << std::distance(begin, end)
+                              << " input measurements");
+    std::map<GeometryIdentifier, std::reference_wrapper<const SourceLink>>
+        inputMeasurements;
+    for (auto it = begin; it != end; ++it) {
+      inputMeasurements.emplace(it->get().geometryId(), *it);
     }
 
     ACTS_VERBOSE(
@@ -864,8 +872,8 @@ struct GaussianSumFitter {
     throw_assert(sParameters.covariance() != std::nullopt,
                  "we need a covariance here...");
 
-    using GSFActor = Actor<source_link_t, GainMatrixUpdater, outlier_finder_t,
-                           calibrator_t, GainMatrixSmoother>;
+    using GSFActor = Actor<GainMatrixUpdater, outlier_finder_t, calibrator_t,
+                           GainMatrixSmoother>;
 
     /////////////////
     // Forward pass
@@ -902,7 +910,7 @@ struct GaussianSumFitter {
       RETURN_ERROR_OR_ABORT_FIT(fwdResult.error());
     }
 
-    auto& fwdGsfResult = (*fwdResult).template get<GsfResult<source_link_t>>();
+    auto& fwdGsfResult = (*fwdResult).template get<GsfResult>();
 
     if (!fwdGsfResult.result.ok()) {
       m_failStatistics.write(fwdGsfResult.result.error().message(),
@@ -1008,7 +1016,7 @@ struct GaussianSumFitter {
       RETURN_ERROR_OR_ABORT_FIT(bwdResult.error());
     }
 
-    auto& bwdGsfResult = (*bwdResult).template get<GsfResult<source_link_t>>();
+    auto& bwdGsfResult = (*bwdResult).template get<GsfResult>();
 
     if (!bwdGsfResult.result.ok()) {
       m_failStatistics.write(
@@ -1033,11 +1041,10 @@ struct GaussianSumFitter {
     ////////////////////////////////////
     ACTS_VERBOSE("Gsf: Do smoothing");
 
-    const auto smoothResult =
-        detail::smoothAndCombineTrajectories<source_link_t, true>(
-            fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-            fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-            bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
+    const auto smoothResult = detail::smoothAndCombineTrajectories<true>(
+        fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+        fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
+        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
 
     // Cannot use structured binding since they cannot be captured in lambda
     const auto& combinedTraj = std::get<0>(smoothResult);
@@ -1053,7 +1060,7 @@ struct GaussianSumFitter {
       return GsfError::NoStatesCreated;
     }
 
-    Acts::KalmanFitterResult<source_link_t> kalmanResult;
+    Acts::KalmanFitterResult kalmanResult;
     kalmanResult.lastTrackIndex = lastTip;
     kalmanResult.fittedStates = std::move(combinedTraj);
     kalmanResult.smoothed = true;

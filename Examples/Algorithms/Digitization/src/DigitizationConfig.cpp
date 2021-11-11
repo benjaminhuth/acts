@@ -14,6 +14,7 @@
 #include "ActsExamples/Digitization/DigitizationAlgorithm.hpp"
 #include "ActsExamples/Digitization/Smearers.hpp"
 #include "ActsExamples/Digitization/SmearingConfig.hpp"
+#include "ActsExamples/Utilities/Options.hpp"
 
 #include <numeric>
 #include <string>
@@ -33,20 +34,6 @@ enum SmearingTypes : int {
 }  // namespace
 
 ActsExamples::DigitizationConfig::DigitizationConfig(
-    bool merge, bool merges, bool mergec, const std::vector<int>& volumes,
-    const std::vector<Options::VariableIntegers>& indices,
-    const std::vector<Options::VariableIntegers>& types,
-    const std::vector<Options::VariableReals>& parameters,
-    Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
-    : isSimpleSmearer(true),
-      doMerge(merge),
-      mergeNsigma(merges),
-      mergeCommonCorner(mergec) {
-  digitizationConfigs = std::move(digiCfgs);
-  smearingConfig(volumes, indices, types, parameters);
-}
-
-ActsExamples::DigitizationConfig::DigitizationConfig(
     const Options::Variables& vars,
     Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
     : doMerge(vars["digi-merge"].as<bool>()),
@@ -59,136 +46,6 @@ ActsExamples::DigitizationConfig::DigitizationConfig(
     Acts::GeometryHierarchyMap<DigiComponentsConfig>&& digiCfgs)
     : doMerge(false), mergeNsigma(1.0), mergeCommonCorner(false) {
   digitizationConfigs = std::move(digiCfgs);
-}
-
-void ActsExamples::DigitizationConfig::smearingConfig(
-    const Options::Variables& variables) {
-  ACTS_LOCAL_LOGGER(
-      Acts::getDefaultLogger("SmearingOptions", Acts::Logging::INFO));
-  if (not variables["digi-config-file"].as<std::string>().empty()) {
-    ACTS_WARNING(
-        "Smearing configuration on command-line will override .json "
-        "configuration!");
-  }
-
-  auto volumes = variables["digi-smear-volume"].as<std::vector<int>>();
-  auto indices = variables["digi-smear-indices"]
-                     .as<std::vector<Options::VariableIntegers>>();
-  auto types = variables["digi-smear-types"]
-                   .as<std::vector<Options::VariableIntegers>>();
-  auto parameters = variables["digi-smear-parameters"]
-                        .as<std::vector<Options::VariableReals>>();
-
-  smearingConfig(volumes, indices, types, parameters);
-}
-
-void ActsExamples::DigitizationConfig::smearingConfig(
-    const std::vector<int>& volumes,
-    const std::vector<Options::VariableIntegers>& indices,
-    const std::vector<Options::VariableIntegers>& types,
-    const std::vector<Options::VariableReals>& parameters) {
-  ACTS_LOCAL_LOGGER(
-      Acts::getDefaultLogger("SmearingOptions", Acts::Logging::INFO));
-
-  using namespace Acts::UnitLiterals;
-  using namespace ActsExamples::Options;
-
-  // Smear configuration with command line input
-  // only limited smearing configuration possible:
-  // complex smearing option configuration has to be done with a
-  // digitization config file
-
-  // in case of an error, we always return a configuration struct with empty
-  // smearers configuration. this will be caught later on during the algorithm
-  // construction.
-
-  // no configured volumes are not considered an error at this stage
-  if (volumes.empty())
-    return;
-
-  if (indices.size() != volumes.size()) {
-    ACTS_ERROR("Inconsistent digi-smear-indices options. Expected "
-               << volumes.size() << ", but received " << indices.size());
-    return;
-  }
-  if (types.size() != volumes.size()) {
-    ACTS_ERROR("Inconsistent digi-smear-types options. Expected "
-               << volumes.size() << ", but received " << types.size());
-    return;
-  }
-  if (parameters.size() != volumes.size()) {
-    ACTS_ERROR("Inconsistent digi-smear-parameters options. Expected "
-               << volumes.size() << ", but received " << parameters.size());
-    return;
-  }
-
-  // construct the input for the smearer configuation
-  std::vector<std::pair<Acts::GeometryIdentifier, DigiComponentsConfig>>
-      smearersInput;
-  for (size_t ivol = 0; ivol < volumes.size(); ++ivol) {
-    Acts::GeometryIdentifier geoId =
-        Acts::GeometryIdentifier(0).setVolume(volumes[ivol]);
-    const auto& volIndices = indices[ivol].values;
-    const auto& volTypes = types[ivol].values;
-    const auto& volParameters = parameters[ivol].values;
-
-    if (volTypes.size() != volIndices.size()) {
-      ACTS_ERROR("Inconsistent number of digi-smear-types values for volume "
-                 << volumes[ivol] << ". Expected " << indices.size()
-                 << ", but received " << types.size());
-      return;
-    }
-    // count the expected number of smearing configuration parameters
-    size_t expectedNumParameters = 0;
-    for (auto smearingType : volTypes) {
-      expectedNumParameters += numConfigParametersForType(smearingType);
-    }
-    if (volParameters.size() != expectedNumParameters) {
-      ACTS_ERROR(
-          "Inconsistent number of digi-smear-parameters values for volume "
-          << volumes[ivol] << ". Expected " << expectedNumParameters
-          << ", but received " << types.size());
-      return;
-    }
-
-    // create the smearing configuration for this geometry identifier
-    SmearingConfig geoCfg;
-    geoCfg.reserve(volIndices.size());
-
-    for (size_t iidx = 0, ipar = 0; iidx < volIndices.size(); ++iidx) {
-      const auto paramIndex = static_cast<Acts::BoundIndices>(volIndices[iidx]);
-      const auto smearingType = static_cast<SmearingTypes>(volTypes[iidx]);
-      const double* smearingParameters = &volParameters[ipar];
-      ipar += numConfigParametersForType(smearingType);
-
-      ParameterSmearingConfig parCfg;
-      parCfg.index = paramIndex;
-      parCfg.smearFunction =
-          makeSmearFunctionForType(smearingType, smearingParameters);
-      if (not parCfg.smearFunction) {
-        ACTS_ERROR("Invalid smearing type for entry "
-                   << iidx << " for volume " << volumes[ivol] << ". Type "
-                   << volTypes[iidx] << " is not valid");
-        return;
-      }
-      geoCfg.emplace_back(std::move(parCfg));
-    }
-    DigiComponentsConfig dcfg;
-    dcfg.smearingDigiConfig = geoCfg;
-    smearersInput.emplace_back(geoId, std::move(dcfg));
-  }
-  // set the smearer configuration from the prepared input
-  digitizationConfigs = Acts::GeometryHierarchyMap<DigiComponentsConfig>(
-      std::move(smearersInput));
-}
-
-std::shared_ptr<ActsExamples::IAlgorithm>
-ActsExamples::createDigitizationAlgorithm(ActsExamples::DigitizationConfig& cfg,
-                                          Acts::Logging::Level lvl) {
-  if (cfg.isSimpleSmearer)
-    return std::make_shared<SmearingAlgorithm>(cfg, lvl);
-  else
-    return std::make_shared<DigitizationAlgorithm>(cfg, lvl);
 }
 
 std::vector<

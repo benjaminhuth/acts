@@ -22,6 +22,7 @@
 #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
+#include "ActsExamples/Io/Json/JsonDigitizationConfig.hpp"
 #include "ActsExamples/Io/Performance/TrackFitterPerformanceWriter.hpp"
 #include "ActsExamples/Io/Root/RootTrajectoryStatesWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjPropagationStepsWriter.hpp"
@@ -196,21 +197,30 @@ int main(int argc, char **argv) {
 
     using namespace ActsExamples::Options;
 
-    const bool doMerge = false;
-    const bool mergeNsigma = false;
-    const bool mergeCommonCorner = false;
-    const std::vector<int> volumes = {static_cast<int>(1)};
-    const std::vector<VariableIntegers> indices = {
-        {std::vector<int>{0, 1}}};  // loc0, loc1
-    const std::vector<VariableIntegers> types = {
-        {std::vector<int>{0, 0}}};  // gauss, gauss
-    const std::vector<VariableReals> parameters = {
-        {std::vector<double>{10._mm, 10._mm}}};  // gaussian width
+    const char *json_string = R"(
+    {
+      "acts-geometry-hierarchy-map" : {
+        "format-version" : 0,
+        "value-identifier" : "digitization-configuration"
+      },
+      "entries" : [
+        {
+          "volume" : 1,
+          "value" : {
+            "smearing" : [
+              {"index" : 0, "mean" : 0.0, "stddev" : 10, "type" : "Gauss"},
+              {"index" : 1, "mean" : 0.0, "stddev" : 10, "type" : "Gauss"}
+            ]
+          }
+        }
+      ]
+    })";
+
+    nlohmann::json j = nlohmann::json::parse(json_string);
 
     return ActsExamples::DigitizationConfig(
-        doMerge, mergeNsigma, mergeCommonCorner, volumes, indices, types,
-        parameters,
-        Acts::GeometryHierarchyMap<ActsExamples::DigiComponentsConfig>());
+        ActsExamples::DigiConfigConverter("digitization-configuration")
+            .fromJson(j));
   };
 
   // Space point maker config

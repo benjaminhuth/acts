@@ -6,7 +6,8 @@ add_library(GsfAlgorithmFunctionLib SHARED
   GsfAlgorithmFunctionDirect.cpp
   GsfAlgorithmFunctionSettings.cpp
   GsfInfrastructure/MultiStepperError.cpp
-  GsfInfrastructure/GsfError.cpp)
+  GsfInfrastructure/GsfError.cpp
+  GsfInfrastructure/GsfUtils.cpp)
 
 target_include_directories(
   GsfAlgorithmFunctionLib

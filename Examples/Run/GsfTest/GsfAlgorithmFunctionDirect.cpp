@@ -43,7 +43,8 @@ struct GsfDirectFitterFunction
   ~GsfDirectFitterFunction() {}
 
   ActsExamples::TrackFittingAlgorithm::TrackFitterResult operator()(
-      const std::vector<ActsExamples::IndexSourceLink>& sourceLinks,
+      const std::vector<std::reference_wrapper<
+          const ActsExamples::IndexSourceLink>>& sourceLinks,
       const ActsExamples::TrackParameters& initialParameters,
       const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions&
           kalmanOptions,
@@ -60,8 +61,8 @@ struct GsfDirectFitterFunction
         getGsfMaxSteps(),
         getGsfLoopProtection()};
 
-    return trackFitter.fit(sourceLinks, initialParameters, gsfOptions,
-                           sSequence);
+    return trackFitter.fit(sourceLinks.begin(), sourceLinks.end(),
+                           initialParameters, gsfOptions, sSequence);
   };
 };
 

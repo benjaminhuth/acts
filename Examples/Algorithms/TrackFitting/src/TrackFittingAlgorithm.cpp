@@ -116,6 +116,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     ACTS_VERBOSE("Initial parameters: "
                  << initialParams.fourPosition(ctx.geoContext).transpose()
                  << " -> " << initialParams.unitDirection().transpose());
+    ACTS_VERBOSE("Initial momentum: " << initialParams.absoluteMomentum());
 
     // Clear & reserve the right size
     trackSourceLinks.clear();
