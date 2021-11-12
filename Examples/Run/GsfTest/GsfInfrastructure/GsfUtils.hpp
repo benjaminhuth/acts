@@ -248,7 +248,7 @@ void extractComponents(propagator_state_t &state, const stepper_t &stepper,
     const auto &[old_bound, jac, pathLength] = boundState.value();
 
     detail::GsfComponentMetaCache metaCache{
-        parentTrajectoryIdxs[++i], jac,
+        parentTrajectoryIdxs[i++], jac,
         old_cmp.jacToGlobal(),     old_cmp.jacTransport(),
         old_cmp.derivative(),      pathLength};
 

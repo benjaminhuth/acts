@@ -1040,6 +1040,8 @@ struct GaussianSumFitter {
     // Smooth and create Kalman Result
     ////////////////////////////////////
     ACTS_VERBOSE("Gsf: Do smoothing");
+    ACTS_VERBOSE("- Fwd measurement states: " << fwdGsfResult.measurementStates);
+    ACTS_VERBOSE("- Bwd measurement states: " << bwdGsfResult.measurementStates);
 
     const auto smoothResult = detail::smoothAndCombineTrajectories<true>(
         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
