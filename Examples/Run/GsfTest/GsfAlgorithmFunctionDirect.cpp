@@ -31,7 +31,7 @@ using Stepper = Acts::MultiEigenStepperLoop<ExtList>;
 /////////////////////////////////////////
 // The Fitter for the Direct Navigator
 /////////////////////////////////////////
-
+#if 0
 using DirectPropagator = Acts::Propagator<Stepper, Acts::DirectNavigator>;
 using DirectFitter = Acts::GaussianSumFitter<DirectPropagator>;
 
@@ -65,21 +65,25 @@ struct GsfDirectFitterFunction
                            initialParameters, gsfOptions, sSequence);
   };
 };
+#endif
 
 std::shared_ptr<
     ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
 makeGsfDirectFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> /*trackingGeometry*/,
-    std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
-    Acts::LoggerWrapper logger) {
+    std::shared_ptr<const Acts::MagneticFieldProvider> /*magneticField*/,
+    Acts::LoggerWrapper /*logger*/) {
   using namespace Acts::UnitLiterals;
 
-  Stepper stepper(std::move(magneticField), logger);
-  stepper.setOverstepLimit(1_mm);
-  Acts::DirectNavigator navigator;
-  DirectPropagator propagator(std::move(stepper), std::move(navigator));
-  DirectFitter trackFitter(std::move(propagator));
+  throw std::runtime_error(
+      "DirectedFitter not compiled at the moment for build-time-reasons");
 
-  // build the fitter functions. owns the fitter object.
-  return std::make_shared<GsfDirectFitterFunction>(std::move(trackFitter));
+  //   Stepper stepper(std::move(magneticField), logger);
+  //   stepper.setOverstepLimit(1_mm);
+  //   Acts::DirectNavigator navigator;
+  //   DirectPropagator propagator(std::move(stepper), std::move(navigator));
+  //   DirectFitter trackFitter(std::move(propagator));
+  //
+  //   // build the fitter functions. owns the fitter object.
+  //   return std::make_shared<GsfDirectFitterFunction>(std::move(trackFitter));
 }
