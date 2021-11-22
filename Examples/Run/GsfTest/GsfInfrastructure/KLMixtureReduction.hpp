@@ -121,10 +121,10 @@ class SymmetricKLDistanceMatrix {
   }
 
   auto minDistancePair() const {
-    // TODO eigen minCoeff does not work for some reason??
+    // TODO Eigen minCoeff does not work for some reason??
     // return m_mapToPair.at(m_data.minCoeff());
     return m_mapToPair.at(std::distance(
-        &m_data[0], std::min_element(&m_data[0], &m_data[m_data.size() - 1])));
+        &m_data[0], std::min_element(m_data.data(), m_data.data() + m_data.size())));
   }
 
   friend std::ostream &operator<<(std::ostream &os,
@@ -149,6 +149,7 @@ void reduceWithKLDistance(std::vector<component_t> &cmpCache,
                           std::size_t maxCmpsAfterMerge,
                           const component_projector_t &proj,
                           const angle_desc_t &angle_desc = angle_desc_t{}) {
+  std::cout << "Start function reduceWithKLDistance" << std::endl;
   if (cmpCache.size() <= maxCmpsAfterMerge) {
     return;
   }

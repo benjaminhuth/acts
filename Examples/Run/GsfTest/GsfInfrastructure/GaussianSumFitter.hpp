@@ -62,14 +62,14 @@ class SimpleCsvWriter {
 };
 
 #define RETURN_ERROR_OR_ABORT_ACTOR(error) \
-  if (m_config.abortOnError) {             \
+  if (m_cfg.abortOnError) {                \
     std::abort();                          \
   } else {                                 \
     return error;                          \
   }
 
 #define SET_ERROR_AND_RETURN_OR_ABORT_ACTOR(error) \
-  if (m_config.abortOnError) {                     \
+  if (m_cfg.abortOnError) {                        \
     std::abort();                                  \
   } else {                                         \
     result.result = error;                         \
@@ -105,6 +105,8 @@ struct GsfOptions {
   std::size_t maxComponents = 4;
   std::size_t maxSteps = 1000;
   bool loopProtection = true;
+
+  bool applyMaterialEffects = true;
 };
 
 struct GsfResult {
@@ -199,7 +201,10 @@ struct GaussianSumFitter {
       /// MultiTrajectory for the DirectNavigator
       std::function<void(result_type&, const LoggerWrapper&)>
           multiTrajectoryInitializer;
-    } m_config;
+
+      /// We can disable component splitting for debugging or so
+      bool applyMaterialEffects = true;
+    } m_cfg;
 
     /// Configurable components:
     updater_t m_updater;
@@ -276,7 +281,7 @@ struct GaussianSumFitter {
                        << " with direction "
                        << stepper.direction(state.stepping).transpose()
                        << " and momentum " << stepper.momentum(state.stepping)
-                       << " and charge " << stepper.momentum(state.stepping));
+                       << " and charge " << stepper.charge(state.stepping));
           ACTS_VERBOSE(
               "Propagation is in "
               << (state.stepping.navDir == forward ? "forward" : "backward")
@@ -318,8 +323,8 @@ struct GaussianSumFitter {
       }();
 
       // Workaround to initialize MT in backward mode
-      if (!result.haveInitializedMT && m_config.multiTrajectoryInitializer) {
-        m_config.multiTrajectoryInitializer(result, logger);
+      if (!result.haveInitializedMT && m_cfg.multiTrajectoryInitializer) {
+        m_cfg.multiTrajectoryInitializer(result, logger);
         result.haveInitializedMT = true;
       }
 
@@ -370,11 +375,12 @@ struct GaussianSumFitter {
 
         // Check what we have on this surface
         const auto found_source_link =
-            m_config.inputMeasurements.find(surface.geometryId());
+            m_cfg.inputMeasurements.find(surface.geometryId());
         const bool haveMaterial =
-            state.navigation.currentSurface->surfaceMaterial();
+            state.navigation.currentSurface->surfaceMaterial() &&
+            m_cfg.applyMaterialEffects;
         const bool haveMeasurement =
-            found_source_link != m_config.inputMeasurements.end();
+            found_source_link != m_cfg.inputMeasurements.end();
 
         // Early return if nothing happens
         if (not haveMaterial && not haveMeasurement) {
@@ -406,7 +412,7 @@ struct GaussianSumFitter {
         // Final component number
         const auto final_cmp_number =
             std::min(static_cast<std::size_t>(stepper.maxComponents),
-                     m_config.maxComponents);
+                     m_cfg.maxComponents);
 
         ///////////////////////////////////////////
         // Component Splitting AND Kalman Update
@@ -415,9 +421,9 @@ struct GaussianSumFitter {
           ACTS_VERBOSE("Material and measurement");
           detail::extractComponents(
               state, stepper, result.parentTips,
-              detail::ComponentSplitter{m_config.bethe_heitler_approx,
-                                        m_config.weightCutoff},
-              m_config.doCovTransport, componentCache);
+              detail::ComponentSplitter{m_cfg.bethe_heitler_approx,
+                                        m_cfg.weightCutoff},
+              m_cfg.doCovTransport, componentCache);
 
           // We must differ between the surface types here
           if (surface.type() == Surface::Cylinder) {
@@ -436,7 +442,7 @@ struct GaussianSumFitter {
           result.result = kalmanUpdate(state, found_source_link->second, result,
                                        componentCache);
           detail::reweightComponents(componentCache, mapToProxyAndWeight,
-                                     m_config.weightCutoff);
+                                     m_cfg.weightCutoff);
           result.currentTips = updateCurrentTips(
               componentCache, result.currentTips, mapProxyToWeightParsCov);
           result.parentTips = result.currentTips;
@@ -455,9 +461,9 @@ struct GaussianSumFitter {
           ACTS_VERBOSE("Only material");
           detail::extractComponents(
               state, stepper, result.parentTips,
-              detail::ComponentSplitter{m_config.bethe_heitler_approx,
-                                        m_config.weightCutoff},
-              m_config.doCovTransport, componentCache);
+              detail::ComponentSplitter{m_cfg.bethe_heitler_approx,
+                                        m_cfg.weightCutoff},
+              m_cfg.doCovTransport, componentCache);
 
           // We must differ between the surface types here
           if (surface.type() == Surface::Cylinder) {
@@ -501,13 +507,13 @@ struct GaussianSumFitter {
           ACTS_VERBOSE("Only measurement");
           detail::extractComponents(state, stepper, result.parentTips,
                                     detail::ComponentForwarder{},
-                                    m_config.doCovTransport, componentCache);
+                                    m_cfg.doCovTransport, componentCache);
 
           result.result = kalmanUpdate(state, found_source_link->second, result,
                                        componentCache);
 
           detail::reweightComponents(componentCache, mapToProxyAndWeight,
-                                     m_config.weightCutoff);
+                                     m_cfg.weightCutoff);
 
           result.currentTips = updateCurrentTips(
               componentCache, result.currentTips, mapProxyToWeightParsCov);
@@ -891,11 +897,12 @@ struct GaussianSumFitter {
 
       // Catch the actor and set the measurements
       auto& actor = fwdPropOptions.actionList.template get<GSFActor>();
-      actor.m_config.inputMeasurements = inputMeasurements;
-      actor.m_config.maxComponents = options.maxComponents;
+      actor.m_cfg.inputMeasurements = inputMeasurements;
+      actor.m_cfg.maxComponents = options.maxComponents;
       actor.m_calibrator = options.calibrator;
       actor.m_outlierFinder = options.outlierFinder;
-      actor.m_config.abortOnError = options.abortOnError;
+      actor.m_cfg.abortOnError = options.abortOnError;
+      actor.m_cfg.applyMaterialEffects = options.applyMaterialEffects;
 
       fwdPropOptions.direction = Acts::forward;
 
@@ -951,16 +958,17 @@ struct GaussianSumFitter {
       auto bwdPropOptions = bwdPropInitializer(options, logger);
 
       auto& actor = bwdPropOptions.actionList.template get<GSFActor>();
-      actor.m_config.inputMeasurements = inputMeasurements;
-      actor.m_config.maxComponents = options.maxComponents;
+      actor.m_cfg.inputMeasurements = inputMeasurements;
+      actor.m_cfg.maxComponents = options.maxComponents;
       actor.m_calibrator = options.calibrator;
       actor.m_outlierFinder = options.outlierFinder;
-      actor.m_config.abortOnError = options.abortOnError;
+      actor.m_cfg.abortOnError = options.abortOnError;
+      actor.m_cfg.applyMaterialEffects = options.applyMaterialEffects;
 
       // Workaround to get the first state into the MultiTrajectory seems also
       // to be necessary for standard navigator to prevent double kalman
       // update on the last surface
-      actor.m_config.multiTrajectoryInitializer = [&fwdGsfResult](
+      actor.m_cfg.multiTrajectoryInitializer = [&fwdGsfResult](
                                                       auto& result,
                                                       const auto& logger) {
         result.currentTips.clear();
@@ -1040,8 +1048,10 @@ struct GaussianSumFitter {
     // Smooth and create Kalman Result
     ////////////////////////////////////
     ACTS_VERBOSE("Gsf: Do smoothing");
-    ACTS_VERBOSE("- Fwd measurement states: " << fwdGsfResult.measurementStates);
-    ACTS_VERBOSE("- Bwd measurement states: " << bwdGsfResult.measurementStates);
+    ACTS_VERBOSE(
+        "- Fwd measurement states: " << fwdGsfResult.measurementStates);
+    ACTS_VERBOSE(
+        "- Bwd measurement states: " << bwdGsfResult.measurementStates);
 
     const auto smoothResult = detail::smoothAndCombineTrajectories<true>(
         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
@@ -1092,8 +1102,9 @@ struct GaussianSumFitter {
       auto lastPropOptions = bwdPropInitializer(options, logger);
 
       auto& actor = lastPropOptions.actionList.template get<GSFActor>();
-      actor.m_config.maxComponents = options.maxComponents;
-      actor.m_config.abortOnError = options.abortOnError;
+      actor.m_cfg.maxComponents = options.maxComponents;
+      actor.m_cfg.abortOnError = options.abortOnError;
+      actor.m_cfg.applyMaterialEffects = options.applyMaterialEffects;
 
       lastPropOptions.direction = Acts::backward;
 

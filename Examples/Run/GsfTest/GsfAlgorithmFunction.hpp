@@ -36,3 +36,6 @@ std::size_t getGsfMaxComponents();
 
 void setGsfMaxSteps(std::size_t);
 std::size_t getGsfMaxSteps();
+
+void setGsfApplyMaterialEffects(bool);
+bool getGsfApplyMaterialEffects();

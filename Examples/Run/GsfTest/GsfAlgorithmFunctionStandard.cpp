@@ -57,7 +57,9 @@ struct GsfStandardFitterFunction
         getGsfAbortOnError(),
         getGsfMaxComponents(),
         getGsfMaxSteps(),
-        getGsfLoopProtection()};
+        getGsfLoopProtection(),
+        getGsfApplyMaterialEffects()
+    };
 
     return trackFitter.fit(sourceLinks.begin(), sourceLinks.end(), initialParameters, gsfOptions);
   };

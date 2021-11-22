@@ -152,6 +152,9 @@ int main(int argc, char **argv) {
     return 1.0;
   }();
 
+  settings.gsfLoopProtection = false;
+  settings.gsfApplyMaterialEffects = true;
+
   // Make the telescope detector
   const typename ActsExamples::Telescope::TelescopeDetectorElement::ContextType
       detectorContext;

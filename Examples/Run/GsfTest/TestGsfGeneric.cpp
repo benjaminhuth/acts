@@ -199,7 +199,8 @@ struct ExtractKalmanResultForGsf : ActsExamples::BareAlgorithm {
 
 struct PrintFinalParticleStats : ActsExamples::BareAlgorithm {
   struct Config {
-    std::string simParticlesFinal;
+    std::string inParticles;
+    std::string inSimulatedHits;
   } m_cfg;
 
   PrintFinalParticleStats(const Config &cfg, Acts::Logging::Level lvl)
@@ -210,11 +211,49 @@ struct PrintFinalParticleStats : ActsExamples::BareAlgorithm {
       const ActsExamples::AlgorithmContext &ctx) const override {
     const auto &particles =
         ctx.eventStore.get<ActsExamples::SimParticleContainer>(
-            m_cfg.simParticlesFinal);
+            m_cfg.inParticles);
+    const auto &hits = ctx.eventStore.get<ActsExamples::SimHitContainer>(
+        m_cfg.inSimulatedHits);
 
+    std::size_t i = 0;
     for (const auto &part : particles) {
-      ACTS_INFO("FinalParticle - pdg "
-                << part.pdg() << " momentum: " << part.absoluteMomentum());
+      ACTS_INFO("FinalParticle #" << i++ << " - pdg: " << part.pdg()
+                                  << " momentum: " << part.absoluteMomentum());
+
+      // Find the hits
+      std::vector<ActsExamples::SimHit> traj_hits;
+      std::copy_if(hits.begin(), hits.end(), std::back_inserter(traj_hits),
+                   [&](const auto &hit) {
+                     return hit.particleId() == part.particleId();
+                   });
+
+      // Print additional information about momentum if hits are present
+      if (traj_hits.size() > 0) {
+        std::sort(
+            traj_hits.begin(), traj_hits.end(),
+            [](const auto &a, const auto &b) { return a.time() < b.time(); });
+
+        // Estimate path lengths
+        std::vector<double> approx_path_lengths;
+        approx_path_lengths.push_back(
+            (traj_hits.front().position() - part.position()).norm());
+        for (auto it = std::next(traj_hits.cbegin()); it != traj_hits.cend();
+             ++it) {
+          double last_part =
+              (std::prev(it)->position() - it->position()).norm();
+          approx_path_lengths.push_back(approx_path_lengths.back() + last_part);
+        }
+
+        // Print the stuff
+        for (auto j = 0ul; j < traj_hits.size(); ++j) {
+          ACTS_INFO("  pathLength: "
+                    << approx_path_lengths.at(j) << " mom: "
+                    << traj_hits[j].momentum4After().segment<3>(0).norm());
+        }
+      }
+
+      // For the parser
+      ACTS_INFO("End FinalParticle");
     }
 
     return ActsExamples::ProcessCode::SUCCESS;
@@ -255,6 +294,8 @@ int testGsf(const GsfTestSettings &settings) {
   ACTS_INFO("Parameters: Estimate start parameters from seeds: "
             << std::boolalpha << settings.estimateParsFromSeed);
   ACTS_INFO("Parameters: Covariance inflation factor: " << settings.inflation);
+  ACTS_INFO("Parameters: GSF apply material effects: "
+            << std::boolalpha << settings.gsfApplyMaterialEffects);
 
   // Init Sequencer
   ActsExamples::Sequencer::Config seqCfg;
@@ -282,6 +323,7 @@ int testGsf(const GsfTestSettings &settings) {
   setGsfAbortOnError(settings.gsfAbortOnError);
   setGsfMaxSteps(settings.maxSteps);
   setGsfLoopProtection(settings.gsfLoopProtection);
+  setGsfApplyMaterialEffects(settings.gsfApplyMaterialEffects);
 
   /////////////////////
   // Particle gun
@@ -342,7 +384,8 @@ int testGsf(const GsfTestSettings &settings) {
 
   if (settings.numParticles == 1) {
     sequencer.addAlgorithm(std::make_shared<PrintFinalParticleStats>(
-        PrintFinalParticleStats::Config{kSimulatedParticlesFinal},
+        PrintFinalParticleStats::Config{kSimulatedParticlesInitial,
+                                        kSimulatedHits},
         settings.globalLogLevel));
   }
 

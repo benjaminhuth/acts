@@ -11,6 +11,7 @@
 namespace {
 bool gsfAbortOnError = false;
 bool doLoopProtection = false;
+bool applyMaterialEffects = true;
 std::size_t maxComponents = 4;
 std::size_t maxSteps = 100;
 }  // namespace
@@ -45,4 +46,12 @@ void setGsfLoopProtection(bool lp) {
 
 bool getGsfLoopProtection() {
   return doLoopProtection;
+}
+
+void setGsfApplyMaterialEffects(bool e) {
+    applyMaterialEffects = e;
+}
+
+bool getGsfApplyMaterialEffects() {
+    return applyMaterialEffects;
 }

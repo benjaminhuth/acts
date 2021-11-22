@@ -78,11 +78,6 @@ struct WeightedComponentReducerLoop {
 
   template <typename stepper_state_t>
   static ActsScalar charge(const stepper_state_t& s) {
-    std::cout << "CHARGE_REDUCER\n";
-    for( const auto &cmp : s.components){
-        std::cout << "- w " << cmp.weight << " q " << cmp.state.q << "\n";
-    }
-
     return std::accumulate(begin(s.components), end(s.components),
                            ActsScalar{0.},
                            [](const auto& sum, const auto& cmp) -> ActsScalar {

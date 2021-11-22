@@ -49,7 +49,60 @@ BOOST_AUTO_TEST_CASE(test_merge_two_different_components) {
   BOOST_CHECK(c.weight == 1.0);
 }
 
-BOOST_AUTO_TEST_CASE(test_component_reduction) {
+BOOST_AUTO_TEST_CASE(test_component_reduction_equal) {
+  const std::size_t NCompsBefore = 10;
+
+  // Create start state
+  std::vector<DummyComponent> cmps;
+
+  DummyComponent a;
+  a.boundPars = Acts::BoundVector::Random();
+  a.boundCov = Acts::BoundSymMatrix::Random().cwiseAbs();
+  *a.boundCov *= a.boundCov->transpose();
+  a.weight = 1.0 / NCompsBefore;
+
+  for (auto i = 0ul; i < NCompsBefore; ++i) {
+    cmps.push_back(a);
+  }
+
+  const double weightSumBefore = std::accumulate(
+      cmps.begin(), cmps.end(), 0.0,
+      [](auto sum, const auto &cmp) { return sum + cmp.weight; });
+
+  BOOST_CHECK_CLOSE(weightSumBefore, 1.0, 0.0001);
+
+  // Combine
+  while (cmps.size() >= 2) {
+    auto merge_iter_a = cmps.begin();
+    auto merge_iter_b = std::next(cmps.begin());
+
+    *merge_iter_a =
+        Acts::detail::mergeComponents(*merge_iter_a, *merge_iter_b, Identity{});
+    cmps.erase(merge_iter_b);
+
+    const auto mean = std::accumulate(
+        cmps.begin(), cmps.end(), Acts::BoundVector::Zero().eval(),
+        [](auto sum, const auto &cmp) -> Acts::BoundVector {
+          return sum + cmp.weight * cmp.boundPars;
+        });
+
+    const double weightSum = std::accumulate(
+        cmps.begin(), cmps.end(), 0.0,
+        [](auto sum, const auto &cmp) { return sum + cmp.weight; });
+
+    BOOST_CHECK((mean - a.boundPars).cwiseAbs().all() < 1.e-4);
+    BOOST_CHECK_CLOSE(weightSum, 1.0, 0.0001);
+
+    if (cmps.size() == 1) {
+      BOOST_CHECK_CLOSE(weightSum, merge_iter_a->weight, 0.0001);
+      BOOST_CHECK((a.boundPars - merge_iter_a->boundPars).cwiseAbs().all() < 1.e-4);
+      BOOST_CHECK((*a.boundCov - *merge_iter_a->boundCov).cwiseAbs().all() <
+                  1.e-4);
+    }
+  }
+}
+
+BOOST_AUTO_TEST_CASE(test_component_reduction_different) {
   const std::size_t NCompsBefore = 10;
 
   // Create start state
@@ -82,7 +135,8 @@ BOOST_AUTO_TEST_CASE(test_component_reduction) {
     auto merge_iter_a = cmps.begin();
     auto merge_iter_b = std::next(cmps.begin());
 
-    *merge_iter_a = Acts::detail::mergeComponents(*merge_iter_a, *merge_iter_b, Identity{});
+    *merge_iter_a =
+        Acts::detail::mergeComponents(*merge_iter_a, *merge_iter_b, Identity{});
     cmps.erase(merge_iter_b);
 
     const auto mean = std::accumulate(

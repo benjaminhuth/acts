@@ -132,14 +132,8 @@ auto smoothAndCombineTrajectories(
     const auto bwdGeoId = currentSurface.geometryId();
     std::vector<std::size_t> fwdTips;
 
-    std::vector<std::size_t> visited;
-
     for (const auto tip : fwdStartTips) {
       fwd.visitBackwards(tip, [&](const auto &state) {
-        std::cout << "idx " << state.index() << "\n";
-        throw_assert(std::find(visited.begin(), visited.end(), state.index()) == visited.end(), "where at idx " << state.index() << "twice" );
-        visited.push_back(state.index());
-
         if (state.referenceSurface().geometryId() == bwdGeoId) {
           fwdTips.push_back(state.index());
         }
