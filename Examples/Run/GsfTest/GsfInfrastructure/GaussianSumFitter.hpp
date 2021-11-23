@@ -33,6 +33,7 @@
 #include "KLMixtureReduction.hpp"
 #include "MultiStepperAborters.hpp"
 #include "MultiSteppingLogger.hpp"
+#include "Overload.hpp"
 
 using namespace std::string_literals;
 
@@ -182,6 +183,9 @@ struct GaussianSumFitter {
       /// Number of processed states
       std::size_t processedStates = 0;
 
+      /// Allow to configure surfaces to skip
+      std::set<GeometryIdentifier> surfacesToSkip;
+
       /// Wether to transport covariance
       bool doCovTransport = true;
 
@@ -195,7 +199,7 @@ struct GaussianSumFitter {
       bool abortOnError = false;
 
       /// When to discard components
-      double weightCutoff = 1.0e-8;
+      double weightCutoff = 1.0e-4;
 
       /// A not so nice workaround to get the first backward state in the
       /// MultiTrajectory for the DirectNavigator
@@ -240,7 +244,7 @@ struct GaussianSumFitter {
                     result_type& result) const {
       const auto& logger = state.options.logger;
 
-      throw_assert(detail::componentWeightsAreNormalized(
+      throw_assert(detail::weightsAreNormalized(
                        stepper.constComponentIterable(state.stepping),
                        [](const auto& cmp) { return cmp.weight(); }),
                    "not normalized at start of operator()");
@@ -355,14 +359,6 @@ struct GaussianSumFitter {
         const auto& surface = *state.navigation.currentSurface;
         ACTS_VERBOSE("Step is at surface " << surface.geometryId());
 
-        // Remove missed surfaces and adjust momenta
-        removeMissedComponents(state, stepper, result.parentTips);
-        throw_assert(result.parentTips.size() ==
-                         stepper.numberComponents(state.stepping),
-                     "size mismatch (parentTips="
-                         << result.parentTips.size() << ", nCmps="
-                         << stepper.numberComponents(state.stepping));
-
         // Early return if we already were on this surface TODO why is this
         // necessary
         const auto [it, success] =
@@ -372,6 +368,21 @@ struct GaussianSumFitter {
           ACTS_VERBOSE("Already visited surface, return");
           return;
         }
+
+        // Early return if the surfaces should be skipped
+        if (m_cfg.surfacesToSkip.find(surface.geometryId()) !=
+            m_cfg.surfacesToSkip.end()) {
+          ACTS_VERBOSE("Surface is configured to be skipped");
+          return;
+        }
+
+        // Remove missed surfaces and adjust momenta
+        removeMissedComponents(state, stepper, result.parentTips);
+        throw_assert(result.parentTips.size() ==
+                         stepper.numberComponents(state.stepping),
+                     "size mismatch (parentTips="
+                         << result.parentTips.size() << ", nCmps="
+                         << stepper.numberComponents(state.stepping));
 
         // Check what we have on this surface
         const auto found_source_link =
@@ -404,9 +415,28 @@ struct GaussianSumFitter {
                                  proxy.filtered(), proxy.filteredCovariance());
         };
 
-        auto mapProxyToWeight = [&](const auto& cmp) {
-          return result.weightsOfStates.at(
-              std::get<1>(std::get<0>(cmp)).index());
+        auto mapToWeight = [&](auto& cmp) -> decltype(auto) {
+          if constexpr (std::is_const_v<
+                            std::remove_reference_t<decltype(cmp)>>) {
+            return std::visit(
+                Overload{
+                    [](const detail::GsfComponentParameterCache& p) -> double {
+                      return p.weight;
+                    },
+                    [&](const MultiTrajectory::TrackStateProxy& p) -> double {
+                      return result.weightsOfStates.at(p.index());
+                    }},
+                std::get<0>(cmp));
+          } else {
+            return std::visit(
+                Overload{[](detail::GsfComponentParameterCache& p) -> double& {
+                           return p.weight;
+                         },
+                         [&](MultiTrajectory::TrackStateProxy& p) -> double& {
+                           return result.weightsOfStates.at(p.index());
+                         }},
+                std::get<0>(cmp));
+          }
         };
 
         // Final component number
@@ -441,18 +471,19 @@ struct GaussianSumFitter {
 
           result.result = kalmanUpdate(state, found_source_link->second, result,
                                        componentCache);
-          detail::reweightComponents(componentCache, mapToProxyAndWeight,
-                                     m_cfg.weightCutoff);
-          result.currentTips = updateCurrentTips(
-              componentCache, result.currentTips, mapProxyToWeightParsCov);
-          result.parentTips = result.currentTips;
 
-          detail::updateStepper(state, stepper, componentCache,
-                                mapProxyToWeightParsCov);
+          detail::computePosteriorWeights(componentCache, mapToProxyAndWeight);
 
-          throw_assert(detail::componentWeightsAreNormalized(componentCache,
-                                                             mapProxyToWeight),
-                       "weights not normalized (material & measurement)");
+          removeLowWeightComponents(componentCache, mapToWeight);
+
+          auto updateRes = updateStepper(state, stepper, componentCache,
+                                         mapProxyToWeightParsCov);
+
+          if (!updateRes.ok()) {
+            SET_ERROR_AND_RETURN_OR_ABORT_ACTOR(updateRes.error());
+          }
+          result.parentTips = *updateRes;
+          result.currentTips = result.parentTips;
         }
         /////////////////////////////////////////////
         // Component Splitting BUT NO Kalman Update
@@ -479,26 +510,17 @@ struct GaussianSumFitter {
                                          ParametersCacheProjector{});
           }
 
-          result.parentTips.clear();
-          for (const auto& [variant, meta] : componentCache) {
-            result.parentTips.push_back(meta.parentIndex);
-          }
+          removeLowWeightComponents(componentCache, mapToWeight);
 
-          detail::normalizeWeights(componentCache, [](auto& cmp) -> double& {
-            return std::get<0>(std::get<0>(cmp)).weight;
-          });
-
-          detail::updateStepper(
+          auto updateRes = updateStepper(
               state, stepper, componentCache, [&](const auto& variant) {
                 return std::get<detail::GsfComponentParameterCache>(variant);
               });
 
-          throw_assert(detail::componentWeightsAreNormalized(
-                           componentCache,
-                           [](const auto& cmp) {
-                             return std::get<0>(std::get<0>(cmp)).weight;
-                           }),
-                       "weights not normalized (only material)");
+          if (!updateRes.ok()) {
+            SET_ERROR_AND_RETURN_OR_ABORT_ACTOR(updateRes.error());
+          }
+          result.parentTips = *updateRes;
         }
         /////////////////////////////////////////////
         // Kalman Update BUT NO Component Splitting
@@ -512,21 +534,25 @@ struct GaussianSumFitter {
           result.result = kalmanUpdate(state, found_source_link->second, result,
                                        componentCache);
 
-          detail::reweightComponents(componentCache, mapToProxyAndWeight,
-                                     m_cfg.weightCutoff);
+          detail::computePosteriorWeights(componentCache, mapToProxyAndWeight);
 
-          result.currentTips = updateCurrentTips(
-              componentCache, result.currentTips, mapProxyToWeightParsCov);
-          result.parentTips = result.currentTips;
+          removeLowWeightComponents(componentCache, mapToWeight);
 
-          detail::updateStepper(state, stepper, componentCache,
-                                mapProxyToWeightParsCov);
+          auto updateRes = updateStepper(state, stepper, componentCache,
+                                         mapProxyToWeightParsCov);
 
-          throw_assert(detail::componentWeightsAreNormalized(componentCache,
-                                                             mapProxyToWeight),
-                       "weights not normalized (only measurement)");
+          if (!updateRes.ok()) {
+            SET_ERROR_AND_RETURN_OR_ABORT_ACTOR(updateRes.error());
+          }
+          result.parentTips = *updateRes;
+          result.currentTips = result.parentTips;
         }
       }
+
+      throw_assert(detail::weightsAreNormalized(
+                       stepper.constComponentIterable(state.stepping),
+                       [](const auto& cmp) { return cmp.weight(); }),
+                   "at the end not normalized");
     }
 
     template <typename propagator_state_t, typename stepper_t>
@@ -551,6 +577,17 @@ struct GaussianSumFitter {
 
         initialQOverP += cmp.weight() * cmp.pars()[eFreeQOverP];
       }
+
+      throw_assert(
+          sumW_loss < 1.0, "sumW_loss is 1, components:\n"
+                               << [&]() {
+                                    std::stringstream ss;
+                                    for (const auto cmp : components) {
+                                      ss << "cmp: w=" << cmp.weight()
+                                         << ", s=" << cmp.status() << "\n";
+                                    }
+                                    return ss.str();
+                                  }());
 
       // 2) Adjust the momentum of the remaining components AND update the
       // current_tips vector
@@ -588,10 +625,10 @@ struct GaussianSumFitter {
                        << ", final: " << checkQOverPSum);
 
       throw_assert(
-          std::abs(checkWeightSum - 1.0) < 1.e-4,
+          std::abs(checkWeightSum - 1.0) < s_normalizationTolerance,
           "must sum up to 1 but is " << std::setprecision(8) << checkWeightSum);
 
-      throw_assert(detail::componentWeightsAreNormalized(
+      throw_assert(detail::weightsAreNormalized(
                        stepper.constComponentIterable(state.stepping),
                        [](const auto& cmp) { return cmp.weight(); }),
                    "not normalized");
@@ -601,24 +638,73 @@ struct GaussianSumFitter {
           "size mismatch");
     }
 
-    /// This is not very nice, include this in other functions or so
-    template <typename projector_t>
-    auto updateCurrentTips(const std::vector<ComponentCache>& components,
-                           const std::vector<std::size_t>& currentTips,
-                           const projector_t& proj) const {
-      throw_assert(components.size() == currentTips.size(), "size mismatch");
-      std::vector<std::size_t> newCurrentTips;
-      for (auto i = 0ul; i < components.size(); ++i) {
-        const auto& [variant, meta] = components[i];
+    /// Remove components with low weights and renormalize.
+    /// TODO This function does not expect normalized components, but this could
+    /// be redundant work...
+    template <typename weight_projector_t>
+    void removeLowWeightComponents(std::vector<ComponentCache>& cmps,
+                                   const weight_projector_t& proj) const {
+      detail::normalizeWeights(cmps, proj);
+
+      cmps.erase(std::remove_if(
+                     cmps.begin(), cmps.end(),
+                     [&](auto& cmp) { return proj(cmp) < m_cfg.weightCutoff; }),
+                 cmps.end());
+
+      detail::normalizeWeights(cmps, proj);
+    }
+
+    /// Function that updates the stepper with the component Cache
+    /// @note Components with weight less than the weight-cutoff are ignored and not
+    /// added to the stepper. The lost momentum is not compensated at the
+    /// moment, but the components are reweighted
+    template <typename propagator_state_t, typename stepper_t,
+              typename component_t, typename projector_t>
+    Result<std::vector<size_t>> updateStepper(
+        propagator_state_t& state, const stepper_t& stepper,
+        const std::vector<component_t>& componentCache,
+        const projector_t& proj) const {
+      const auto& surface = *state.navigation.currentSurface;
+
+      // We collect new tips in the loop
+      std::vector<size_t> new_parent_tips;
+
+      // Clear components before adding new ones
+      stepper.clearComponents(state.stepping);
+
+      // Finally loop over components
+      for (const auto& [variant, meta] : componentCache) {
         const auto& [weight, pars, cov] = proj(variant);
 
-        if (weight == 0.0) {
-          continue;
-        } else {
-          newCurrentTips.push_back(currentTips[i]);
+        // Keep track of the indices
+        std::visit(Overload{[&, &meta = meta](
+                                const detail::GsfComponentParameterCache&) {
+                              new_parent_tips.push_back(meta.parentIndex);
+                            },
+                            [&](const MultiTrajectory::TrackStateProxy& proxy) {
+                              new_parent_tips.push_back(proxy.index());
+                            }},
+                   variant);
+
+        // Add the component to the stepper
+        const BoundTrackParameters bound(surface.getSharedPtr(), pars, cov);
+
+        auto res =
+            stepper.addComponent(state.stepping, std::move(bound), weight);
+
+        if (!res.ok()) {
+          return res.error();
         }
+
+        auto& cmp = *res;
+        cmp.jacobian() = meta.jacobian;
+        cmp.jacToGlobal() = meta.jacToGlobal;
+        cmp.pathLength() = meta.pathLength;
+        cmp.derivative() = meta.derivative;
+        cmp.jacTransport() = meta.jacTransport;
       }
-      return newCurrentTips;
+
+      return new_parent_tips;
     }
 
     template <typename propagator_state_t>
@@ -711,28 +797,6 @@ struct GaussianSumFitter {
     }
   };
 
-  struct NotInCurrentVolumeAborter {
-    NotInCurrentVolumeAborter() = default;
-
-    template <typename propagator_state_t, typename stepper_t>
-    bool operator()(propagator_state_t& state, const stepper_t& stepper) const {
-      const auto& logger = state.options.logger;
-      return false;
-      // This happens if the components diverge quite a lot and can distract the
-      // navigation
-      // TODO no general solution for this problem found yet
-      if (!state.navigation.currentVolume->inside(
-              stepper.position(state.stepping))) {
-        ACTS_ERROR("The average track left the current volume in step "
-                   << state.stepping.steps);
-        return true;
-      }
-      ACTS_ERROR("sdfdfdfdfp " << state.stepping.steps);
-
-      return true;
-    }
-  };
-
   /// @brief The fit function for the Direct navigator
   template <typename source_link_it_t, typename start_parameters_t,
             typename calibrator_t, typename outlier_finder_t>
@@ -752,7 +816,7 @@ struct GaussianSumFitter {
     auto fwdPropInitializer = [&sSequence](const auto& opts,
                                            const auto& logger) {
       using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
-      using Aborters = AbortList<NotInCurrentVolumeAborter>;
+      using Aborters = AbortList<>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
@@ -767,7 +831,7 @@ struct GaussianSumFitter {
     auto bwdPropInitializer = [&sSequence](const auto& opts,
                                            const auto& logger) {
       using Actors = ActionList<GSFActor, DirectNavigator::Initializer>;
-      using Aborters = AbortList<NotInCurrentVolumeAborter>;
+      using Aborters = AbortList<>;
 
       PropagatorOptions<Actors, Aborters> propOptions(
           opts.geoContext, opts.magFieldContext, logger);
@@ -969,8 +1033,8 @@ struct GaussianSumFitter {
       // to be necessary for standard navigator to prevent double kalman
       // update on the last surface
       actor.m_cfg.multiTrajectoryInitializer = [&fwdGsfResult](
-                                                      auto& result,
-                                                      const auto& logger) {
+                                                   auto& result,
+                                                   const auto& logger) {
         result.currentTips.clear();
 
         ACTS_VERBOSE(
@@ -1091,7 +1155,7 @@ struct GaussianSumFitter {
           std::get<2>(smoothResult).front();
 
       throw_assert(
-          detail::componentWeightsAreNormalized(
+          detail::weightsAreNormalized(
               lastSmoothedState,
               [](const auto& tuple) { return std::get<double>(tuple); }),
           "");
@@ -1105,6 +1169,7 @@ struct GaussianSumFitter {
       actor.m_cfg.maxComponents = options.maxComponents;
       actor.m_cfg.abortOnError = options.abortOnError;
       actor.m_cfg.applyMaterialEffects = options.applyMaterialEffects;
+      actor.m_cfg.surfacesToSkip.insert(surface->geometryId());
 
       lastPropOptions.direction = Acts::backward;
 

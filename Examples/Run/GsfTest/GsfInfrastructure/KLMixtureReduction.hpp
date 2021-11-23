@@ -149,7 +149,6 @@ void reduceWithKLDistance(std::vector<component_t> &cmpCache,
                           std::size_t maxCmpsAfterMerge,
                           const component_projector_t &proj,
                           const angle_desc_t &angle_desc = angle_desc_t{}) {
-  std::cout << "Start function reduceWithKLDistance" << std::endl;
   if (cmpCache.size() <= maxCmpsAfterMerge) {
     return;
   }

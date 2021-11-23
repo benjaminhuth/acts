@@ -48,21 +48,12 @@ class BetheHeitlerApprox {
     for (const auto c : coeffs) {
       sum = x * sum + c;
     }
+    throw_assert(std::isfinite(sum), "polynom result not finite");
     return sum;
   }
 
  public:
-  constexpr BetheHeitlerApprox(const Data &data) : m_data(data) {
-    // These transformations must be applied to the data according to ATHENA
-    // (TrkGaussianSumFilter/src/GsfCombinedMaterialEffects.cxx:79)
-    for (int i = 0; i < NComponents; ++i) {
-      for (int j = 0; j < PolyDegree + 1; ++j) {
-        m_data[i].weightCoeffs[j] = logistic_sigmoid(m_data[i].weightCoeffs[j]);
-        m_data[i].meanCoeffs[j] = logistic_sigmoid(m_data[i].meanCoeffs[j]);
-        m_data[i].varCoeffs[j] = std::exp(m_data[i].meanCoeffs[j]);
-      }
-    }
-  }
+  constexpr BetheHeitlerApprox(const Data &data) : m_data(data) {}
 
   /// @brief Returns the number of components the returned mixture will have
   constexpr auto numComponents() const { return NComponents; }
@@ -74,9 +65,11 @@ class BetheHeitlerApprox {
 
     ActsScalar weight_sum = 0;
     for (int i = 0; i < NComponents; ++i) {
-      ret[i].weight = poly(x, m_data[i].weightCoeffs);
-      ret[i].mean = poly(x, m_data[i].meanCoeffs);
-      ret[i].var = poly(x, m_data[i].varCoeffs);
+      // These transformations must be applied to the data according to ATHENA
+      // (TrkGaussianSumFilter/src/GsfCombinedMaterialEffects.cxx:79)
+      ret[i].weight = logistic_sigmoid(poly(x, m_data[i].weightCoeffs));
+      ret[i].mean = logistic_sigmoid(poly(x, m_data[i].meanCoeffs));
+      ret[i].var = std::exp(poly(x, m_data[i].varCoeffs));
 
       weight_sum += ret[i].weight;
     }

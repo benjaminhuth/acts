@@ -61,7 +61,7 @@ auto bayesianSmoothing(component_iterator_t fwdBegin,
     return std::get<double>(tuple);
   });
 
-  throw_assert(componentWeightsAreNormalized(
+  throw_assert(weightsAreNormalized(
                    smoothedState,
                    [](const auto &tuple) { return std::get<double>(tuple); }),
                "smoothed state not normalized");

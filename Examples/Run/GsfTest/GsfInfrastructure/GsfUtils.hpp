@@ -18,12 +18,18 @@
 
 namespace Acts {
 
+/// The tolerated difference to 1 to accept weights as normalized
+/// TODO seems sometimes to fail for 1.e-8
+constexpr static double s_normalizationTolerance = 1.e-4;
+
 namespace detail {
 
-template <typename component_range_t, typename projector_t>
-bool componentWeightsAreNormalized(const component_range_t &cmps,
-                                   const projector_t &proj,
-                                   double tol = 1.e-8) {
+template <typename component_range_t, typename projector_t,
+          typename print_flag_t = std::false_type>
+bool weightsAreNormalized(const component_range_t &cmps,
+                          const projector_t &proj,
+                          double tol = s_normalizationTolerance,
+                          print_flag_t print_flag = print_flag_t{}) {
   double sum_of_weights = 0.0;
 
   for (const auto &cmp : cmps) {
@@ -33,6 +39,11 @@ bool componentWeightsAreNormalized(const component_range_t &cmps,
   if (std::abs(sum_of_weights - 1.0) < tol) {
     return true;
   } else {
+    if constexpr (print_flag) {
+      std::cout << std::setprecision(10)
+                << "diff from 1: " << std::abs(sum_of_weights - 1.0) << "\n";
+    }
+
     return false;
   }
 }
@@ -115,6 +126,12 @@ struct ComponentSplitter {
         continue;
       }
 
+      if (gaussian.mean < 1.e-8) {
+        ACTS_WARNING("Skip component with gaussian " << gaussian.mean << " +- "
+                                                     << gaussian.var);
+        continue;
+      }
+
       // compute delta p from mixture and update parameters
       auto new_pars = old_bound.parameters();
 
@@ -126,7 +143,9 @@ struct ComponentSplitter {
       }();
 
       throw_assert(p_prev + delta_p > 0.,
-                   "new momentum after bethe-heitler must be > 0");
+                   "new momentum after bethe-heitler must be > 0, p_prev= "
+                       << p_prev << ", delta_p=" << delta_p
+                       << ", gaussian mean: " << gaussian.mean);
       new_pars[eBoundQOverP] = old_bound.charge() / (p_prev + delta_p);
 
       // compute inverse variance of p from mixture and update covariance
@@ -168,49 +187,6 @@ struct ComponentForwarder {
          metaCache});
   }
 };
-
-/// Function that updates the stepper with the component Cache
-/// @note components with weight 0 are ignored and not added to the stepper.
-template <typename propagator_state_t, typename stepper_t, typename component_t,
-          typename projector_t>
-Result<void> updateStepper(propagator_state_t &state, const stepper_t &stepper,
-                           const std::vector<component_t> &componentCache,
-                           const projector_t &proj) {
-  //   const auto &logger = state.options.logger;
-  const auto &surface = *state.navigation.currentSurface;
-  stepper.clearComponents(state.stepping);
-
-  for (const auto &[variant, meta] : componentCache) {
-    const auto &[weight, pars, cov] = proj(variant);
-
-    if (weight == 0.0) {
-      continue;
-    }
-
-    const BoundTrackParameters bound(surface.getSharedPtr(), pars, cov);
-
-//     throw_assert(stepper.charge(state.stepping) == bound.charge(),
-//                  "charge mismatch (stepper state: "
-//                      << stepper.charge(state.stepping)
-//                      << ", new cmp: [q=" << bound.charge()
-//                      << ", qop=" << pars[eBoundQOverP] << "]");
-
-    auto res = stepper.addComponent(state.stepping, std::move(bound), weight);
-
-    if (!res.ok()) {
-      return res.error();
-    }
-
-    auto &cmp = *res;
-    cmp.jacobian() = meta.jacobian;
-    cmp.jacToGlobal() = meta.jacToGlobal;
-    cmp.pathLength() = meta.pathLength;
-    cmp.derivative() = meta.derivative;
-    cmp.jacTransport() = meta.jacTransport;
-  }
-
-  return Result<void>::success();
-}
 
 /// @brief Expands all existing components to new components by using a
 /// gaussian-mixture approximation for the Bethe-Heitler distribution.
@@ -354,7 +330,7 @@ auto combineComponentRange(const component_iterator_t begin,
   }
 
   if (checkIfNormalized) {
-    throw_assert(std::abs(sumOfWeights - 1.0) < 1.e-8,
+    throw_assert(std::abs(sumOfWeights - 1.0) < s_normalizationTolerance,
                  "weights are not normalized");
   }
 
@@ -393,9 +369,10 @@ void reduceNumberOfComponents(std::vector<component_t> &components,
 /// PosteriorWeightsCalculator.cxx
 /// Expects that the projector maps the component to something like a
 /// std::pair< trackProxy&, double& > so that it can be extracted with std::get
+/// @note The weights are not renormalized!
 template <typename component_t, typename projector_t>
-void reweightComponents(std::vector<component_t> &cmps, const projector_t &proj,
-                        const double weightCutoff) {
+void computePosteriorWeights(std::vector<component_t> &cmps,
+                             const projector_t &proj) {
   // Helper Function to compute detR
   auto computeDetR = [](const auto &trackState) -> ActsScalar {
     const auto predictedCovariance = trackState.predictedCovariance();
@@ -434,26 +411,12 @@ void reweightComponents(std::vector<component_t> &cmps, const projector_t &proj,
     const double chi2 = std::get<0>(proj(cmp)).chi2() - minChi2;
     const double detR = computeDetR(std::get<0>(proj(cmp)));
 
-    if (std::isnan(chi2) || std::isnan(detR)) {
+    if (!std::isfinite(chi2) || !std::isfinite(detR)) {
       sumOfWeights += std::get<1>(proj(cmp));
     } else {
-      const auto newWeight = std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
-
-      if (newWeight < weightCutoff) {
-        std::get<1>(proj(cmp)) = 0;
-      } else {
-        std::get<1>(proj(cmp)) *= newWeight;
-        sumOfWeights += std::get<1>(proj(cmp));
-      }
+      const auto factor = std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
+      std::get<1>(proj(cmp)) *= factor;
     }
-  }
-
-  throw_assert(
-      sumOfWeights > 0.,
-      "The sum of the weights needs to be positive, but is " << sumOfWeights);
-
-  for (auto &cmp : cmps) {
-    std::get<1>(proj(cmp)) *= (1. / sumOfWeights);
   }
 }
 
