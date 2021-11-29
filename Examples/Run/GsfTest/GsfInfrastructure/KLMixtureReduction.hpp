@@ -29,6 +29,11 @@ auto computeKLDistance(const component_t &a, const component_t &b,
   const auto covA = (*proj(a).boundCov)(eBoundQOverP, eBoundQOverP);
   const auto covB = (*proj(b).boundCov)(eBoundQOverP, eBoundQOverP);
 
+  throw_assert(covA != 0.0, "");
+  throw_assert(std::isfinite(covA), "");
+  throw_assert(covB != 0.0, "");
+  throw_assert(std::isfinite(covB), "");
+
   const auto kl = covA * (1 / covB) + covB * (1 / covA) +
                   (parsA - parsB) * (1 / covA + 1 / covB) * (parsA - parsB);
 

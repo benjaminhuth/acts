@@ -16,6 +16,8 @@
 #include "ActsExamples/Digitization/DigitizationConfig.hpp"
 #include "ActsExamples/Framework/IContextDecorator.hpp"
 
+#include "GsfAlgorithmFunction.hpp"
+
 #include <memory>
 
 struct GsfTestSettings {
@@ -32,6 +34,8 @@ struct GsfTestSettings {
     bool doRefit;
     bool doDirectNavigation;
     bool estimateParsFromSeed;
+
+    StepperInteface stepperInterface;
     
     std::size_t maxComponents;
     std::size_t maxSteps;

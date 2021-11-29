@@ -12,6 +12,7 @@
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
+/// Make function of
 std::shared_ptr<
     ActsExamples::TrackFittingAlgorithm::DirectedTrackFitterFunction>
 makeGsfDirectFitterFunction(
@@ -39,3 +40,12 @@ std::size_t getGsfMaxSteps();
 
 void setGsfApplyMaterialEffects(bool);
 bool getGsfApplyMaterialEffects();
+
+/// Choose the interface of the stepper to the navigator
+enum class StepperInteface {
+    average,
+    maxMomentum
+};
+
+void setGsfStepperInterface(StepperInteface);
+StepperInteface getGsfStepperInterface();

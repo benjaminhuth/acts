@@ -107,12 +107,21 @@ struct ComponentSplitter {
                   const GsfComponentMetaCache &metaCache,
                   std::vector<component_cache_t> &componentCaches) const {
     const auto &logger = state.options.logger;
+    const auto &surface = *state.navigation.currentSurface;
     const auto p_prev = old_bound.absoluteMomentum();
-    const auto slab =
-        state.navigation.currentSurface->surfaceMaterial()->materialSlab(
+
+    // Evaluate material slab
+    auto slab =
+        surface.surfaceMaterial()->materialSlab(
             old_bound.position(state.stepping.geoContext),
             state.stepping.navDir, MaterialUpdateStage::fullUpdate);
 
+//     auto pathCorrection = surface.pathCorrection(
+//         state.stepping.geoContext, old_bound.position(state.stepping.geoContext),
+//         old_bound.unitDirection());
+//     slab.scaleThickness(pathCorrection);
+
+    // Get the mixture
     const auto mixture = betheHeitler.mixture(slab.thicknessInX0());
 
     // Create all possible new components
@@ -162,6 +171,7 @@ struct ComponentSplitter {
         }();
 
         (*new_cov)(eBoundQOverP, eBoundQOverP) += varInvP;
+        throw_assert(std::isfinite((*new_cov)(eBoundQOverP, eBoundQOverP)), "cov not finite, varInvP=" << varInvP << ", p_prev=" << p_prev << ", gaussian.mean=" << gaussian.mean << ", gaussian.var=" << gaussian.var);
       }
 
       // Set the remaining things and push to vector
@@ -192,8 +202,6 @@ struct ComponentForwarder {
 /// gaussian-mixture approximation for the Bethe-Heitler distribution.
 /// @return a std::vector with all new components (parent tip, weight,
 /// parameters, covariance)
-/// TODO We could make propagator_state const here if the component proxy
-/// of the stepper would accept it
 template <typename propagator_state_t, typename stepper_t, typename component_t,
           typename component_processor_t>
 void extractComponents(propagator_state_t &state, const stepper_t &stepper,

@@ -154,6 +154,7 @@ int main(int argc, char **argv) {
 
   settings.gsfLoopProtection = false;
   settings.gsfApplyMaterialEffects = true;
+  settings.stepperInterface = StepperInteface::average;
 
   // Make the telescope detector
   const typename ActsExamples::Telescope::TelescopeDetectorElement::ContextType

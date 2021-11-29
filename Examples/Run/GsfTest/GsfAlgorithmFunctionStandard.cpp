@@ -30,20 +30,21 @@ using Calibrator = ActsExamples::MeasurementCalibrator;
 // Stepper and Propagator
 using DefaultExt = Acts::detail::GenericDefaultExtension<Acts::ActsScalar>;
 using ExtList = Acts::StepperExtensionList<DefaultExt>;
-using Stepper = Acts::MultiEigenStepperLoop<ExtList>;
+using AvgStepper = Acts::MultiEigenStepperLoop<ExtList>;
+using MaxStepper =
+    Acts::MultiEigenStepperLoop<ExtList, Acts::MaxMomentumReducerLoop>;
 
-using StandardPropagator = Acts::Propagator<Stepper, Acts::Navigator>;
-using StandardFitter = Acts::GaussianSumFitter<StandardPropagator>;
-
+template <typename fitter_t>
 struct GsfStandardFitterFunction
     : public ActsExamples::TrackFittingAlgorithm::TrackFitterFunction {
-  StandardFitter trackFitter;
+  fitter_t trackFitter;
 
-  GsfStandardFitterFunction(StandardFitter&& f) : trackFitter(std::move(f)) {}
+  GsfStandardFitterFunction(fitter_t&& f) : trackFitter(std::move(f)) {}
   ~GsfStandardFitterFunction() {}
 
   ActsExamples::TrackFittingAlgorithm::TrackFitterResult operator()(
-      const std::vector<std::reference_wrapper<const ActsExamples::IndexSourceLink>>& sourceLinks,
+      const std::vector<std::reference_wrapper<
+          const ActsExamples::IndexSourceLink>>& sourceLinks,
       const ActsExamples::TrackParameters& initialParameters,
       const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions&
           kalmanOptions) const {
@@ -58,10 +59,10 @@ struct GsfStandardFitterFunction
         getGsfMaxComponents(),
         getGsfMaxSteps(),
         getGsfLoopProtection(),
-        getGsfApplyMaterialEffects()
-    };
+        getGsfApplyMaterialEffects()};
 
-    return trackFitter.fit(sourceLinks.begin(), sourceLinks.end(), initialParameters, gsfOptions);
+    return trackFitter.fit(sourceLinks.begin(), sourceLinks.end(),
+                           initialParameters, gsfOptions);
   };
 };
 
@@ -72,16 +73,36 @@ makeGsfStandardFitterFunction(
     Acts::LoggerWrapper logger) {
   using namespace Acts::UnitLiterals;
 
-  Stepper stepper(std::move(magneticField), logger);
-  stepper.setOverstepLimit(1_mm);
+  auto makeFitter = [&](auto&& stepper) {
+    using Stepper = std::decay_t<decltype(stepper)>;
+    using Propagator = Acts::Propagator<Stepper, Acts::Navigator>;
+    using Fitter = Acts::GaussianSumFitter<Propagator>;
 
-  Acts::Navigator::Config cfg;
-  cfg.trackingGeometry = trackingGeometry;
+    Acts::Navigator::Config cfg;
+    cfg.trackingGeometry = trackingGeometry;
 
-  Acts::Navigator navigator(cfg);
-  StandardPropagator propagator(std::move(stepper), std::move(navigator));
-  StandardFitter trackFitter(std::move(propagator));
+    Acts::Navigator navigator(cfg);
+    Propagator propagator(std::move(stepper), std::move(navigator));
+    Fitter trackFitter(std::move(propagator));
 
-  // build the fitter functions. owns the fitter object.
-  return std::make_shared<GsfStandardFitterFunction>(std::move(trackFitter));
+    // build the fitter functions. owns the fitter object.
+    return std::make_shared<GsfStandardFitterFunction<Fitter>>(
+        std::move(trackFitter));
+  };
+
+  switch (getGsfStepperInterface()) {
+    case StepperInteface::average: {
+      AvgStepper stepper(std::move(magneticField), logger);
+      stepper.setOverstepLimit(1_mm);
+      return makeFitter(stepper);
+    }
+
+    case StepperInteface::maxMomentum: {
+      throw std::runtime_error(
+          "not compiled for build-time reasons at the moment");
+      //       MaxStepper stepper(std::move(magneticField), logger);
+      //       stepper.setOverstepLimit(1_mm);
+      //       return makeFitter(stepper);
+    }
+  }
 }

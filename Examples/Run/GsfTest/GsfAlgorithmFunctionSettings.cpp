@@ -14,6 +14,7 @@ bool doLoopProtection = false;
 bool applyMaterialEffects = true;
 std::size_t maxComponents = 4;
 std::size_t maxSteps = 100;
+StepperInteface interface = StepperInteface::average;
 }  // namespace
 
 void setGsfAbortOnError(bool aoe) {
@@ -54,4 +55,13 @@ void setGsfApplyMaterialEffects(bool e) {
 
 bool getGsfApplyMaterialEffects() {
     return applyMaterialEffects;
+}
+
+void setGsfStepperInterface(StepperInteface i) {
+    interface = i;
+}
+
+StepperInteface getGsfStepperInterface()
+{
+    return interface;
 }

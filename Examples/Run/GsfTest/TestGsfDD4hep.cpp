@@ -85,7 +85,11 @@ int main(int argc, char **argv) {
     opt("no-gsf", po::bool_switch(), "Disable the Kalman Filter");
     opt("do-refit", po::bool_switch(), "Use GSF to refit Kalman result");
     opt("abort-on-error", po::bool_switch(), "Abort GSF on error");
-    opt("gsf-no-mat-effects", po::bool_switch(), "Disable material effects in GSF");
+    opt("gsf-no-mat-effects", po::bool_switch(),
+        "Disable material effects in GSF");
+    opt("stepper-max-mom", po::bool_switch(),
+        "The stepper uses the max-momentum component as interface for the "
+        "Navigator");
 
     detector->addOptions(desc);
     Options::addGeometryOptions(desc);
@@ -118,13 +122,17 @@ int main(int argc, char **argv) {
   settings.estimateParsFromSeed = vm["pars-from-seeds"].as<bool>();
   settings.maxComponents = vm["c"].as<int>();
   settings.inflation = 1.0;
-  settings.maxSteps = 300;
+  settings.maxSteps = 1000;
   settings.gsfAbortOnError = false;
   settings.seed = vm["s"].as<std::size_t>();
   settings.gsfAbortOnError = vm["abort-on-error"].as<bool>();
   settings.doRefit = vm["do-refit"].as<bool>();
+  settings.doDirectNavigation = false;
   settings.gsfLoopProtection = false;
   settings.gsfApplyMaterialEffects = !vm["gsf-no-mat-effects"].as<bool>();
+  settings.stepperInterface = vm["stepper-max-mom"].as<bool>()
+                                  ? StepperInteface::maxMomentum
+                                  : StepperInteface::average;
 
   // Setup detector geometry
   const auto [geometry, decorators] =

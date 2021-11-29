@@ -113,6 +113,54 @@ struct WeightedComponentReducerLoop {
   }
 };
 
+struct MaxMomentumReducerLoop {
+  template <typename component_t>
+  static const auto& maxMomenutmIt(const std::vector<component_t>& cmps) {
+    return *std::max_element(
+        cmps.begin(), cmps.end(), [&](const auto& a, const auto& b) {
+          return std::abs(a.state.pars[eFreeQOverP]) > std::abs(b.state.pars[eFreeQOverP]);
+        });
+  }
+
+  template <typename stepper_state_t>
+  static Vector3 position(const stepper_state_t& s) {
+    return maxMomenutmIt(s.components)
+        .state.pars.template segment<3>(eFreePos0);
+  }
+
+  template <typename stepper_state_t>
+  static Vector3 direction(const stepper_state_t& s) {
+    return maxMomenutmIt(s.components)
+        .state.pars.template segment<3>(eFreeDir0);
+  }
+
+  template <typename stepper_state_t>
+  static ActsScalar momentum(const stepper_state_t& s) {
+    const auto& cmp = maxMomenutmIt(s.components);
+    return 1.0 / (cmp.state.pars[eFreeQOverP] / cmp.state.q);
+  }
+
+  template <typename stepper_state_t>
+  static ActsScalar charge(const stepper_state_t& s) {
+    return maxMomenutmIt(s.components).state.q;
+  }
+
+  template <typename stepper_state_t>
+  static ActsScalar time(const stepper_state_t& s) {
+    return maxMomenutmIt(s.components).state.pars[eFreeTime];
+  }
+
+  template <typename stepper_state_t>
+  static FreeVector pars(const stepper_state_t& s) {
+    return maxMomenutmIt(s.components).state.pars;
+  }
+
+  template <typename stepper_state_t>
+  static FreeVector cov(const stepper_state_t& s) {
+    return maxMomenutmIt(s.components).state.cov;
+  }
+};
+
 /// @brief Stepper based on the EigenStepper, but handles Multi-Component Tracks
 /// (e.g., for the GSF)
 template <typename extensionlist_t,
@@ -826,7 +874,8 @@ class MultiEigenStepperLoop
       }
 
       if (charge_ambigous) {
-        ACTS_VERBOSE(stepping.steps << "Charge of components is ambigous: " << ss.str());
+        ACTS_VERBOSE(stepping.steps << "Charge of components is ambigous: "
+                                    << ss.str());
       } else {
         ACTS_VERBOSE(stepping.steps << "Charge of components: " << ss.str());
       }

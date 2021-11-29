@@ -296,6 +296,8 @@ int testGsf(const GsfTestSettings &settings) {
   ACTS_INFO("Parameters: Covariance inflation factor: " << settings.inflation);
   ACTS_INFO("Parameters: GSF apply material effects: "
             << std::boolalpha << settings.gsfApplyMaterialEffects);
+  ACTS_INFO("Parameters: Stepper interface: "
+            << static_cast<int>(settings.stepperInterface));
 
   // Init Sequencer
   ActsExamples::Sequencer::Config seqCfg;
@@ -324,6 +326,7 @@ int testGsf(const GsfTestSettings &settings) {
   setGsfMaxSteps(settings.maxSteps);
   setGsfLoopProtection(settings.gsfLoopProtection);
   setGsfApplyMaterialEffects(settings.gsfApplyMaterialEffects);
+  setGsfStepperInterface(settings.stepperInterface);
 
   /////////////////////
   // Particle gun
