@@ -49,3 +49,9 @@ enum class StepperInteface {
 
 void setGsfStepperInterface(StepperInteface);
 StepperInteface getGsfStepperInterface();
+
+void setBetheHeitlerHighX0Path(const std::string &path);
+const std::string &getBetheHeitlerHighX0Path();
+
+void setBetheHeitlerLowX0Path(const std::string &path);
+const std::string &getBetheHeitlerLowX0Path();

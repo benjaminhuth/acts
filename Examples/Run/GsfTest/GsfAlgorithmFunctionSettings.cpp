@@ -15,6 +15,8 @@ bool applyMaterialEffects = true;
 std::size_t maxComponents = 4;
 std::size_t maxSteps = 100;
 StepperInteface interface = StepperInteface::average;
+std::string bethe_heitler_low_x0_path;
+std::string bethe_heitler_high_x0_path;
 }  // namespace
 
 void setGsfAbortOnError(bool aoe) {
@@ -64,4 +66,20 @@ void setGsfStepperInterface(StepperInteface i) {
 StepperInteface getGsfStepperInterface()
 {
     return interface;
+}
+
+void setBetheHeitlerHighX0Path(const std::string& path) {
+    bethe_heitler_high_x0_path = path;
+}
+
+const std::string &getBetheHeitlerHighX0Path() {
+    return bethe_heitler_high_x0_path;
+}
+
+void setBetheHeitlerLowX0Path(const std::string& path) {
+    bethe_heitler_low_x0_path = path;
+}
+
+const std::string &getBetheHeitlerLowX0Path() {
+    return bethe_heitler_low_x0_path;
 }

@@ -40,22 +40,13 @@ struct MultiStepperSurfaceReached {
   template <typename propagator_state_t, typename stepper_t>
   bool operator()(propagator_state_t& state, const stepper_t& stepper,
                   const Surface& targetSurface) const {
-    using SingleStepper = typename stepper_t::SingleStepper;
-
-    struct DummyState {
-      typename SingleStepper::State& stepping;
-      decltype(state.navigation)& navigation;
-      decltype(state.options)& options;
-      GeometryContext geoContext;
-    };
 
     bool reached = true;
-    for (auto& cmp_state : state.stepping.components) {
-      DummyState dummyState{cmp_state.state, state.navigation, state.options,
-                            state.geoContext};
-      if (!SurfaceReached{}(dummyState,
-                            static_cast<const SingleStepper&>(stepper),
-                            targetSurface)) {
+    for (auto cmp : stepper.componentIterable(state.stepping)) {
+      auto singleState = cmp.singleState(state);
+      const auto &singleStepper = cmp.singleStepper(stepper);
+
+      if (!SurfaceReached{}(singleState, singleStepper, targetSurface)) {
         reached = false;
       }
     }

@@ -48,16 +48,16 @@ bool weightsAreNormalized(const component_range_t &cmps,
   }
 }
 
-template <typename component_t, typename projector_t>
-void normalizeWeights(std::vector<component_t> &cmps, const projector_t &proj) {
+template <typename component_range_t, typename projector_t>
+void normalizeWeights(component_range_t &cmps, const projector_t &proj) {
   double sum_of_weights = 0.0;
 
-  for (auto &cmp : cmps) {
-    sum_of_weights += proj(cmp);
+  for(auto it=cmps.begin(); it != cmps.end(); ++it) {
+    sum_of_weights += proj(*it);
   }
 
-  for (auto &cmp : cmps) {
-    proj(cmp) /= sum_of_weights;
+  for(auto it=cmps.begin(); it != cmps.end(); ++it) {
+    proj(*it) /= sum_of_weights;
   }
 }
 
@@ -122,7 +122,7 @@ struct ComponentSplitter {
 //     slab.scaleThickness(pathCorrection);
 
     // Get the mixture
-    const auto mixture = betheHeitler.mixture(slab.thicknessInX0());
+    const auto mixture = betheHeitler->mixture(slab.thicknessInX0());
 
     // Create all possible new components
     for (const auto &gaussian : mixture) {
@@ -344,32 +344,6 @@ auto combineComponentRange(const component_iterator_t begin,
 
   return ret_type{mean / sumOfWeights,
                   cov1 / sumOfWeights + cov2 / (sumOfWeights * sumOfWeights)};
-}
-
-/// @brief Function that reduces the number of components. at the moment,
-/// this is just by erasing the components with the lowest weights.
-/// Finally, the components are reweighted so the sum of the weights is
-/// still 1
-/// TODO If we create new components here to preserve the mean or if we do some
-/// component merging, how can this be applied in the MultiTrajectory
-template <typename component_t>
-void reduceNumberOfComponents(std::vector<component_t> &components,
-                              std::size_t maxRemainingComponents) {
-  // The elements should be sorted by weight (high -> low)
-  std::sort(begin(components), end(components),
-            [](const auto &a, const auto &b) { return a.weight > b.weight; });
-
-  // Remove elements by resize
-  components.erase(begin(components) + maxRemainingComponents, end(components));
-
-  // Reweight after removal
-  const auto sum_of_weights = std::accumulate(
-      begin(components), end(components), 0.0,
-      [](auto sum, const auto &cmp) { return sum + cmp.weight; });
-
-  for (auto &cmp : components) {
-    cmp.weight /= sum_of_weights;
-  }
 }
 
 /// @brief Reweight the components according to `R. Frühwirth, "Track fitting

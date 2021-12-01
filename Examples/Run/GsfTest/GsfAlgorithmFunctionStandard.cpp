@@ -83,7 +83,16 @@ makeGsfStandardFitterFunction(
 
     Acts::Navigator navigator(cfg);
     Propagator propagator(std::move(stepper), std::move(navigator));
-    Fitter trackFitter(std::move(propagator));
+
+    Fitter trackFitter = [&]() {
+      if (getBetheHeitlerHighX0Path().empty() &&
+          getBetheHeitlerLowX0Path().empty()) {
+        return Fitter(std::move(propagator));
+      } else {
+        return Fitter(std::move(propagator), getBetheHeitlerLowX0Path(),
+                      getBetheHeitlerHighX0Path());
+      }
+    }();
 
     // build the fitter functions. owns the fitter object.
     return std::make_shared<GsfStandardFitterFunction<Fitter>>(

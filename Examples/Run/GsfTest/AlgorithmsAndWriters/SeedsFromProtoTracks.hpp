@@ -86,6 +86,8 @@ struct SeedsFromProtoTracks final : public BareAlgorithm {
         continue;
       }
 
+      std::sort(spacePointsOnTrack.begin(), spacePointsOnTrack.end(), [](const auto &a, const auto &b){ return a->r() < b->r(); });
+
       seeds.emplace_back(*spacePointsOnTrack[0], *spacePointsOnTrack[1],
                          *spacePointsOnTrack[2], spacePointsOnTrack[1]->z());
       outTracks.push_back(protoTrack);

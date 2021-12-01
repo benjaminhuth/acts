@@ -40,7 +40,8 @@ class BetheHeitlerApprox {
   using Data = std::array<PolyData, NComponents>;
 
  private:
-  Data m_data;
+  Data m_low_data;
+  Data m_high_data;
 
   ActsScalar poly(ActsScalar x,
                   const std::array<ActsScalar, PolyDegree + 1> &coeffs) const {
@@ -53,41 +54,129 @@ class BetheHeitlerApprox {
   }
 
  public:
-  constexpr BetheHeitlerApprox(const Data &data) : m_data(data) {}
+  constexpr BetheHeitlerApprox(const Data &data)
+      : m_low_data(data), m_high_data(data) {}
+  constexpr BetheHeitlerApprox(const Data &low_data, const Data &high_data)
+      : m_low_data(low_data), m_high_data(high_data) {}
 
   /// @brief Returns the number of components the returned mixture will have
   constexpr auto numComponents() const { return NComponents; }
 
   /// @brief Generates the mixture from the polynomials and reweights them, so
   /// that the sum of all weights is 1
-  auto mixture(ActsScalar x) const {
-    std::array<GaussianMixture, NComponents> ret;
+  auto mixture(const ActsScalar x) const {
+    // Value initialization should garanuee that all is initialized to zero
 
-    ActsScalar weight_sum = 0;
-    for (int i = 0; i < NComponents; ++i) {
-      // These transformations must be applied to the data according to ATHENA
-      // (TrkGaussianSumFilter/src/GsfCombinedMaterialEffects.cxx:79)
-      ret[i].weight = logistic_sigmoid(poly(x, m_data[i].weightCoeffs));
-      ret[i].mean = logistic_sigmoid(poly(x, m_data[i].meanCoeffs));
-      ret[i].var = std::exp(poly(x, m_data[i].varCoeffs));
+    // Some constants
+    constexpr double singleGaussianRange = 0.0001;
+    constexpr double lowerRange = 0.002;
+    constexpr double higherRange = 0.10;
+    constexpr double maxX0 = 0.20;
 
-      weight_sum += ret[i].weight;
+    // Lambda which builds the components
+    auto make_mixture = [&](const Data &data, double x) {
+      std::array<GaussianMixture, NComponents> ret{};
+      ActsScalar weight_sum = 0;
+      for (int i = 0; i < NComponents; ++i) {
+        // These transformations must be applied to the data according to ATHENA
+        // (TrkGaussianSumFilter/src/GsfCombinedMaterialEffects.cxx:79)
+        ret[i].weight = logistic_sigmoid(poly(x, data[i].weightCoeffs));
+        ret[i].mean = logistic_sigmoid(poly(x, data[i].meanCoeffs));
+        ret[i].var = std::exp(poly(x, data[i].varCoeffs));
+
+        weight_sum += ret[i].weight;
+      }
+
+      for (int i = 0; i < NComponents; ++i) {
+        ret[i].weight /= weight_sum;
+      }
+
+      return ret;
+    };
+
+    // Return no change
+    if (x < singleGaussianRange) {
+      std::array<GaussianMixture, NComponents> ret{};
+
+      ret[0].weight = 1.0;
+      ret[0].mean = 1.0;  // p_initial = p_final
+      ret[0].var = 0.0;
+
+      return ret;
     }
+    // Return single gaussian approximation
+    if (x < lowerRange) {
+      std::array<GaussianMixture, NComponents> ret{};
 
-    for (int i = 0; i < NComponents; ++i) {
-      ret[i].weight /= weight_sum;
+      ret[0].weight = 1.0;
+      ret[0].mean = std::exp(-1. * x);
+      ret[0].var =
+          std::exp(-1. * x * std::log(3.) / std::log(2.)) - std::exp(-2. * x);
+
+      return ret;
     }
-
-    return ret;
+    // Return a component representation for lower x0
+    if (x < higherRange) {
+      return make_mixture(m_low_data, x);
+    }
+    // Return a component representation for higher x0
+    else {
+      const auto high_x = x > maxX0 ? maxX0 : x;
+      return make_mixture(m_high_data, high_x);
+    }
   }
 };
 
 using BHApprox = BetheHeitlerApprox<6, 5>;
 
+
+template<std::size_t NCmps, std::size_t Order>
+auto load_bethe_heitler_data(const std::string &filepath) -> typename BetheHeitlerApprox<NCmps, Order>::Data {
+    std::ifstream file(filepath);
+
+    if( !file ) {
+        throw std::invalid_argument("Could not open '" + filepath + "'");
+    }
+
+    std::size_t n_cmps, order;
+    bool transform_code;
+
+    file >> n_cmps >> order >> transform_code;
+
+    if(NCmps != n_cmps) {
+        throw std::invalid_argument("Wrong number of components in '" + filepath + "'");
+    }
+
+    if(Order != order) {
+        throw std::invalid_argument("Wrong wrong polynom order in '" + filepath + "'");
+    }
+
+    if(!transform_code) {
+        throw std::invalid_argument("Transform-code is required in '" + filepath + "'");
+    }
+
+    typename BetheHeitlerApprox<NCmps, Order>::Data data;
+
+    for(auto &cmp : data) {
+        for(auto &coeff : cmp.weightCoeffs){
+            file >> coeff;
+        }
+        for(auto &coeff : cmp.meanCoeffs){
+            file >> coeff;
+        }
+        for(auto &coeff : cmp.varCoeffs){
+            file >> coeff;
+        }
+    }
+
+    return data;
+}
+
+
 /// These data are from ATHENA
 /// (TrkGaussianSumFilter/Data/BetheHeitler_cdf_nC6_O5.par)
 // clang-format off
-constexpr static BHApprox::Data bh_cmps6_order5_data = {{
+constexpr static BHApprox::Data bh_cdf_cmps6_order5_data = {{
     // Component #1
     {
         {{3.74397e+004,-1.95241e+004, 3.51047e+003,-2.54377e+002, 1.81080e+001,-3.57643e+000}},

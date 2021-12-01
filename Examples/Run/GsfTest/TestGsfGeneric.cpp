@@ -246,8 +246,9 @@ struct PrintFinalParticleStats : ActsExamples::BareAlgorithm {
 
         // Print the stuff
         for (auto j = 0ul; j < traj_hits.size(); ++j) {
-          ACTS_INFO("  pathLength: "
-                    << approx_path_lengths.at(j) << " mom: "
+          ACTS_INFO("  pos: "
+                    << traj_hits[j].position().transpose()
+                    << " pathLength: " << approx_path_lengths.at(j) << " mom: "
                     << traj_hits[j].momentum4After().segment<3>(0).norm());
         }
       }
@@ -327,6 +328,8 @@ int testGsf(const GsfTestSettings &settings) {
   setGsfLoopProtection(settings.gsfLoopProtection);
   setGsfApplyMaterialEffects(settings.gsfApplyMaterialEffects);
   setGsfStepperInterface(settings.stepperInterface);
+  setBetheHeitlerHighX0Path(settings.gsfBetheHeitlerHighX0Path);
+  setBetheHeitlerLowX0Path(settings.gsfBetheHeitlerLowX0Path);
 
   /////////////////////
   // Particle gun

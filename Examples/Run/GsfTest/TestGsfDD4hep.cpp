@@ -90,6 +90,8 @@ int main(int argc, char **argv) {
     opt("stepper-max-mom", po::bool_switch(),
         "The stepper uses the max-momentum component as interface for the "
         "Navigator");
+    opt("bethe-heitler-low-x0-file", po::value<std::string>()->default_value(""), "Path to low x0 bethe-heitler-description");
+    opt("bethe-heitler-high-x0-file", po::value<std::string>()->default_value(""), "Path to high x0 bethe-heitler-description");
 
     detector->addOptions(desc);
     Options::addGeometryOptions(desc);
@@ -133,6 +135,8 @@ int main(int argc, char **argv) {
   settings.stepperInterface = vm["stepper-max-mom"].as<bool>()
                                   ? StepperInteface::maxMomentum
                                   : StepperInteface::average;
+  settings.gsfBetheHeitlerHighX0Path = vm["bethe-heitler-high-x0-file"].as<std::string>();
+  settings.gsfBetheHeitlerLowX0Path = vm["bethe-heitler-low-x0-file"].as<std::string>();
 
   // Setup detector geometry
   const auto [geometry, decorators] =

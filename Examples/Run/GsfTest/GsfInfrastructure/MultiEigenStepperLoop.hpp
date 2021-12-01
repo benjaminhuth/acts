@@ -116,10 +116,11 @@ struct WeightedComponentReducerLoop {
 struct MaxMomentumReducerLoop {
   template <typename component_t>
   static const auto& maxMomenutmIt(const std::vector<component_t>& cmps) {
-    return *std::max_element(
-        cmps.begin(), cmps.end(), [&](const auto& a, const auto& b) {
-          return std::abs(a.state.pars[eFreeQOverP]) > std::abs(b.state.pars[eFreeQOverP]);
-        });
+    return *std::max_element(cmps.begin(), cmps.end(),
+                             [&](const auto& a, const auto& b) {
+                               return std::abs(a.state.pars[eFreeQOverP]) >
+                                      std::abs(b.state.pars[eFreeQOverP]);
+                             });
   }
 
   template <typename stepper_state_t>
@@ -260,6 +261,23 @@ class MultiEigenStepperLoop
     std::optional<std::size_t> stepCounterAfterFirstComponentOnSurface;
   };
 
+  /// A state type which can be used for a function which accepts only
+  /// single-component states and stepper
+  template <typename navigation_t, typename options_t>
+  struct SinglePropState {
+    SinglePropState(SingleState& s, navigation_t& n, options_t& o,
+                    GeometryContext g)
+        : stepping(s), navigation(n), options(o), geoContext(g) {}
+    SingleState& stepping;
+    navigation_t& navigation;
+    options_t& options;
+    GeometryContext geoContext;
+  };
+
+  template <typename navigation_t, typename options_t>
+  SinglePropState(SingleState, navigation_t, options_t, GeometryContext)
+      -> SinglePropState<navigation_t, options_t>;
+
   /// A proxy struct which allows access to a single component of the
   /// multi-component state
   struct ComponentProxy {
@@ -286,6 +304,29 @@ class MultiEigenStepperLoop
     const auto& jacobian() const { return m_cmp.state.jacobian; }
     auto& jacToGlobal() { return m_cmp.state.jacToGlobal; }
     const auto& jacToGlobal() const { return m_cmp.state.jacToGlobal; }
+
+    template <typename propagator_state_t>
+    const auto& singleState(const propagator_state_t& state) const {
+      static_assert(
+          std::is_same_v<SingleState,
+                         decltype(state.stepping.components.front().state)>);
+      return SinglePropState{m_cmp.state, state.navigation, state.options,
+                             state.geoContext};
+    }
+
+    template <typename propagator_state_t>
+    auto singleState(propagator_state_t& state) {
+      static_assert(
+          std::is_same_v<SingleState,
+                         decltype(state.stepping.components.front().state)>);
+
+      return SinglePropState(m_cmp.state, state.navigation, state.options,
+                             state.geoContext);
+    }
+
+    const auto& singleStepper(const MultiEigenStepperLoop& stepper) const {
+      return static_cast<const SingleStepper&>(stepper);
+    }
 
     Result<BoundState> boundState(const Surface& surface, bool transportCov) {
       if (m_cmp.status == Intersection3D::Status::onSurface) {
@@ -321,6 +362,19 @@ class MultiEigenStepperLoop
     const auto& cov() const { return m_cmp.state.cov; }
     const auto& jacobian() const { return m_cmp.state.jacobian; }
     const auto& jacToGlobal() const { return m_cmp.state.jacToGlobal; }
+
+    template <typename propagator_state_t>
+    const auto& singleState(const propagator_state_t& state) const {
+      static_assert(
+          std::is_same_v<SingleState,
+                         decltype(state.stepping.components.front().state)>);
+      return SinglePropState{m_cmp.state, state.navigation, state.options,
+                             state.geoContext};
+    }
+
+    const auto& singleStepper(const MultiEigenStepperLoop& stepper) const {
+      return static_cast<const SingleStepper&>(stepper);
+    }
   };
 
   /// Creates an iterable which can be plugged into a range-based for-loop to
@@ -923,12 +977,6 @@ class MultiEigenStepperLoop
       }
     }
 
-    // PropagationState which can be used with single component function
-    struct SinglePropState {
-      decltype(state.options)& options;
-      decltype(state.navigation)& navigation;
-      SingleState& stepping;
-    };
 
     // Loop over all components and collect results in vector, write some
     // summary information to a stringstream
@@ -943,8 +991,8 @@ class MultiEigenStepperLoop
         continue;
       }
 
-      SinglePropState single_state{state.options, state.navigation,
-                                   component.state};
+      SinglePropState single_state{component.state, state.navigation,
+                                   state.options, state.geoContext};
       results.push_back(SingleStepper::step(single_state));
 
       if (results.back().ok()) {

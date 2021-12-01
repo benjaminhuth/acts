@@ -42,6 +42,9 @@ struct GsfTestSettings {
     bool gsfAbortOnError;
     bool gsfLoopProtection;
     bool gsfApplyMaterialEffects;
+
+    std::string gsfBetheHeitlerHighX0Path;
+    std::string gsfBetheHeitlerLowX0Path;
     
     double inflation;
     

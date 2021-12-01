@@ -91,9 +91,9 @@ struct GsfActor {
     std::map<GeometryIdentifier, std::reference_wrapper<const SourceLink>>
         inputMeasurements;
 
-    /// Bethe Heitler Approximator
-    detail::BHApprox bethe_heitler_approx =
-        detail::BHApprox(detail::bh_cmps6_order5_data);
+    /// Bethe Heitler Approximator pointer. The fitter holds the approximator
+    /// instance TODO if we somehow could initialize a reference here...
+    const detail::BHApprox* bethe_heitler_approx = nullptr;
 
     /// Number of processed states
     std::size_t processedStates = 0;
@@ -695,25 +695,14 @@ struct GsfActor {
     const auto& logger = state.options.logger;
     const auto& surface = *state.navigation.currentSurface;
 
-    struct DummyState {
-      typename stepper_t::SingleStepper::State& stepping;
-      decltype(state.navigation)& navigation;
-      decltype(state.options)& options;
-      GeometryContext geoContext;
-    };
+    for (auto cmp : stepper.componentIterable(state.stepping)) {
+      auto singleState = cmp.singleState(state);
+      const auto &singleStepper = cmp.singleStepper(stepper);
 
-    // TODO this does not work for the MultiEigenStepperSIMD
-    const auto& singleStepper =
-        static_cast<const typename stepper_t::SingleStepper&>(stepper);
-
-    for (auto& cmp : state.stepping.components) {
-      DummyState dummyState{cmp.state, state.navigation, state.options,
-                            state.geoContext};
-
-      detail::PointwiseMaterialInteraction interaction(&surface, dummyState,
+      detail::PointwiseMaterialInteraction interaction(&surface, singleState,
                                                        singleStepper);
 
-      if (interaction.evaluateMaterialSlab(dummyState, updateStage)) {
+      if (interaction.evaluateMaterialSlab(singleState, updateStage)) {
         constexpr bool doMultipleScattering = true;
         constexpr bool doEnergyLoss = false;
         interaction.evaluatePointwiseMaterialInteraction(doMultipleScattering,
@@ -730,9 +719,10 @@ struct GsfActor {
                      << "varianceQoverP = " << interaction.varianceQoverP);
 
         // Update the state and stepper with material effects
-        interaction.updateState(dummyState, singleStepper, addNoise);
+        interaction.updateState(singleState, singleStepper, addNoise);
 
-        throw_assert(dummyState.stepping.cov.array().isFinite().all(), "covariance not finite after update");
+        throw_assert(singleState.stepping.cov.array().isFinite().all(),
+                     "covariance not finite after update");
       }
     }
   }
