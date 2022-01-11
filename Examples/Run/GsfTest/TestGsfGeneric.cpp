@@ -21,7 +21,7 @@
 #include "ActsExamples/Generators/MultiplicityGenerators.hpp"
 #include "ActsExamples/Generators/ParametricParticleGenerator.hpp"
 #include "ActsExamples/Generators/VertexGenerators.hpp"
-#include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
+// #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
 #include "ActsExamples/Io/Performance/TrackFitterPerformanceWriter.hpp"
@@ -534,7 +534,8 @@ int testGsf(const GsfTestSettings &settings) {
       cfg.fit = ActsExamples::TrackFittingAlgorithm::makeTrackFitterFunction(
           settings.geometry, settings.magneticField);
     }
-    cfg.fitterType = "Kalman";
+    // TODO update Algorithm to accept this
+//     cfg.fitterType = "Kalman";
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(
@@ -582,7 +583,8 @@ int testGsf(const GsfTestSettings &settings) {
           settings.geometry, settings.magneticField,
           Acts::LoggerWrapper(*multiStepperLogger));
     }
-    cfg.fitterType = "GSF";
+    // TODO update Algorithm to accept this
+//     cfg.fitterType = "GSF";
 
     sequencer.addAlgorithm(
         std::make_shared<ActsExamples::TrackFittingAlgorithm>(

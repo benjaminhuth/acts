@@ -6,31 +6,25 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include "Acts/Propagator/MultiEigenStepperLoop.hpp"
 #include "Acts/Propagator/Navigator.hpp"
 #include "Acts/Propagator/Propagator.hpp"
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
+#include "Acts/TrackFitting/GaussianSumFitter.hpp"
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
 
 #include "GsfAlgorithmFunction.hpp"
-#include "GsfInfrastructure/GaussianSumFitter.hpp"
-#include "GsfInfrastructure/MultiEigenStepperLoop.hpp"
 
 /////////////////////////////////////////
 // The Fitter for the Standard Navigator
 /////////////////////////////////////////
 
-// Kalman Components
-using Updater = Acts::GainMatrixUpdater;
-using Smoother = Acts::GainMatrixSmoother;
-using OutlierFinder = Acts::VoidOutlierFinder;
-using Calibrator = ActsExamples::MeasurementCalibrator;
-
 // Stepper and Propagator
 using DefaultExt = Acts::detail::GenericDefaultExtension<Acts::ActsScalar>;
 using ExtList = Acts::StepperExtensionList<DefaultExt>;
-using AvgStepper = Acts::MultiEigenStepperLoop<ExtList>;
+using AvgStepper = Acts::MultiEigenStepperLoop<>;
 using MaxStepper =
     Acts::MultiEigenStepperLoop<ExtList, Acts::MaxMomentumReducerLoop>;
 
@@ -48,18 +42,19 @@ struct GsfStandardFitterFunction
       const ActsExamples::TrackParameters& initialParameters,
       const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions&
           kalmanOptions) const {
-    Acts::GsfOptions<Calibrator, OutlierFinder> gsfOptions{
-        kalmanOptions.calibrator,
-        kalmanOptions.outlierFinder,
-        kalmanOptions.geoContext,
-        kalmanOptions.magFieldContext,
-        kalmanOptions.referenceSurface,
-        kalmanOptions.logger,
-        getGsfAbortOnError(),
-        getGsfMaxComponents(),
-        getGsfMaxSteps(),
-        getGsfLoopProtection(),
-        getGsfApplyMaterialEffects()};
+    Acts::GsfOptions gsfOptions{kalmanOptions.geoContext,
+                                kalmanOptions.magFieldContext,
+                                kalmanOptions.calibrationContext,
+                                kalmanOptions.extensions,
+                                kalmanOptions.logger,
+                                kalmanOptions.propagatorPlainOptions,
+                                kalmanOptions.referenceSurface,
+                                getGsfAbortOnError(),
+                                getGsfMaxComponents(),
+                                getGsfApplyMaterialEffects()};
+
+    gsfOptions.propagatorPlainOptions.maxSteps = getGsfMaxSteps();
+    gsfOptions.propagatorPlainOptions.loopProtection = getGsfLoopProtection();
 
     return trackFitter.fit(sourceLinks.begin(), sourceLinks.end(),
                            initialParameters, gsfOptions);
@@ -102,7 +97,9 @@ makeGsfStandardFitterFunction(
   switch (getGsfStepperInterface()) {
     case StepperInteface::average: {
       AvgStepper stepper(std::move(magneticField), logger);
-      stepper.setOverstepLimit(1_mm);
+      // TODO dont know why this was there, but in case of some problems
+      // hopefully remember of it
+      //       stepper.setOverstepLimit(1_mm);
       return makeFitter(stepper);
     }
 

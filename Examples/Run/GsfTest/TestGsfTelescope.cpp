@@ -19,7 +19,7 @@
 #include "ActsExamples/Generators/MultiplicityGenerators.hpp"
 #include "ActsExamples/Generators/ParametricParticleGenerator.hpp"
 #include "ActsExamples/Generators/VertexGenerators.hpp"
-#include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
+// #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
 #include "ActsExamples/Io/Json/JsonDigitizationConfig.hpp"

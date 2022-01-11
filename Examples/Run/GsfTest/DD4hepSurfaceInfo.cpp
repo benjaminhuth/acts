@@ -16,7 +16,7 @@
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/Trajectories.hpp"
 #include "ActsExamples/Geometry/CommonGeometry.hpp"
-#include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
+// #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
 #include "ActsExamples/Io/Json/JsonDigitizationConfig.hpp"
@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
   }
 
   const auto [geometry, decorators] =
-      ActsExamples::Geometry::build(vm, *detector, Acts::Logging::ERROR);
+      ActsExamples::Geometry::build(vm, *detector/*, Acts::Logging::ERROR*/);
 
   // Make complete list of surfaces
   std::map<Acts::GeometryIdentifier, const Acts::Surface *> surfacesById;

@@ -12,16 +12,10 @@
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
+#include "Acts/TrackFitting/GaussianSumFitter.hpp"
+#include "Acts/Propagator/MultiEigenStepperLoop.hpp"
 
 #include "GsfAlgorithmFunction.hpp"
-#include "GsfInfrastructure/GaussianSumFitter.hpp"
-#include "GsfInfrastructure/MultiEigenStepperLoop.hpp"
-
-// Kalman Components
-using Updater = Acts::GainMatrixUpdater;
-using Smoother = Acts::GainMatrixSmoother;
-using OutlierFinder = Acts::VoidOutlierFinder;
-using Calibrator = ActsExamples::MeasurementCalibrator;
 
 // Stepper and Propagator
 using DefaultExt = Acts::detail::GenericDefaultExtension<Acts::ActsScalar>;

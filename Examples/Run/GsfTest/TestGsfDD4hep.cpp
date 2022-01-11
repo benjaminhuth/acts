@@ -22,7 +22,7 @@
 #include "ActsExamples/Generators/ParametricParticleGenerator.hpp"
 #include "ActsExamples/Generators/VertexGenerators.hpp"
 #include "ActsExamples/Geometry/CommonGeometry.hpp"
-#include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
+// #include "ActsExamples/Io/Csv/CsvPropagationStepsWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
 #include "ActsExamples/Io/Json/JsonDigitizationConfig.hpp"
@@ -140,7 +140,7 @@ int main(int argc, char **argv) {
 
   // Setup detector geometry
   const auto [geometry, decorators] =
-      ActsExamples::Geometry::build(vm, *detector, Acts::Logging::INFO);
+      ActsExamples::Geometry::build(vm, *detector/*, Acts::Logging::INFO*/);
   settings.geometry = std::shared_ptr<const Acts::TrackingGeometry>(geometry);
   settings.contextDecorators = decorators;
 
