@@ -149,9 +149,14 @@ int main(int argc, char **argv) {
 
   // Read digitization
   settings.digiConfigFactory = [&]() {
+    const auto filename = vm["digi-config-file"].as<std::string>();
+
+    if( !std::filesystem::exists(filename) ) {
+        throw std::runtime_error("File '" + filename + "' seems not to exist");
+    }
+
     return ActsExamples::DigitizationConfig(
-        vm, ActsExamples::readDigiConfigFromJson(
-                vm["digi-config-file"].as<std::string>()));
+        vm, ActsExamples::readDigiConfigFromJson(filename));
   };
 
   // Read space point config

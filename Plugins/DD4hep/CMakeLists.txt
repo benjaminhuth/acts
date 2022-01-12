@@ -19,7 +19,7 @@ if(${DD4hep_VERSION} VERSION_LESS 1.11)
   target_include_directories(ActsPluginDD4hep PUBLIC ${DD4hep_INCLUDE_DIRS})
   target_link_libraries(ActsPluginDD4hep PUBLIC ${DD4hep_DDCORE_LIBRARY})
 else()
-  target_link_libraries(ActsPluginDD4hep PUBLIC DD4hep::DDCore)
+  target_link_libraries(ActsPluginDD4hep PUBLIC DD4hep::DDCore DD4hep::DDCorePlugins DD4hep::DDDetectors)
 endif()
 
 install(
