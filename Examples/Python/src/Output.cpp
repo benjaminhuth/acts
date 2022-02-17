@@ -13,6 +13,7 @@
 #include "ActsExamples/Io/Csv/CsvPlanarClusterWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvSimHitWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvTrackingGeometryWriter.hpp"
+#include "ActsExamples/Io/Csv/CsvSpacepointWriter.hpp"
 #include "ActsExamples/Io/NuclearInteractions/RootNuclearInteractionParametersWriter.hpp"
 #include "ActsExamples/Io/Performance/CKFPerformanceWriter.hpp"
 #include "ActsExamples/Io/Performance/SeedingPerformanceWriter.hpp"
@@ -530,6 +531,21 @@ void addOutput(Context& ctx) {
     ACTS_PYTHON_MEMBER(nMeasurementsMin);
     ACTS_PYTHON_MEMBER(truthMatchProbMin);
     ACTS_PYTHON_MEMBER(ptMin);
+    ACTS_PYTHON_STRUCT_END();
+  }
+
+  {
+    using Writer = ActsExamples::CsvSpacepointWriter;
+    auto w = py::class_<Writer, IWriter, std::shared_ptr<Writer>>(
+                 mex, "CsvSpacePointWriter")
+                 .def(py::init<const Writer::Config&, Acts::Logging::Level>(),
+                      py::arg("config"), py::arg("level"));
+
+    auto c = py::class_<Writer::Config>(w, "Config").def(py::init<>());
+    ACTS_PYTHON_STRUCT_BEGIN(c, Writer::Config);
+    ACTS_PYTHON_MEMBER(inputSpacepoints);
+    ACTS_PYTHON_MEMBER(outputDir);
+    ACTS_PYTHON_MEMBER(outputPrecision);
     ACTS_PYTHON_STRUCT_END();
   }
 
