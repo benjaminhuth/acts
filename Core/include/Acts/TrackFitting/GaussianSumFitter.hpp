@@ -17,13 +17,6 @@
 
 #include <fstream>
 
-#define RETURN_ERROR_OR_ABORT_FIT(error) \
-  if (options.abortOnError) {            \
-    std::abort();                        \
-  } else {                               \
-    return error;                        \
-  }
-
 namespace Acts {
 
 namespace detail {
@@ -64,7 +57,7 @@ struct GsfOptions {
 
   std::size_t maxComponents = 4;
 
-  bool applyMaterialEffects = true;
+  bool disableAllMaterialHandling = false;
 };
 
 /// Gaussian Sum Fitter implementation.
@@ -75,7 +68,7 @@ struct GsfOptions {
 /// * The MultiTrajectory contained in the KalmanFitterResult returned by the
 /// fit-functions does only contain states with measuerements but e.g., no
 /// holes.
-/// * There is always a reverse pass during fitting.
+/// * There is always a backward pass during fitting.
 /// * Probably some more differences which I don't think of at the moment.
 template <typename propagator_t>
 struct GaussianSumFitter {
@@ -199,6 +192,9 @@ struct GaussianSumFitter {
                     bwdPropInitializer);
   }
 
+  /// The generic implementation of the fit function.
+  /// TODO check what this function does with the referenceSurface is e.g. the
+  /// first measuerementSurface
   template <typename source_link_it_t, typename start_parameters_t,
             typename fwd_prop_initializer_t, typename bwd_prop_initializer_t>
   Acts::Result<Acts::KalmanFitterResult> fit_impl(
@@ -206,6 +202,14 @@ struct GaussianSumFitter {
       const start_parameters_t& sParameters, const GsfOptions& options,
       const fwd_prop_initializer_t& fwdPropInitializer,
       const bwd_prop_initializer_t& bwdPropInitializer) const {
+    // return or abort utility
+    auto return_error_or_abort = [&](auto error) {
+      if (options.abortOnError) {
+        std::abort();
+      }
+      return error;
+    };
+
     // The logger
     const auto& logger = options.logger;
 
@@ -260,7 +264,8 @@ struct GaussianSumFitter {
       actor.m_cfg.maxComponents = options.maxComponents;
       actor.m_cfg.extensions = options.extensions;
       actor.m_cfg.abortOnError = options.abortOnError;
-      actor.m_cfg.applyMaterialEffects = options.applyMaterialEffects;
+      actor.m_cfg.disableAllMaterialHandling =
+          options.disableAllMaterialHandling;
 
       fwdPropOptions.direction = gsfForward;
 
@@ -282,17 +287,17 @@ struct GaussianSumFitter {
     }();
 
     if (!fwdResult.ok()) {
-      RETURN_ERROR_OR_ABORT_FIT(fwdResult.error());
+      return return_error_or_abort(fwdResult.error());
     }
 
     auto& fwdGsfResult = (*fwdResult).template get<detail::GsfResult>();
 
     if (!fwdGsfResult.result.ok()) {
-      RETURN_ERROR_OR_ABORT_FIT(fwdGsfResult.result.error());
+      return return_error_or_abort(fwdGsfResult.result.error());
     }
 
     if (fwdGsfResult.processedStates == 0) {
-      RETURN_ERROR_OR_ABORT_FIT(GsfError::NoStatesCreated);
+      return return_error_or_abort(GsfError::NoStatesCreated);
     }
 
     ACTS_VERBOSE("Finished forward propagation");
@@ -319,47 +324,46 @@ struct GaussianSumFitter {
       actor.m_cfg.inputMeasurements = inputMeasurements;
       actor.m_cfg.maxComponents = options.maxComponents;
       actor.m_cfg.abortOnError = options.abortOnError;
-      actor.m_cfg.applyMaterialEffects = options.applyMaterialEffects;
+      actor.m_cfg.disableAllMaterialHandling =
+          options.disableAllMaterialHandling;
       actor.m_cfg.extensions = options.extensions;
 
       // Workaround to get the first state into the MultiTrajectory seems also
       // to be necessary for standard navigator to prevent double kalman
       // update on the last surface
-      actor.m_cfg.multiTrajectoryInitializer =
-          [&fwdGsfResult](auto& result,
-                          [[maybe_unused]] const auto& gsf_logger) {
-            result.currentTips.clear();
+      actor.m_cfg.resultInitializer = [&fwdGsfResult](auto& result,
+                                                      const auto& gsf_logger) {
+        result.currentTips.clear();
 
-            // Manually expand the logging macro here since a function parameter
-            // named 'logger' seems to trigger a false-positive for gcc's
-            // -Wshadow warning
-            gsf_logger().log(Acts::Logging::VERBOSE,
-                             "Initialize the MultiTrajectory with information "
-                             "provided to the Actor");
+        // Manually expand the logging macro here since a function parameter
+        // named 'logger' seems to trigger a false-positive for gcc's
+        // -Wshadow warning
+        gsf_logger().log(Acts::Logging::VERBOSE,
+                         "Initialize the MultiTrajectory with information "
+                         "provided to the Actor");
 
-            for (const auto idx : fwdGsfResult.currentTips) {
-              result.currentTips.push_back(
-                  result.fittedStates.addTrackState(TrackStatePropMask::All));
-              result.parentTips = result.currentTips;
+        for (const auto idx : fwdGsfResult.currentTips) {
+          result.currentTips.push_back(
+              result.fittedStates.addTrackState(TrackStatePropMask::All));
+          result.parentTips = result.currentTips;
 
-              auto proxy =
-                  result.fittedStates.getTrackState(result.currentTips.back());
-              proxy.copyFrom(fwdGsfResult.fittedStates.getTrackState(idx));
-              result.weightsOfStates[result.currentTips.back()] =
-                  fwdGsfResult.weightsOfStates.at(idx);
+          auto proxy =
+              result.fittedStates.getTrackState(result.currentTips.back());
+          proxy.copyFrom(fwdGsfResult.fittedStates.getTrackState(idx));
+          result.weightsOfStates[result.currentTips.back()] =
+              fwdGsfResult.weightsOfStates.at(idx);
 
-              // Because we are backwards, we use forward filtered as predicted
-              proxy.predicted() = proxy.filtered();
-              proxy.predictedCovariance() = proxy.filteredCovariance();
+          // Because we are backwards, we use forward filtered as predicted
+          proxy.predicted() = proxy.filtered();
+          proxy.predictedCovariance() = proxy.filteredCovariance();
 
-              // Mark surface as visited
-              result.visitedSurfaces.insert(
-                  proxy.referenceSurface().geometryId());
-            }
+          // Mark surface as visited
+          result.visitedSurfaces.insert(proxy.referenceSurface().geometryId());
+        }
 
-            result.measurementStates++;
-            result.processedStates++;
-          };
+        result.measurementStates++;
+        result.processedStates++;
+      };
 
       bwdPropOptions.direction = gsfBackward;
 
@@ -377,17 +381,17 @@ struct GaussianSumFitter {
     }();
 
     if (!bwdResult.ok()) {
-      RETURN_ERROR_OR_ABORT_FIT(bwdResult.error());
+      return return_error_or_abort(bwdResult.error());
     }
 
     auto& bwdGsfResult = (*bwdResult).template get<detail::GsfResult>();
 
     if (!bwdGsfResult.result.ok()) {
-      RETURN_ERROR_OR_ABORT_FIT(bwdGsfResult.result.error());
+      return return_error_or_abort(bwdGsfResult.result.error());
     }
 
     if (bwdGsfResult.processedStates == 0) {
-      RETURN_ERROR_OR_ABORT_FIT(GsfError::NoStatesCreated);
+      return return_error_or_abort(GsfError::NoStatesCreated);
     }
 
     ////////////////////////////////////
@@ -412,7 +416,7 @@ struct GaussianSumFitter {
 
     // Some test
     if (lastTip == SIZE_MAX) {
-      RETURN_ERROR_OR_ABORT_FIT(GsfError::NoStatesCreated);
+      return return_error_or_abort(GsfError::NoStatesCreated);
     }
 
     Acts::KalmanFitterResult kalmanResult;
@@ -449,9 +453,9 @@ struct GaussianSumFitter {
     // Propagate back to origin with smoothed parameters //
     ///////////////////////////////////////////////////////
     if (options.referenceSurface) {
-      ACTS_VERBOSE("+--------------------------------------+");
-      ACTS_VERBOSE("| Gsf: Do propagation back to beamline |");
-      ACTS_VERBOSE("+--------------------------------------+");
+      ACTS_VERBOSE("+-----------------------------------------------+");
+      ACTS_VERBOSE("| Gsf: Do propagation back to reference surface |");
+      ACTS_VERBOSE("+-----------------------------------------------+");
       auto lastResult = [&]() -> Result<std::unique_ptr<BoundTrackParameters>> {
         const auto& [surface, lastSmoothedState] =
             std::get<2>(smoothResult).front();
@@ -471,8 +475,15 @@ struct GaussianSumFitter {
             lastPropOptions.actionList.template get<detail::GsfActor>();
         actor.m_cfg.maxComponents = options.maxComponents;
         actor.m_cfg.abortOnError = options.abortOnError;
-        actor.m_cfg.applyMaterialEffects = options.applyMaterialEffects;
-        actor.m_cfg.surfacesToSkip.insert(surface->geometryId());
+        actor.m_cfg.disableAllMaterialHandling =
+            options.disableAllMaterialHandling;
+
+        // Add the initial surface to the list of already visited surfaces, so
+        // that the material effects are not applied twice
+        actor.m_cfg.resultInitializer = [id = surface->geometryId()](
+                                            auto& result, const auto&) {
+          result.visitedSurfaces.insert(id);
+        };
 
         lastPropOptions.direction = gsfBackward;
 
@@ -490,7 +501,7 @@ struct GaussianSumFitter {
       }();
 
       if (!lastResult.ok()) {
-        RETURN_ERROR_OR_ABORT_FIT(lastResult.error());
+        return return_error_or_abort(lastResult.error());
       }
 
       kalmanResult.fittedParameters = **lastResult;

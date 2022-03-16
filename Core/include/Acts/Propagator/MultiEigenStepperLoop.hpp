@@ -329,12 +329,20 @@ class MultiEigenStepperLoop
         : stepping(s), navigation(n), options(o), geoContext(g) {}
   };
 
+  /// A template class which contains all const member functions, that should be
+  /// available both in the mutable ComponentProxy and the ConstComponentProxy.
+  /// @tparam component_t Must be a const or mutable State::Component.
   template <typename component_t>
   struct ComponentProxyBase {
+    static_assert(std::is_same_v<std::remove_const_t<component_t>,
+                                 typename State::Component>);
+
     component_t& cmp;
 
     ComponentProxyBase(component_t& c) : cmp(c) {}
 
+    // These are the const accessors, which are shared between the mutable
+    // ComponentProxy and the ConstComponentProxy
     auto status() const { return cmp.status; }
     auto weight() const { return cmp.weight; }
     auto charge() const { return cmp.state.q; }
@@ -376,6 +384,7 @@ class MultiEigenStepperLoop
   struct ComponentProxy : ComponentProxyBase<typename State::Component> {
     using Base = ComponentProxyBase<typename State::Component>;
 
+    // Import the const accessors from ComponentProxyBase
     using Base::charge;
     using Base::cmp;
     using Base::cov;
@@ -390,11 +399,14 @@ class MultiEigenStepperLoop
     using Base::status;
     using Base::weight;
 
+    // The multi-component state of the stepper
     const State& all_state;
 
     ComponentProxy(typename State::Component& c, const State& s)
         : Base(c), all_state(s) {}
 
+    // These are the mutable accessors, the const ones are inherited from the
+    // ComponentProxyBase
     auto& status() { return cmp.status; }
     auto& weight() { return cmp.weight; }
     auto& charge() { return cmp.state.q; }
@@ -439,17 +451,26 @@ class MultiEigenStepperLoop
   /// proxy internally holding a reference
   auto componentIterable(State& state) const {
     struct Iterator {
+      using difference_type = std::ptrdiff_t;
+      using value_type = ComponentProxy;
+      using reference = ComponentProxy;
+      using pointer = void;
+      using iterator_category = std::forward_iterator_tag;
+
       typename decltype(state.components)::iterator it;
       const State& s;
 
       // clang-format off
       auto& operator++() { ++it; return *this; }
       auto operator!=(const Iterator& other) const { return it != other.it; }
+      auto operator==(const Iterator& other) const { return it == other.it; }
       auto operator*() const { return ComponentProxy(*it, s); }
       // clang-format on
     };
 
     struct Iterable {
+      using iterator = Iterator;
+
       State& s;
 
       // clang-format off
@@ -467,17 +488,25 @@ class MultiEigenStepperLoop
   /// proxy internally holding a reference
   auto constComponentIterable(const State& state) const {
     struct ConstIterator {
+      using difference_type = std::ptrdiff_t;
+      using value_type = ConstComponentProxy;
+      using reference = ConstComponentProxy;
+      using pointer = void;
+      using iterator_category = std::forward_iterator_tag;
+
       typename decltype(state.components)::const_iterator it;
       const State& s;
 
       // clang-format off
       auto& operator++() { ++it; return *this; }
       auto operator!=(const ConstIterator& other) const { return it != other.it; }
+      auto operator==(const ConstIterator& other) const { return it == other.it; }
       auto operator*() const { return ConstComponentProxy{*it}; }
       // clang-format on
     };
 
     struct Iterable {
+      using iterator = ConstIterator;
       const State& s;
 
       // clang-format off
