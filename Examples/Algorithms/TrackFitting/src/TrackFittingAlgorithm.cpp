@@ -107,6 +107,9 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
   // Perform the fit for each input track
   std::vector<std::reference_wrapper<const IndexSourceLink>> trackSourceLinks;
   std::vector<const Acts::Surface*> surfSequence;
+
+  int n_failed = 0;
+
   for (std::size_t itrack = 0; itrack < protoTracks.size(); ++itrack) {
     // Check if you are not in picking mode
     if (m_cfg.pickTrack > 0 and m_cfg.pickTrack != static_cast<int>(itrack)) {
@@ -180,8 +183,15 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
       // Fit failed. Add an empty result so the output container has
       // the same number of entries as the input.
       trajectories.push_back(Trajectories());
+      ++n_failed;
     }
   }
+
+  ACTS_ERROR("Failed tracks: " << n_failed << " / " << protoTracks.size() << " ("
+                              << static_cast<float>(n_failed) /
+                                     static_cast<float>(protoTracks.size()) *
+                                     100.0f
+                              << "%)");
 
   ctx.eventStore.add(m_cfg.outputTrajectories, std::move(trajectories));
   return ActsExamples::ProcessCode::SUCCESS;

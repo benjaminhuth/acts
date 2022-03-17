@@ -42,6 +42,8 @@ struct GsfStandardFitterFunction
       const ActsExamples::TrackParameters& initialParameters,
       const ActsExamples::TrackFittingAlgorithm::TrackFitterOptions&
           kalmanOptions) const {
+    const bool disableMaterialHandling = !getGsfApplyMaterialEffects();
+            
     Acts::GsfOptions gsfOptions{kalmanOptions.geoContext,
                                 kalmanOptions.magFieldContext,
                                 kalmanOptions.calibrationContext,
@@ -51,7 +53,7 @@ struct GsfStandardFitterFunction
                                 kalmanOptions.referenceSurface,
                                 getGsfAbortOnError(),
                                 getGsfMaxComponents(),
-                                getGsfApplyMaterialEffects()};
+                                disableMaterialHandling};
 
     gsfOptions.propagatorPlainOptions.maxSteps = getGsfMaxSteps();
     gsfOptions.propagatorPlainOptions.loopProtection = getGsfLoopProtection();
