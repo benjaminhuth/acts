@@ -49,6 +49,7 @@
 #include "GsfAlgorithmFunction.hpp"
 #include "TestGsfGeneric.hpp"
 #include "TestHelpers.hpp"
+#include "TelescopeDetector.hpp"
 
 using namespace Acts::UnitLiterals;
 

@@ -86,8 +86,12 @@ makeGsfStandardFitterFunction(
           getBetheHeitlerLowX0Path().empty()) {
         return Fitter(std::move(propagator));
       } else {
-        return Fitter(std::move(propagator), getBetheHeitlerLowX0Path(),
-                      getBetheHeitlerHighX0Path());
+        const auto low_data = Acts::detail::load_bethe_heitler_data<6,5>(getBetheHeitlerLowX0Path());
+        const auto high_data = Acts::detail::load_bethe_heitler_data<6,5>(getBetheHeitlerLowX0Path());
+
+        Acts::detail::BetheHeitlerApprox<6,5> bethe_heitler_approx(low_data, high_data);
+
+        return Fitter(std::move(propagator), std::move(bethe_heitler_approx));
       }
     }();
 

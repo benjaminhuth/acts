@@ -47,7 +47,7 @@
 #include "AlgorithmsAndWriters/SeedsFromProtoTracks.hpp"
 #include "AlgorithmsAndWriters/TrackFittingPerformanceWriterCsv.hpp"
 #include "GsfAlgorithmFunction.hpp"
-#include "TestHelpers.hpp"
+// #include "TestHelpers.hpp"
 
 using namespace Acts::UnitLiterals;
 
