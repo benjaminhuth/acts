@@ -9,6 +9,7 @@
 #pragma once
 
 #include "Acts/TrackFitting/GsfError.hpp"
+#include "Acts/TrackFitting/KalmanFitter.hpp"
 #include "Acts/TrackFitting/detail/GsfUtils.hpp"
 #include "Acts/Utilities/detail/gaussian_mixture_helpers.hpp"
 
@@ -131,7 +132,7 @@ auto smoothAndCombineTrajectories(
 
   // Ensures that the bwd tips are unique and do not contain MAX_SIZE which
   // represents an invalid trajectory state
-  auto sort_unique_validate_bwd_tips = [&]() {
+  auto sortUniqueValidateBwdTips = [&]() {
     std::sort(bwdTips.begin(), bwdTips.end());
     bwdTips.erase(std::unique(bwdTips.begin(), bwdTips.end()), bwdTips.end());
 
@@ -142,10 +143,9 @@ auto smoothAndCombineTrajectories(
     }
   };
 
-  sort_unique_validate_bwd_tips();
+  sortUniqueValidateBwdTips();
 
-  MultiTrajectory finalTrajectory;
-  std::size_t lastTip = SIZE_MAX;
+  KalmanFitterResult result;
 
   while (!bwdTips.empty()) {
     // Ensure that we update the bwd tips whenever we go to the next iteration
@@ -156,7 +156,7 @@ auto smoothAndCombineTrajectories(
         tip = p.previous();
       }
 
-      sort_unique_validate_bwd_tips();
+      sortUniqueValidateBwdTips();
     });
 
     const auto firstBwdState = bwd.getTrackState(bwdTips.front());
@@ -179,14 +179,17 @@ auto smoothAndCombineTrajectories(
       ACTS_WARNING("Did not find forward states on surface " << bwdGeoId);
       continue;
     }
-    
+
     // Ensure we have no duplicates
     std::sort(fwdTips.begin(), fwdTips.end());
     fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()), fwdTips.end());
 
     // Add state to MultiTrajectory
-    lastTip = finalTrajectory.addTrackState(TrackStatePropMask::All, lastTip);
-    auto proxy = finalTrajectory.getTrackState(lastTip);
+    result.lastTrackIndex = result.fittedStates.addTrackState(
+        TrackStatePropMask::All, result.lastTrackIndex);
+    result.processedStates++;
+
+    auto proxy = result.fittedStates.getTrackState(result.lastTrackIndex);
 
     // This way we copy all relevant flags and the calibrated field. However
     // this assumes that the relevant flags do not differ between components
@@ -195,6 +198,14 @@ auto smoothAndCombineTrajectories(
     // Define some Projector types we need in the following
     using PredProjector = MultiTrajectoryProjector<StatesType::ePredicted>;
     using FiltProjector = MultiTrajectoryProjector<StatesType::eFiltered>;
+
+    if (proxy.typeFlags().test(Acts::TrackStateFlag::HoleFlag)) {
+      result.measurementHoles++;
+    } else {
+      // We also need to save outlier states here, otherwise they would not be
+      // included in the MT if they are at the end of the track
+      result.lastMeasurementIndex = result.lastTrackIndex;
+    }
 
     // If we have a hole or an outlier, just take the combination of filtered
     // and predicted and no smoothed state
@@ -209,6 +220,8 @@ auto smoothAndCombineTrajectories(
     }
     // If we have a measurement, do the smoothing
     else {
+      result.measurementStates++;
+
       // The predicted state is the forward pass
       const auto [fwdMeanPred, fwdCovPred] = combineBoundGaussianMixture(
           fwdTips.begin(), fwdTips.end(), PredProjector{fwd, fwdWeights});
@@ -230,7 +243,7 @@ auto smoothAndCombineTrajectories(
         ACTS_WARNING("Smoothing failed on " << bwdGeoId);
         continue;
       }
-      
+
       const auto &smoothedState = *smoothedStateResult;
 
       if constexpr (ReturnSmootedStates) {
@@ -246,10 +259,14 @@ auto smoothAndCombineTrajectories(
     }
   }
 
+  result.smoothed = true;
+  result.reversed = true;
+  result.finished = true;
+
   if constexpr (ReturnSmootedStates) {
-    return std::make_tuple(finalTrajectory, lastTip, smoothedStates);
+    return std::make_tuple(result, smoothedStates);
   } else {
-    return std::make_tuple(finalTrajectory, lastTip);
+    return std::make_tuple(result);
   }
 }
 

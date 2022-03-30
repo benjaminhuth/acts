@@ -22,12 +22,11 @@
 #include "Acts/TrackFitting/detail/GsfUtils.hpp"
 #include "Acts/TrackFitting/detail/KLMixtureReduction.hpp"
 #include "Acts/TrackFitting/detail/KalmanUpdateHelpers.hpp"
+#include "Acts/Utilities/Zip.hpp"
 
 #include <ios>
 #include <map>
 #include <numeric>
-
-#include <boost/range/combine.hpp>
 
 namespace Acts {
 namespace detail {
@@ -35,6 +34,10 @@ namespace detail {
 struct GsfResult {
   /// The multi-trajectory which stores the graph of components
   MultiTrajectory fittedStates;
+
+  /// This provides the weights for the states in the MultiTrajectory. Each
+  /// entry maps to one track state. TODO This is a workaround until the
+  /// MultiTrajectory can handle weights
   std::map<size_t, ActsScalar> weightsOfStates;
 
   /// The current indexes for the newest components in the multi trajectory
@@ -65,6 +68,7 @@ struct GsfResult {
 };
 
 /// The actor carrying out the GSF algorithm
+template <typename bethe_heitler_approx_t>
 struct GsfActor {
   /// Enforce default construction
   GsfActor() = default;
@@ -83,7 +87,7 @@ struct GsfActor {
 
     /// Bethe Heitler Approximator pointer. The fitter holds the approximator
     /// instance TODO if we somehow could initialize a reference here...
-    const detail::BHApprox* bethe_heitler_approx = nullptr;
+    const bethe_heitler_approx_t* bethe_heitler_approx = nullptr;
 
     /// Whether to consider multiple scattering.
     bool multipleScattering = true;
@@ -107,9 +111,31 @@ struct GsfActor {
     KalmanFitterExtensions extensions;
   } m_cfg;
 
+  /// Stores meta information about the components
+  struct MetaCache {
+    /// Where to find the parent component in the MultiTrajectory
+    std::size_t parentIndex;
+
+    /// Other quantities TODO are they really needed here? seems they are
+    /// reinitialized to Identity etc.
+    BoundMatrix jacobian;
+    BoundToFreeMatrix jacToGlobal;
+    FreeMatrix jacTransport;
+    FreeVector derivative;
+
+    /// We need to preserve the path length
+    ActsScalar pathLength;
+  };
+
+  /// Stores parameters of a gaussian component
+  struct ParameterCache {
+    ActsScalar weight;
+    BoundVector boundPars;
+    std::optional<BoundSymMatrix> boundCov;
+  };
+
   /// Broadcast Cache Type
-  using ComponentCache = std::tuple<detail::GsfComponentParameterCache,
-                                    detail::GsfComponentMetaCache>;
+  using ComponentCache = std::tuple<ParameterCache, MetaCache>;
 
   /// @brief GSF actor operation
   ///
@@ -284,10 +310,10 @@ struct GsfActor {
                            const result_type& result,
                            std::vector<ComponentCache>& componentCache) const {
     auto cmps = stepper.componentIterable(state.stepping);
-    for (auto [idx, cmp] : boost::combine(result.currentTips, cmps)) {
+    for (auto [idx, cmp] : zip(result.currentTips, cmps)) {
       auto proxy = result.fittedStates.getTrackState(idx);
 
-      detail::GsfComponentMetaCache mcache;
+      MetaCache mcache;
       mcache.parentIndex = idx;
       mcache.jacobian = cmp.jacobian();
       mcache.jacToGlobal = cmp.jacToGlobal();
@@ -306,8 +332,7 @@ struct GsfActor {
   template <typename propagator_state_t>
   void applyBetheHeitler(const propagator_state_t& state,
                          const BoundTrackParameters& old_bound,
-                         const double old_weight,
-                         const GsfComponentMetaCache& metaCache,
+                         const double old_weight, const MetaCache& metaCache,
                          std::vector<ComponentCache>& componentCaches) const {
     const auto& logger = state.options.logger;
     const auto& surface = *state.navigation.currentSurface;
@@ -384,8 +409,7 @@ struct GsfActor {
 
       // Set the remaining things and push to vector
       componentCaches.push_back(
-          {GsfComponentParameterCache{new_weight, new_pars, new_cov},
-           metaCache});
+          {ParameterCache{new_weight, new_pars, new_cov}, metaCache});
     }
   }
 
@@ -427,7 +451,7 @@ struct GsfActor {
     auto components = stepper.componentIterable(state.stepping);
     double sum_w = 0.0;
 
-    for (const auto [tip, cmp] : boost::combine(tips, components)) {
+    for (auto [tip, cmp] : zip(tips, components)) {
       if (cmp.status() == Intersection3D::Status::onSurface) {
         sum_w += cmp.weight();
         new_tips.push_back(tip);
@@ -476,7 +500,8 @@ struct GsfActor {
     std::vector<std::size_t> newTips;
 
     auto cmps = stepper.componentIterable(state.stepping);
-    for (auto [idx, cmp] : boost::combine(result.currentTips, cmps)) {
+
+    for (auto [idx, cmp] : zip(result.currentTips, cmps)) {
       // we set ignored components to missed, so we can remove them after
       // the loop
       if (result.weightsOfStates.at(idx) < m_cfg.weightCutoff) {
@@ -564,7 +589,7 @@ struct GsfActor {
     bool is_valid_measurement = false;
 
     auto cmps = stepper.componentIterable(state.stepping);
-    for (auto [idx, cmp] : boost::combine(result.parentTips, cmps)) {
+    for (auto [idx, cmp] : zip(result.parentTips, cmps)) {
       auto singleState = cmp.singleState(state);
       const auto& singleStepper = cmp.singleStepper(stepper);
 
@@ -599,9 +624,13 @@ struct GsfActor {
     // Do the statistics
     ++result.processedStates;
 
+    // We also need to save outlier states here, otherwise they would not be
+    // included in the MT if they are at the end of the track
+    result.lastMeasurementTips = result.currentTips;
+
+    // TODO should outlier states also be counted here?
     if (is_valid_measurement) {
       ++result.measurementStates;
-      result.lastMeasurementTips = result.currentTips;
     }
 
     // Return sucess
@@ -623,7 +652,7 @@ struct GsfActor {
     bool is_hole = true;
 
     auto cmps = stepper.componentIterable(state.stepping);
-    for (auto [idx, cmp] : boost::combine(result.parentTips, cmps)) {
+    for (auto [idx, cmp] : zip(result.parentTips, cmps)) {
       auto singleState = cmp.singleState(state);
       const auto& singleStepper = cmp.singleStepper(stepper);
 
