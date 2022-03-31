@@ -46,6 +46,7 @@
 #include <chrono>
 #include <iostream>
 #include <random>
+#include <filesystem>
 
 #include "AlgorithmsAndWriters/ObjHitWriter.hpp"
 #include "AlgorithmsAndWriters/ParameterEstimationPerformanceWriter.hpp"
