@@ -55,6 +55,16 @@ target_link_libraries(GsfDD4hepTest
     Boost::program_options
     GsfTestLib)
 
+# TGeo
+add_executable(GsfTGeoTest TestGsfTGeo.cpp)
+target_link_libraries(GsfTGeoTest 
+    ${COMMON_LIBS}
+    ActsPluginTGeo
+    ActsExamplesRecTracksCommon
+    ActsExamplesDetectorTGeo
+    Boost::program_options
+    GsfTestLib)
+
 #add_executable(MultiStepperTest TestMultiStepper.cpp)
 #target_link_libraries(MultiStepperTest ActsCore)
 
