@@ -60,7 +60,7 @@
 using namespace Acts::UnitLiterals;
 
 int main(int argc, char **argv) {
-  const auto detector = std::make_shared<DD4hepDetector>();
+  const auto detector = std::make_shared<ActsExamples::TGeoDetector>();
 
   // Initialize the options
   boost::program_options::options_description desc;
