@@ -94,6 +94,25 @@ int main(int argc, char **argv) {
     opt("bethe-heitler-low-x0-file", po::value<std::string>()->default_value(""), "Path to low x0 bethe-heitler-description");
     opt("bethe-heitler-high-x0-file", po::value<std::string>()->default_value(""), "Path to high x0 bethe-heitler-description");
 
+    opt("gen-vertex-xy-std-mm", po::value<double>()->default_value(0.0),
+      "Transverse vertex standard deviation in mm");
+    opt("gen-vertex-z-std-mm", po::value<double>()->default_value(0.0),
+      "Longitudinal vertex standard deviation in mm");
+    opt("gen-vertex-t-std-ns", po::value<double>()->default_value(0.0),
+      "Temporal vertex standard deviation in ns");
+    opt("gen-phi-degree", po::value<ActsExamples::Options::Interval>()->value_name("MIN:MAX")->default_value({-180.0, 180.0}),
+      "Transverse direction angle generation range in degree");
+    opt("gen-eta", po::value<ActsExamples::Options::Interval>()->value_name("MIN:MAX")->default_value({-4.0, 4.0}),
+      "Pseudo-rapidity generation range");
+    opt("gen-eta-uniform", po::bool_switch(),
+      "Sample eta directly and not cos(theta).");
+    opt("gen-mom-gev", po::value<ActsExamples::Options::Interval>()->value_name("MIN:MAX")->default_value({1.0, 10.0}),
+      "Absolute (or transverse) momentum generation range in GeV");
+    opt("gen-mom-transverse", po::bool_switch(),
+      "Momentum refers to transverse momentum");
+    opt("gen-pdg", po::value<int32_t>()->default_value(Acts::PdgParticle::eElectron),
+      "PDG number of the particle, will be adjusted for charge flip.");
+
     detector->addOptions(desc);
     Options::addGeometryOptions(desc);
     Options::addMaterialOptions(desc);
@@ -167,13 +186,25 @@ int main(int argc, char **argv) {
   settings.objOutputDir = "obj_output";
   export_detector_to_obj(*geometry, settings.objOutputDir);
 
+  // Setup gaussian distribution of the beam spot (Particle Gun)
+  settings.vertexXYstd = vm["gen-vertex-xy-std-mm"].as<double>();
+  settings.vertexZstd = vm["gen-vertex-z-std-mm"].as<double>();
+  settings.vertexTstd = vm["gen-vertex-t-std-ns"].as<double>();
+
   // Set start parameters
-  settings.phiMin = -180._degree;
-  settings.phiMax = 180._degree;
-  settings.thetaMin = 45._degree;
-  settings.thetaMax = 135._degree;
-  settings.pMin = 1.0_GeV;
-  settings.pMax = 100.0_GeV;
+  settings.pTransverse = vm["gen-mom-transverse"].as<bool>();
+  settings.pMin = vm["gen-mom-gev"].as<ActsExamples::Options::Interval>().lower.value() * 1_GeV;
+  settings.pMax = vm["gen-mom-gev"].as<ActsExamples::Options::Interval>().upper.value() * 1_GeV;
+  settings.phiMin = vm["gen-phi-degree"].as<ActsExamples::Options::Interval>().lower.value() * 1_degree;
+  settings.phiMax = vm["gen-phi-degree"].as<ActsExamples::Options::Interval>().upper.value() * 1_degree;
+  double etaMin = vm["gen-eta"].as<ActsExamples::Options::Interval>().lower.value() * 1.0;
+  double etaMax = vm["gen-eta"].as<ActsExamples::Options::Interval>().upper.value() * 1.0;
+  settings.thetaMin = 2 * std::atan(std::exp(-etaMin));
+  settings.thetaMax = 2 * std::atan(std::exp(-etaMax));
+  settings.etaUniform = vm["gen-eta-uniform"].as<bool>();
+  settings.pdg =
+      static_cast<Acts::PdgParticle>(vm["gen-pdg"].as<int32_t>());
+
 
   return testGsf(settings);
 }

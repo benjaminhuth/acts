@@ -300,6 +300,17 @@ int testGsf(const GsfTestSettings &settings) {
   ACTS_INFO("Parameters: Stepper interface: "
             << static_cast<int>(settings.stepperInterface));
 
+  ACTS_INFO("Parameters: phi min = " << settings.phiMin);
+  ACTS_INFO("Parameters: phi max = " << settings.phiMax);
+  ACTS_INFO("Parameters: theta min = " << settings.thetaMin);
+  ACTS_INFO("Parameters: theta max = " << settings.thetaMax);
+  ACTS_INFO("Parameters: p min = " << settings.pMin);
+  ACTS_INFO("Parameters: p max = " << settings.pMax);
+  ACTS_INFO("Parameters: pTransverse = " << settings.pTransverse);
+  ACTS_INFO("Parameters: PDG = " << settings.pdg);
+  ACTS_INFO("Parameters: number of particles = " << settings.numParticles);
+  ACTS_INFO("Parameters: uniform eta = " << settings.etaUniform);
+
   // Init Sequencer
   ActsExamples::Sequencer::Config seqCfg;
   seqCfg.events = 1;
@@ -335,10 +346,11 @@ int testGsf(const GsfTestSettings &settings) {
   // Particle gun
   /////////////////////
   {
-    Acts::Vector4 vertex = Acts::Vector4::Zero();
-
-    auto vertexGen = std::make_shared<ActsExamples::FixedVertexGenerator>();
-    vertexGen->fixed = vertex;
+    auto vertexGen = std::make_shared<ActsExamples::GaussianVertexGenerator>();
+    vertexGen->stddev[Acts::ePos0] = settings.vertexXYstd * 1_mm;
+    vertexGen->stddev[Acts::ePos1] = settings.vertexXYstd * 1_mm;
+    vertexGen->stddev[Acts::ePos2] = settings.vertexZstd * 1_mm;
+    vertexGen->stddev[Acts::eTime] = settings.vertexTstd * 1_ns;
 
     ActsExamples::ParametricParticleGenerator::Config pgCfg;
     pgCfg.phiMin = settings.phiMin;
@@ -347,8 +359,10 @@ int testGsf(const GsfTestSettings &settings) {
     pgCfg.thetaMax = settings.thetaMax;
     pgCfg.pMin = settings.pMin;
     pgCfg.pMax = settings.pMax;
-    pgCfg.pdg = Acts::PdgParticle::eElectron;
+    pgCfg.pTransverse = settings.pTransverse;
+    pgCfg.pdg = settings.pdg;
     pgCfg.numParticles = settings.numParticles;
+    pgCfg.etaUniform = settings.etaUniform;
 
     ActsExamples::EventGenerator::Config cfg;
     cfg.generators = {

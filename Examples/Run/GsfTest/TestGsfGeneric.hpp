@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "ActsExamples/Options/ParticleGunOptions.hpp"
+
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "Acts/Geometry/TrackingGeometry.hpp"
 #include "Acts/Utilities/Logger.hpp"
@@ -55,6 +57,13 @@ struct GsfTestSettings {
     double thetaMax;
     double pMin;
     double pMax;
+
+    bool etaUniform;
+    Acts::PdgParticle pdg;
+    bool pTransverse;
+    double vertexXYstd;
+    double vertexZstd;
+    double vertexTstd;
     
     std::function<ActsExamples::DigitizationConfig()> digiConfigFactory;
     ActsExamples::SpacePointMaker::Config spmConfig;
