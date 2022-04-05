@@ -640,6 +640,18 @@ int testGsf(const GsfTestSettings &settings) {
   }
 
   if (settings.doGsf) {
+    ActsExamples::RootTrajectorySummaryWriter::Config cfg;
+    cfg.inputMeasurementParticlesMap = kMeasurementParticleMap;
+    cfg.inputParticles = kGeneratedParticles;
+    cfg.inputTrajectories = kGsfOutputTrajectories;
+    cfg.filePath = "gsf_tracksummary.root";
+    cfg.treeName = "tree";
+    sequencer.addWriter(
+        std::make_shared<ActsExamples::RootTrajectorySummaryWriter>(
+            cfg, settings.globalLogLevel));
+  }
+
+  if (settings.doGsf) {
     ActsExamples::TrackFittingPerformanceWriterCsv::Config cfg;
     cfg.inTrajectories = kGsfOutputTrajectories;
     cfg.inParticles = kGeneratedParticles;
