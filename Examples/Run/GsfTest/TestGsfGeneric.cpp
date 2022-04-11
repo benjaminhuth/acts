@@ -277,6 +277,16 @@ int testGsf(const GsfTestSettings &settings) {
   //         enabled");
   //   }
 
+  // Gsf settings
+  setGsfMaxComponents(settings.maxComponents);
+  setGsfAbortOnError(settings.gsfAbortOnError);
+  setGsfMaxSteps(settings.maxSteps);
+  setGsfLoopProtection(settings.gsfLoopProtection);
+  setGsfApplyMaterialEffects(settings.gsfApplyMaterialEffects);
+  setGsfStepperInterface(settings.stepperInterface);
+  setBetheHeitlerHighX0Path(settings.gsfBetheHeitlerHighX0Path);
+  setBetheHeitlerLowX0Path(settings.gsfBetheHeitlerLowX0Path);
+
   // Summary
   ACTS_INFO("Parameters: numParticles = " << settings.numParticles);
   ACTS_INFO("Parameters: B-Field strength at origin = " << [&]() {
@@ -333,15 +343,6 @@ int testGsf(const GsfTestSettings &settings) {
     seedFile << settings.seed << "\n";
   }
 
-  // Gsf settings
-  setGsfMaxComponents(settings.maxComponents);
-  setGsfAbortOnError(settings.gsfAbortOnError);
-  setGsfMaxSteps(settings.maxSteps);
-  setGsfLoopProtection(settings.gsfLoopProtection);
-  setGsfApplyMaterialEffects(settings.gsfApplyMaterialEffects);
-  setGsfStepperInterface(settings.stepperInterface);
-  setBetheHeitlerHighX0Path(settings.gsfBetheHeitlerHighX0Path);
-  setBetheHeitlerLowX0Path(settings.gsfBetheHeitlerLowX0Path);
 
   /////////////////////
   // Particle gun
