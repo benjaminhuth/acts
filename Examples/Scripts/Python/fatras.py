@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from typing import Optional, Union
+from typing import Optional, Union, Tuple, Any
 from pathlib import Path
 
 import acts
@@ -16,7 +16,8 @@ def addFatras(
     outputDirRoot: Optional[Union[Path, str]] = None,
     rnd: Optional[acts.examples.RandomNumbers] = None,
     preselectParticles: bool = True,
-) -> acts.examples.Sequencer:
+    returnConfig: bool = False,
+) -> Tuple[acts.examples.Sequencer, Optional[Any]]:
     """This function steers the detector simulation using Fatras
 
     Parameters
@@ -132,7 +133,10 @@ def addFatras(
             )
         )
 
-    return s
+    if returnConfig:
+        return s, alg.config
+    else:
+        return s
 
 
 def runFatras(trackingGeometry, field, outputDir, s: acts.examples.Sequencer = None):

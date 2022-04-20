@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, Union, Tuple, Any
 
 import acts
 import acts.examples
@@ -17,7 +17,8 @@ def addDigitization(
     outputDirCsv: Optional[Union[Path, str]] = None,
     outputDirRoot: Optional[Union[Path, str]] = None,
     rnd: Optional[acts.examples.RandomNumbers] = None,
-) -> acts.examples.Sequencer:
+    returnConfig: bool = False,
+) -> Tuple[acts.examples.Sequencer, Optional[Any]]:
     """This function steers the digitization step
 
     Parameters
@@ -89,7 +90,10 @@ def addDigitization(
             )
         )
 
-    return s
+    if returnConfig:
+        return s, digiCfg
+    else:
+        return s
 
 
 def configureDigitization(
