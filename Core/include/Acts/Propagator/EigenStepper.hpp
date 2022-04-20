@@ -75,7 +75,7 @@ class EigenStepper {
     explicit State(const GeometryContext& gctx,
                    MagneticFieldProvider::Cache fieldCacheIn,
                    const SingleBoundTrackParameters<charge_t>& par,
-                   NavigationDirection ndir = forward,
+                   NavigationDirection ndir = NavigationDirection::Forward,
                    double ssize = std::numeric_limits<double>::max(),
                    double stolerance = s_onSurfaceTolerance)
         : q(par.charge()),
@@ -170,7 +170,7 @@ class EigenStepper {
   State makeState(std::reference_wrapper<const GeometryContext> gctx,
                   std::reference_wrapper<const MagneticFieldContext> mctx,
                   const SingleBoundTrackParameters<charge_t>& par,
-                  NavigationDirection ndir = forward,
+                  NavigationDirection ndir = NavigationDirection::Forward,
                   double ssize = std::numeric_limits<double>::max(),
                   double stolerance = s_onSurfaceTolerance) const;
 
@@ -184,7 +184,8 @@ class EigenStepper {
   /// @param [in] stepSize Step size
   void resetState(
       State& state, const BoundVector& boundParams, const BoundSymMatrix& cov,
-      const Surface& surface, const NavigationDirection navDir = forward,
+      const Surface& surface,
+      const NavigationDirection navDir = NavigationDirection::Forward,
       const double stepSize = std::numeric_limits<double>::max()) const;
 
   /// Get the field for the stepping, it checks first if the access is still
@@ -386,6 +387,12 @@ class EigenStepper {
   ///                      be modified by the stepper class during propagation.
   template <typename propagator_state_t>
   Result<double> step(propagator_state_t& state) const;
+
+  /// Method that reset the Jacobian to the Identity for when no bound state are
+  /// available
+  ///
+  /// @param [in,out] state State of the stepper
+  void setIdentityJacobian(State& state) const;
 
  protected:
   /// Magnetic field inside of the detector

@@ -94,11 +94,12 @@ def runITk(
             jmw.write(trackingGeometry)
 
 
-def buildITkGeometry(geo_dir: Path, material: bool = True):
-    Volume = TGeoDetector.Config.Volume
-    LayerTriplet = TGeoDetector.Config.LayerTriplet
-    equidistant = TGeoDetector.Config.BinningType.equidistant
-    arbitrary = TGeoDetector.Config.BinningType.arbitrary
+def buildITkGeometry(
+    geo_dir: Path,
+    material: bool = True,
+    jsonconfig: bool = False,
+    logLevel=acts.logging.WARNING,
+):
 
     logger = acts.logging.getLogger("buildITkGeometry")
 
@@ -108,28 +109,47 @@ def buildITkGeometry(geo_dir: Path, material: bool = True):
         logger.info("Adding material from %s", file.absolute())
         matDeco = acts.IMaterialDecorator.fromFile(
             file,
-            level=acts.logging.INFO,
+            level=acts.logging.Level(min(acts.logging.INFO.value, logLevel.value)),
         )
 
+    tgeo_fileName = geo_dir / "atlas/itk-hgtd/ATLAS-ITk-HGTD.tgeo.root"
+
+    if jsonconfig:
+        jsonFile = geo_dir / "atlas/itk-hgtd/tgeo-atlas-itk-hgtd.json"
+        logger.info("Create geometry from %s", jsonFile.absolute())
+        return TGeoDetector.create(
+            jsonFile=str(jsonFile),
+            fileName=str(tgeo_fileName),
+            surfaceLogLevel=logLevel,
+            layerLogLevel=logLevel,
+            volumeLogLevel=logLevel,
+            mdecorator=matDeco,
+        )
+
+    Volume = TGeoDetector.Config.Volume
+    LayerTriplet = TGeoDetector.Config.LayerTriplet
+    equidistant = TGeoDetector.Config.BinningType.equidistant
+    arbitrary = TGeoDetector.Config.BinningType.arbitrary
+
     return TGeoDetector.create(
-        fileName=str(geo_dir / "atlas/itk-hgtd/ATLAS-ITk-HGTD.tgeo.root"),
+        fileName=str(tgeo_fileName),
         mdecorator=matDeco,
         buildBeamPipe=True,
         unitScalor=1.0,  # explicit units
-        beamPipeRadius=29.0 * u.mm,
+        beamPipeRadius=23.934 * u.mm,
         beamPipeHalflengthZ=3000.0 * u.mm,
         beamPipeLayerThickness=0.8 * u.mm,
-        surfaceLogLevel=acts.logging.WARNING,
-        layerLogLevel=acts.logging.WARNING,
-        volumeLogLevel=acts.logging.WARNING,
+        surfaceLogLevel=logLevel,
+        layerLogLevel=logLevel,
+        volumeLogLevel=logLevel,
         volumes=[
             Volume(
                 name="InnerPixels",
-                layers=LayerTriplet(True),
-                subVolumeName=LayerTriplet("Pixel::Pixel"),
                 binToleranceR=(5 * u.mm, 5 * u.mm),
                 binToleranceZ=(5 * u.mm, 5 * u.mm),
                 binTolerancePhi=(0.025 * u.mm, 0.025 * u.mm),
+                layers=LayerTriplet(True),
+                subVolumeName=LayerTriplet("Pixel::Pixel"),
                 sensitiveNames=LayerTriplet(["Pixel::siLog"]),
                 sensitiveAxes=LayerTriplet("YZX"),
                 rRange=LayerTriplet((0 * u.mm, 135 * u.mm)),
@@ -158,14 +178,16 @@ def buildITkGeometry(geo_dir: Path, material: bool = True):
                 discNRSegments=0,
                 discNPhiSegments=0,
                 itkModuleSplit=False,
+                barrelMap={},
+                discMap={},
             ),
             Volume(
                 name="OuterPixels",
-                layers=LayerTriplet(True),
-                subVolumeName=LayerTriplet("Pixel::Pixel"),
                 binToleranceR=(5 * u.mm, 5 * u.mm),
                 binToleranceZ=(5 * u.mm, 5 * u.mm),
                 binTolerancePhi=(0.025 * u.mm, 0.025 * u.mm),
+                layers=LayerTriplet(True),
+                subVolumeName=LayerTriplet("Pixel::Pixel"),
                 sensitiveNames=LayerTriplet(["Pixel::siLog"]),
                 sensitiveAxes=LayerTriplet("YZX"),
                 rRange=LayerTriplet((135 * u.mm, 350 * u.mm)),
@@ -196,14 +218,20 @@ def buildITkGeometry(geo_dir: Path, material: bool = True):
                 discNRSegments=0,
                 discNPhiSegments=0,
                 itkModuleSplit=False,
+                barrelMap={},
+                discMap={},
             ),
             Volume(
                 name="Strips",
-                layers=LayerTriplet(True),
-                subVolumeName=LayerTriplet("*"),
                 binToleranceR=(5 * u.mm, 5 * u.mm),
                 binToleranceZ=(5 * u.mm, 5 * u.mm),
                 binTolerancePhi=(0.025 * u.mm, 0.025 * u.mm),
+                layers=LayerTriplet(True),
+                subVolumeName=LayerTriplet(
+                    negative="*",
+                    central="SCT::SCT_Barrel",
+                    positive="*",
+                ),
                 sensitiveNames=LayerTriplet(
                     negative=["SCT::ECSensor*"],
                     central=["SCT::BRLSensor*"],
@@ -271,11 +299,11 @@ def buildITkGeometry(geo_dir: Path, material: bool = True):
             ),
             Volume(
                 name="HGTD",
+                binToleranceR=(15 * u.mm, 15 * u.mm),
+                binToleranceZ=(5 * u.mm, 5 * u.mm),
+                binTolerancePhi=(0.25 * u.mm, 0.25 * u.mm),
                 layers=LayerTriplet(positive=True, central=False, negative=True),
                 subVolumeName=LayerTriplet("HGTD::HGTD"),
-                binToleranceR=(15 * u.mm, 15 * u.mm),
-                binToleranceZ=(15 * u.mm, 15 * u.mm),
-                binTolerancePhi=(0.025 * u.mm, 0.025 * u.mm),
                 sensitiveNames=LayerTriplet(["HGTD::HGTDSiSensor*"]),
                 sensitiveAxes=LayerTriplet("XYZ"),
                 rRange=LayerTriplet(
@@ -284,7 +312,7 @@ def buildITkGeometry(geo_dir: Path, material: bool = True):
                 ),
                 zRange=LayerTriplet(
                     negative=(-4000 * u.mm, -3000 * u.mm),
-                    postive=(3000 * u.mm, 4000 * u.mm),
+                    positive=(3000 * u.mm, 4000 * u.mm),
                 ),
                 splitTolR=LayerTriplet(-1.0),
                 splitTolZ=LayerTriplet(negative=10 * u.mm, positive=10 * u.mm),
@@ -304,6 +332,8 @@ def buildITkGeometry(geo_dir: Path, material: bool = True):
                 discNRSegments=0,
                 discNPhiSegments=0,
                 itkModuleSplit=False,
+                barrelMap={},
+                discMap={},
             ),
         ],
     )
