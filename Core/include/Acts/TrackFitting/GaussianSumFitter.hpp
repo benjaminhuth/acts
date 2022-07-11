@@ -376,7 +376,8 @@ struct GaussianSumFitter {
     ////////////////////////////////////
     // Smooth and create Kalman Result
     ////////////////////////////////////
-    ACTS_VERBOSE("Gsf: Do smoothing");
+    ACTS_VERBOSE(
+        "Gsf: Do final combination, smoothing: " << options.enableSmoothing);
     ACTS_VERBOSE("- Fwd measurement states: " << fwdGsfResult.measurementStates
                                               << ", holes: "
                                               << fwdGsfResult.measurementHoles);
@@ -384,93 +385,29 @@ struct GaussianSumFitter {
                                               << ", holes: "
                                               << bwdGsfResult.measurementHoles);
 
-    auto smoothResult = detail::smoothAndCombineTrajectories<traj_t, true>(
+    auto kalmanResult = detail::smoothAndCombineTrajectories<traj_t>(
         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
-
-    // Cannot use structured binding since they cannot be captured in lambda
-    auto& kalmanResult = std::get<0>(smoothResult);
-
-    // Some test
-    if (std::get<1>(smoothResult).empty()) {
-      return return_error_or_abort(GsfError::NoStatesCreated);
-    }
+        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
+        options.enableSmoothing, logger);
 
     // Compute the missed active surfaces as the union of the forward and
     // backward pass missed active surfaces
     // TODO this is quite expencive computationally, maybe just use from fwd?
-    {
-      auto fwdActSurf = fwdGsfResult.missedActiveSurfaces;
-      std::sort(fwdActSurf.begin(), fwdActSurf.end());
+    auto fwdActSurf = fwdGsfResult.missedActiveSurfaces;
+    std::sort(fwdActSurf.begin(), fwdActSurf.end());
 
-      auto bwdActSurf = bwdGsfResult.missedActiveSurfaces;
-      std::sort(bwdActSurf.begin(), bwdActSurf.end());
+    auto bwdActSurf = bwdGsfResult.missedActiveSurfaces;
+    std::sort(bwdActSurf.begin(), bwdActSurf.end());
 
-      std::vector<const Surface*> missedActiveSurfaces;
-      std::set_union(fwdActSurf.begin(), fwdActSurf.end(), bwdActSurf.begin(),
-                     bwdActSurf.end(),
-                     std::back_inserter(missedActiveSurfaces));
+    std::vector<const Surface*> missedActiveSurfaces;
+    std::set_union(fwdActSurf.begin(), fwdActSurf.end(), bwdActSurf.begin(),
+                   bwdActSurf.end(), std::back_inserter(missedActiveSurfaces));
 
-      kalmanResult.missedActiveSurfaces = missedActiveSurfaces;
-    }
+    kalmanResult.missedActiveSurfaces = missedActiveSurfaces;
 
-    //////////////////////////////////////////////////////////////////
-    // Propagate back to reference surface with smoothed parameters //
-    //////////////////////////////////////////////////////////////////
-    if (options.referenceSurface) {
-      ACTS_VERBOSE("+-----------------------------------------------+");
-      ACTS_VERBOSE("| Gsf: Do propagation back to reference surface |");
-      ACTS_VERBOSE("+-----------------------------------------------+");
-      auto lastResult = [&]() -> Result<std::unique_ptr<BoundTrackParameters>> {
-        const auto& [surface, lastSmoothedState] =
-            std::get<1>(smoothResult).front();
-
-        throw_assert(
-            detail::weightsAreNormalized(
-                lastSmoothedState,
-                [](const auto& tuple) { return std::get<double>(tuple); }),
-            "");
-
-        const MultiComponentBoundTrackParameters<SinglyCharged> params(
-            surface->getSharedPtr(), lastSmoothedState);
-
-        auto lastPropOptions = bwdPropInitializer(options, logger);
-
-        auto& actor = lastPropOptions.actionList.template get<GsfActor>();
-        actor.m_cfg.maxComponents = options.maxComponents;
-        actor.m_cfg.abortOnError = options.abortOnError;
-        actor.m_cfg.disableAllMaterialHandling =
-            options.disableAllMaterialHandling;
-
-        // Add the initial surface to the list of already visited surfaces, so
-        // that the material effects are not applied twice
-        actor.m_cfg.resultInitializer = [id = surface->geometryId()](
-                                            auto& result, const auto&) {
-          result.visitedSurfaces.insert(id);
-        };
-
-        lastPropOptions.direction = gsfBackward;
-
-        auto result =
-            m_propagator
-                .template propagate<decltype(params), decltype(lastPropOptions),
-                                    MultiStepperSurfaceReached>(
-                    params, *options.referenceSurface, lastPropOptions);
-
-        if (!result.ok()) {
-          return result.error();
-        } else {
-          return std::move((*result).endParameters);
-        }
-      }();
-
-      if (!lastResult.ok()) {
-        return return_error_or_abort(lastResult.error());
-      }
-
-      kalmanResult.fittedParameters = **lastResult;
-    }
+    // set parameters
+    kalmanResult.fittedParameters = *(*bwdResult).endParameters;
 
     return kalmanResult;
   }
