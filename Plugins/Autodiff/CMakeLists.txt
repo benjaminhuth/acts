@@ -18,3 +18,15 @@ install(
 install(
   DIRECTORY include/Acts
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+
+add_executable(
+  runRKN4
+  src/runRKN4.cpp
+)
+
+target_link_libraries(
+  runRKN4 PUBLIC
+  ActsCore
+  ActsPluginAutodiff
+)
