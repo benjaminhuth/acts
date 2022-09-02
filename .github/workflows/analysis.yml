@@ -18,7 +18,7 @@ env:
   CCACHE_MAXSIZE: 500M
   CCACHE_KEY_SUFFIX: r1
 
-# NOTE this only builds core unittests to reduce the output size. if we L
+# NOTE this only builds core unittests to reduce the output size. if we 
 #      found a way to have Github actions not fail regularly with this job
 #      all unit tests should be reactivated.
 jobs:
