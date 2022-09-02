@@ -9,6 +9,8 @@ on:
       - 'develop/**'
     paths-ignore:
       - "docs/**"
+    types: 
+      - unlabeled 
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
