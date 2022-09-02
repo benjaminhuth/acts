@@ -21,7 +21,7 @@ env:
 
 jobs:
   lcg:
-    if: "!contains(github.event.pull_request.labels.*.name, ':construction: WIP')"
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP') || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/${{ matrix.image }}:v29
     strategy:
@@ -278,7 +278,7 @@ jobs:
           path: physmon
 
   linux_ubuntu_extra:
-    if: "!contains(github.event.pull_request.labels.*.name, ':construction: WIP')"
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP') || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -355,7 +355,7 @@ jobs:
         run: ./build-downstream/bin/ShowActsVersion
 
   linux-nodeps:
-    if: "!contains(github.event.pull_request.labels.*.name, ':construction: WIP')"
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP') || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/${{ matrix.image }}:v29
     strategy:
@@ -453,7 +453,7 @@ jobs:
              && CI/check_boost_eigen_versions.sh ./build-downstream-nodeps/bin/ShowActsVersion
 
   macos:
-    if: "!contains(github.event.pull_request.labels.*.name, ':construction: WIP')"
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP') || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: macos-11
     env:
       INSTALL_DIR: ${{ github.workspace }}/install
@@ -523,7 +523,7 @@ jobs:
         run: ./build-downstream/bin/ShowActsVersion
 
   cuda:
-    if: "!contains(github.event.pull_request.labels.*.name, ':construction: WIP')"
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP') || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/ubuntu1804_cuda:v29
     steps:
@@ -551,7 +551,7 @@ jobs:
         run: cmake --build build
 
   exatrkx:
-    if: "!contains(github.event.pull_request.labels.*.name, ':construction: WIP')"
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP') || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/ubuntu2004_exatrkx:v29
     steps:
@@ -579,7 +579,7 @@ jobs:
         run: cmake --build build
 
   sycl:
-    if: "!contains(github.event.pull_request.labels.*.name, ':construction: WIP')"
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP') || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/ubuntu2004_oneapi:v29
     defaults:
