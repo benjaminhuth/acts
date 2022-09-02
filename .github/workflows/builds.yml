@@ -18,16 +18,13 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/ccache
   CCACHE_MAXSIZE: 500M
   CCACHE_KEY_SUFFIX: r1
-  HAS_NO_WIP_LABEL: "${{ !contains(github.event.pull_request.labels.*.name, ':construction: WIP') }}"
-  ACTION_LABEL_IS_WIP: "${{ github.event.label == ':construction: WIP' }}"
-  ACTION_IS_UNLABLED: ${{ github.event.action == 'unlabled' }}
 
 #lasjfla
 # if: (github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')
 
 jobs:
   lcg:
-    if: ${{ (!env.ACTION_IS_UNLABLED && env.HAS_NO_WIP_LABEL) || (env.ACTION_IS_UNLABLED && env.ACTION_LABEL_IS_WIP) }}
+    if: "(github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/${{ matrix.image }}:v29
     strategy:
