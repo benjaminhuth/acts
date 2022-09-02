@@ -24,7 +24,7 @@ env:
 
 jobs:
   lcg:
-    if: "${{ if: (github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP') }}"
+    if: "${{ (github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP') }}"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/${{ matrix.image }}:v29
     strategy:
