@@ -19,8 +19,8 @@ env:
   CCACHE_MAXSIZE: 500M
   CCACHE_KEY_SUFFIX: r1
   IS_NOT_WIP: "${{ !contains(github.event.pull_request.labels.*.name, ':construction: WIP') }}"
-  ACTION_IS_UNLABLED: ${{ github.event.action == 'unlabled' }}
-  ACTION_LABEL_IS_WIP: ${{ github.event.label == ':construction: WIP' }}
+  ACTION_IS_UNLABLED: "${{ github.event.action == 'unlabled' }}"
+  ACTION_LABEL_IS_WIP: "${{ github.event.label == ':construction: WIP' }}"
 
 #lasjfla
 # if: (github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')
