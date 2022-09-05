@@ -21,7 +21,7 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/ccache
   CCACHE_MAXSIZE: 500M
   CCACHE_KEY_SUFFIX: r1
-  LEFT: "${{ (github.event.action == 'unlabeled' && github.event.label == ':construction: WIP') }}"
+  LEFT: "${{ (github.event.action == 'unlabeled' && github.event.label.name == ':construction: WIP') }}"
 
 #lassdasdfakjhlkhlhlkhlkhlkhlkhlkjhlk
 # if: (github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')
@@ -34,7 +34,7 @@ jobs:
         id: github_context_step
         run: echo '${{ toJSON(github) }}'
   lcg:
-    if: "${{ (github.event.action != 'unlabeled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabeled' && github.event.label == ':construction: WIP') }}"
+    if: "${{ (github.event.action != 'unlabeled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabeled' && github.event.label.name == ':construction: WIP') }}"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/${{ matrix.image }}:v29
     strategy:
@@ -131,7 +131,7 @@ jobs:
         run: ${SETUP} && ./build-downstream/bin/ShowActsVersion
 
   linux_ubuntu:
-    if: "${{ (github.event.action != 'unlabeled') || (github.event.action == 'unlabeled' && github.event.label == ':construction: WIP') }}"
+    if: "${{ (github.event.action != 'unlabeled') || (github.event.action == 'unlabeled' && github.event.label.name == ':construction: WIP') }}"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/ubuntu2004:v29
     env:
