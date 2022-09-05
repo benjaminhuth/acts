@@ -14,6 +14,7 @@ on:
       - reopened
       - synchronize 
       - unlabeled
+  push:
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
