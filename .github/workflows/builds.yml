@@ -1,9 +1,8 @@
 name: Builds
 
+
 on:
   push:
-    branches:
-      - main
   pull_request:
     branches:
       - main
@@ -11,8 +10,11 @@ on:
       - 'develop/**'
     paths-ignore:
       - "docs/**"
-    types: 
-      - unlabeled 
+    types:
+      - opened
+      - reopened
+      - synchronize 
+      - unlabeled
 
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
