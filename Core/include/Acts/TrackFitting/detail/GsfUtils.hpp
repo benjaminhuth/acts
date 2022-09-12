@@ -238,7 +238,6 @@ auto extractMultiComponentState(
 
   return MultiComponentBoundTrackParameters<SinglyCharged>(surface, cmps);
 }
-
 }  // namespace detail
 
 }  // namespace Acts

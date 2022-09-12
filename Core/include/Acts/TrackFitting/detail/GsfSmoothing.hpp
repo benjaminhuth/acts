@@ -93,25 +93,51 @@ struct MultiTrajectoryProjector {
   }
 };
 
-template <typename D, typename Visitor>
-auto visitMultiTrajectoryMultiComponents(
-    const MultiTrajectory<D> &traj,
-    std::vector<MultiTrajectoryTraits::IndexType> tips, Visitor &&visitor) {
-  auto sortUniqueValidateTips = [&]() {
-    std::sort(tips.begin(), tips.end());
-    tips.erase(std::unique(tips.begin(), tips.end()), tips.end());
+/// @brief This function takes two MultiTrajectory objects and corresponding
+/// index lists (one of the backward pass, one of the forward pass), combines
+/// them, applies smoothing, and returns a new, single-component MultiTrajectory
+/// @tparam ReturnSmootedStates If set to true, the function returns not only
+/// combined MultiTrajectory, but also a std::vector contianing the
+/// component-wise smoothed states
+/// TODO this function does not handle outliers correctly at the moment I think
+/// TODO change std::vector< size_t > to boost::small_vector for better
+/// performance
+template <typename traj_t, bool ReturnSmootedStates = false>
+auto smoothAndCombineTrajectories(
+    const MultiTrajectory<traj_t> &fwd,
+    const std::vector<MultiTrajectoryTraits::IndexType> &fwdStartTips,
+    const std::map<MultiTrajectoryTraits::IndexType, double> &fwdWeights,
+    const MultiTrajectory<traj_t> &bwd,
+    const std::vector<MultiTrajectoryTraits::IndexType> &bwdStartTips,
+    const std::map<MultiTrajectoryTraits::IndexType, double> &bwdWeights,
+    LoggerWrapper logger = getDummyLogger()) {
+  // This vector gets only filled if ReturnSmootedStates is true
+  std::vector<std::pair<const Surface *,
+                        std::vector<std::tuple<double, BoundVector,
+                                               std::optional<BoundSymMatrix>>>>>
+      smoothedStates;
 
-    auto invalid_it = std::find(tips.begin(), tips.end(),
-                                std::numeric_limits<uint16_t>::max());
-    if (invalid_it != tips.end()) {
-      tips.erase(invalid_it);
+  // Use backward trajectory as basic trajectory, so that final trajectory is
+  // ordered correctly. We ensure also that they are unique.
+  std::vector<MultiTrajectoryTraits::IndexType> bwdTips = bwdStartTips;
+
+  // Ensures that the bwd tips are unique and do not contain kInvalid which
+  // represents an invalid trajectory state
+  auto sortUniqueValidateBwdTips = [&]() {
+    std::sort(bwdTips.begin(), bwdTips.end());
+    bwdTips.erase(std::unique(bwdTips.begin(), bwdTips.end()), bwdTips.end());
+
+    auto invalid_it = std::find(bwdTips.begin(), bwdTips.end(),
+                                MultiTrajectoryTraits::kInvalid);
+    if (invalid_it != bwdTips.end()) {
+      bwdTips.erase(invalid_it);
     }
   };
 
   sortUniqueValidateTips();
 
-  while (!tips.empty()) {
-    visitor(tips);
+  KalmanFitterResult<traj_t> result;
+  // result.fittedStates = std::make_shared<traj_t>();
 
     for (auto &tip : tips) {
       tip = traj.getTrackState(tip).previous();
@@ -139,10 +165,9 @@ auto smoothAndCombineTrajectories(
   KalmanFitterResult<traj_t> result;
   // result.fittedStates = std::make_shared<traj_t>();
 
-  visitMultiTrajectoryMultiComponents(
-      bwd, bwdStartTips, [&](const auto &bwdTips) {
-        const auto firstBwdState = bwd.getTrackState(bwdTips.front());
-        const auto &currentSurface = firstBwdState.referenceSurface();
+    // Search corresponding forward tips
+    const auto bwdGeoId = currentSurface.geometryId();
+    std::vector<MultiTrajectoryTraits::IndexType> fwdTips;
 
         // Search corresponding forward tips
         const auto bwdGeoId = currentSurface.geometryId();
@@ -241,6 +266,95 @@ auto smoothAndCombineTrajectories(
           }
         }
       });
+    }
+
+    // Check if we have forward tips
+    if (fwdTips.empty()) {
+      ACTS_WARNING("Did not find forward states on surface " << bwdGeoId);
+      continue;
+    }
+
+    // Ensure we have no duplicates
+    std::sort(fwdTips.begin(), fwdTips.end());
+    fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()), fwdTips.end());
+
+    // Add state to MultiTrajectory
+    result.lastTrackIndex = result.fittedStates.addTrackState(
+        TrackStatePropMask::All, result.lastTrackIndex);
+    result.processedStates++;
+
+    auto proxy = result.fittedStates.getTrackState(result.lastTrackIndex);
+
+    // This way we copy all relevant flags and the calibrated field. However
+    // this assumes that the relevant flags do not differ between components
+    proxy.copyFrom(firstBwdState);
+
+    // Define some Projector types we need in the following
+    using PredProjector =
+        MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
+    using FiltProjector =
+        MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
+
+    if (proxy.typeFlags().test(Acts::TrackStateFlag::HoleFlag)) {
+      result.measurementHoles++;
+    } else {
+      // We also need to save outlier states here, otherwise they would not be
+      // included in the MT if they are at the end of the track
+      result.lastMeasurementIndex = result.lastTrackIndex;
+    }
+
+    // If we have a hole or an outlier, just take the combination of filtered
+    // and predicted and no smoothed state
+    if (not proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag)) {
+      const auto [mean, cov] = combineBoundGaussianMixture(
+          bwdTips.begin(), bwdTips.end(), FiltProjector{bwd, bwdWeights});
+
+      proxy.predicted() = mean;
+      proxy.predictedCovariance() = cov.value();
+      using PM = TrackStatePropMask;
+      proxy.shareFrom(proxy, PM::Predicted, PM::Filtered);
+
+    }
+    // If we have a measurement, do the smoothing
+    else {
+      result.measurementStates++;
+
+      // The predicted state is the forward pass
+      const auto [fwdMeanPred, fwdCovPred] = combineBoundGaussianMixture(
+          fwdTips.begin(), fwdTips.end(), PredProjector{fwd, fwdWeights});
+      proxy.predicted() = fwdMeanPred;
+      proxy.predictedCovariance() = fwdCovPred.value();
+
+      // The filtered state is the backward pass
+      const auto [bwdMeanFilt, bwdCovFilt] = combineBoundGaussianMixture(
+          bwdTips.begin(), bwdTips.end(), FiltProjector{bwd, bwdWeights});
+      proxy.filtered() = bwdMeanFilt;
+      proxy.filteredCovariance() = bwdCovFilt.value();
+
+      // Do the smoothing
+      auto smoothedStateResult = bayesianSmoothing(
+          fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
+          PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
+
+      if (!smoothedStateResult.ok()) {
+        ACTS_WARNING("Smoothing failed on " << bwdGeoId);
+        continue;
+      }
+
+      const auto &smoothedState = *smoothedStateResult;
+
+      if constexpr (ReturnSmootedStates) {
+        smoothedStates.push_back({&currentSurface, smoothedState});
+      }
+
+      // The smoothed state is a combination
+      const auto [smoothedMean, smoothedCov] = combineBoundGaussianMixture(
+          smoothedState.begin(), smoothedState.end());
+      proxy.smoothed() = smoothedMean;
+      proxy.smoothedCovariance() = smoothedCov.value();
+      ACTS_VERBOSE("Added smoothed state to MultiTrajectory");
+    }
+  }
 
   result.smoothed = true;
   result.reversed = true;

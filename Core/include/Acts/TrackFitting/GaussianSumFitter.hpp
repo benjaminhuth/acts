@@ -385,7 +385,7 @@ struct GaussianSumFitter {
                                               << ", holes: "
                                               << bwdGsfResult.measurementHoles);
 
-    auto kalmanResult = detail::smoothAndCombineTrajectories<traj_t>(
+    auto smoothResult = detail::smoothAndCombineTrajectories<traj_t, true>(
         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
