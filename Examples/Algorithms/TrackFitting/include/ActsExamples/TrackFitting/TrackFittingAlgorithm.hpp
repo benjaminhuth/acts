@@ -49,17 +49,6 @@ class TrackFittingAlgorithm final : public BareAlgorithm {
     Acts::PropagatorPlainOptions propOptions;
   };
 
-  /// General options that do not depend on the fitter type, but need to be
-  /// handed over by the algorithm
-  struct GeneralFitterOptions {
-    std::reference_wrapper<const Acts::GeometryContext> geoContext;
-    std::reference_wrapper<const Acts::MagneticFieldContext> magFieldContext;
-    std::reference_wrapper<const Acts::CalibrationContext> calibrationContext;
-    std::reference_wrapper<const MeasurementCalibrator> calibrator;
-    const Acts::Surface* referenceSurface = nullptr;
-    Acts::LoggerWrapper logger;
-  };
-
   /// Fit function that takes the above parameters and runs a fit
   /// @note This is separated into a virtual interface to keep compilation units
   /// small
