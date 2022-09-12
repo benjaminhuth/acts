@@ -9,95 +9,47 @@ import acts.examples
 u = acts.UnitConstants
 
 
-def addKalmanTracks(
-    s: acts.examples.Sequencer,
-    trackingGeometry: acts.TrackingGeometry,
-    field: acts.MagneticFieldProvider,
-    directNavigation=False,
-    reverseFilteringMomThreshold=0 * u.GeV,
-):
-    truthTrkFndAlg = acts.examples.TruthTrackFinder(
-        level=acts.logging.INFO,
-        inputParticles="truth_seeds_selected",
-        inputMeasurementParticlesMap="measurement_particles_map",
-        outputProtoTracks="prototracks",
-    )
-    s.addAlgorithm(truthTrkFndAlg)
-
-    if directNavigation:
-        srfSortAlg = acts.examples.SurfaceSortingAlgorithm(
-            level=acts.logging.INFO,
-            inputProtoTracks="prototracks",
-            inputSimulatedHits=outputSimHits,
-            inputMeasurementSimHitsMap=digiAlg.config.outputMeasurementSimHitsMap,
-            outputProtoTracks="sortedprototracks",
-        )
-        s.addAlgorithm(srfSortAlg)
-        inputProtoTracks = srfSortAlg.config.outputProtoTracks
-    else:
-        inputProtoTracks = "prototracks"
-
-    kalmanOptions = {
-        "multipleScattering": True,
-        "energyLoss": True,
-        "reverseFilteringMomThreshold": reverseFilteringMomThreshold,
-    }
-
-    fitAlg = acts.examples.TrackFittingAlgorithm(
-        level=acts.logging.INFO,
-        inputMeasurements="measurements",
-        inputSourceLinks="sourcelinks",
-        inputProtoTracks=inputProtoTracks,
-        inputInitialTrackParameters="estimatedparameters",
-        outputTrajectories="trajectories",
-        directNavigation=directNavigation,
-        pickTrack=-1,
-        trackingGeometry=trackingGeometry,
-        dFit=acts.examples.TrackFittingAlgorithm.makeKalmanFitterFunction(
-            field, **kalmanOptions
-        ),
-        fit=acts.examples.TrackFittingAlgorithm.makeKalmanFitterFunction(
-            trackingGeometry, field, **kalmanOptions
-        ),
-    )
-    s.addAlgorithm(fitAlg)
-
-    return s
-
-
 def runTruthTrackingKalman(
     trackingGeometry: acts.TrackingGeometry,
     field: acts.MagneticFieldProvider,
     outputDir: Path,
     digiConfigFile: Path,
+    decorators=[],
     directNavigation=False,
     reverseFilteringMomThreshold=0 * u.GeV,
     s: acts.examples.Sequencer = None,
     inputParticlePath: Optional[Path] = None,
 ):
-    from particle_gun import addParticleGun, EtaConfig, PhiConfig, ParticleConfig
-    from fatras import addFatras
-    from digitization import addDigitization
-    from seeding import addSeeding, SeedingAlgorithm
+    from acts.examples.simulation import (
+        addParticleGun,
+        EtaConfig,
+        PhiConfig,
+        ParticleConfig,
+        addFatras,
+        addDigitization,
+    )
+    from acts.examples.reconstruction import (
+        addSeeding,
+        SeedingAlgorithm,
+        TruthSeedRanges,
+        addKalmanTracks,
+    )
 
     s = s or acts.examples.Sequencer(
         events=100, numThreads=-1, logLevel=acts.logging.INFO
     )
 
-    for d in decorators:
-        s.addContextDecorator(d)
-
-    rnd = acts.examples.RandomNumbers(seed=42)
+    rnd = acts.examples.RandomNumbers()
     outputDir = Path(outputDir)
 
     if inputParticlePath is None:
-        s = addParticleGun(
+        addParticleGun(
             s,
             EtaConfig(-2.0, 2.0),
-            ParticleConfig(4, acts.PdgParticle.eMuon, True),
-            PhiConfig(0.0, 360.0 * u.degree),
-            multiplicity=2,
+            ParticleConfig(2, acts.PdgParticle.eMuon, False),
+            multiplicity=1,
             rnd=rnd,
+            outputDirRoot=outputDir,
         )
     else:
         acts.logging.getLogger("Truth tracking example").info(
@@ -113,14 +65,14 @@ def runTruthTrackingKalman(
             )
         )
 
-    s = addFatras(
+    addFatras(
         s,
         trackingGeometry,
         field,
         rnd=rnd,
     )
 
-    s = addDigitization(
+    addDigitization(
         s,
         trackingGeometry,
         field,
@@ -128,14 +80,19 @@ def runTruthTrackingKalman(
         rnd=rnd,
     )
 
-    s = addSeeding(
+    addSeeding(
         s,
         trackingGeometry,
         field,
         seedingAlgorithm=SeedingAlgorithm.TruthSmeared,
+        rnd=rnd,
+        truthSeedRanges=TruthSeedRanges(
+            pt=(500 * u.MeV, None),
+            nHits=(9, None),
+        ),
     )
 
-    s = addKalmanTracks(
+    addKalmanTracks(
         s, trackingGeometry, field, directNavigation, reverseFilteringMomThreshold
     )
 
