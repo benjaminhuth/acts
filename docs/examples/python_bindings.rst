@@ -80,6 +80,16 @@ They can be found in ``$REPO_ROOT/Examples/Scripts/Python``. Make sure you have 
 
 to make sure python can find the ``acts`` module.
 
+.. note:: If you get an error with one of the example classes, you can easily query the builtin documentation like this:
+   .. code-block:: console
+      
+      TypeError: __init__(): incompatible constructor arguments. The following argument types are supported:
+         1. acts.ActsPythonBindings._examples.ExaTrkXTrackFindingTorch(config: Acts::ExaTrkXTrackFindingTorch::Config)
+         
+      Invoked with: <acts.ActsPythonBindings._examples.ExaTrkXTrackFindingTorch.Config object at 0x7f0bb3e4e9b0>; kwargs: modelPath='torchscript'
+         
+      python -m pydoc acts.ActsPythonBindings._examples.ExaTrkXTrackFindingTorch.Config
+
 Python based unit tests
 -----------------------
 
