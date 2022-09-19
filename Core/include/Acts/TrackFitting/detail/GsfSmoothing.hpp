@@ -195,8 +195,11 @@ auto smoothAndCombineTrajectories(
         // If we have a hole or an outlier, just take the combination of
         // filtered and predicted and no smoothed state
         if (not proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag)) {
-          const auto [mean, cov] = combineBoundGaussianMixture(
-              bwdTips.begin(), bwdTips.end(), FiltProjector{bwd, bwdWeights});
+          const auto [mean, cov] =
+              angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
+                return combineGaussianMixture(
+                    bwdTips, FiltProjector{bwd, bwdWeights}, desc);
+              });
 
           proxy.predicted() = mean;
           proxy.predictedCovariance() = cov.value();
@@ -207,14 +210,20 @@ auto smoothAndCombineTrajectories(
           result.measurementStates++;
 
           // The predicted state is the forward pass
-          const auto [fwdMeanPred, fwdCovPred] = combineBoundGaussianMixture(
-              fwdTips.begin(), fwdTips.end(), PredProjector{fwd, fwdWeights});
+          const auto [fwdMeanPred, fwdCovPred] =
+              angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
+                return combineGaussianMixture(
+                    fwdTips, PredProjector{fwd, fwdWeights}, desc);
+              });
           proxy.predicted() = fwdMeanPred;
           proxy.predictedCovariance() = fwdCovPred.value();
 
           // The filtered state is the backward pass
-          const auto [bwdMeanFilt, bwdCovFilt] = combineBoundGaussianMixture(
-              bwdTips.begin(), bwdTips.end(), FiltProjector{bwd, bwdWeights});
+          const auto [bwdMeanFilt, bwdCovFilt] =
+              angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
+                return combineGaussianMixture(
+                    bwdTips, FiltProjector{bwd, bwdWeights}, desc);
+              });
           proxy.filtered() = bwdMeanFilt;
           proxy.filteredCovariance() = bwdCovFilt.value();
 
