@@ -19,7 +19,9 @@
 #include "Acts/Geometry/TrackingGeometry.hpp"
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "ActsExamples/Detector/IBaseDetector.hpp"
+#include "ActsExamples/Framework/RandomNumbers.hpp"
 #include "ActsExamples/Framework/Sequencer.hpp"
+#include "ActsExamples/Framework/RandomNumbers.hpp"
 #include "ActsExamples/Geant4/EventStoreRegistry.hpp"
 #include "ActsExamples/Geant4/Geant4Simulation.hpp"
 #include "ActsExamples/Geant4/MagneticFieldWrapper.hpp"
@@ -66,7 +68,8 @@ void setupGeant4Simulation(
   Geant4Simulation::Config g4Cfg;
 
   g4Cfg.runManager = runManager;
-  g4Cfg.seed = seed;
+  g4Cfg.randomNumbers = std::make_shared<ActsExamples::RandomNumbers>(
+      ActsExamples::RandomNumbers::Config{seed});
 
   // Read the particle from the generator
   SimParticleTranslation::Config g4PrCfg;
