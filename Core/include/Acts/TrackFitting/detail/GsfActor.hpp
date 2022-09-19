@@ -34,6 +34,15 @@ namespace detail {
 
 template <typename traj_t>
 struct GsfResult {
+  /// The multi-trajectory which stores the combined states
+  std::shared_ptr<traj_t> combinedStates;
+
+  /// The index pointing to the tip of the combined trajectory
+  std::size_t lastCombinedTrackIndex = MultiTrajectoryTraits::kInvalid;
+
+  /// The index pointing to the tip of the combined trajectory
+  std::size_t lastCombinedMeasurementIndex = MultiTrajectoryTraits::kInvalid;
+
   /// The multi-trajectory which stores the graph of components
   std::shared_ptr<traj_t> fittedStates;
 
@@ -64,9 +73,6 @@ struct GsfResult {
 
   // Propagate potential errors to the outside
   Result<void> result{Result<void>::success()};
-
-  // Used for workaround to initialize MT correctly
-  bool haveInitializedResult = false;
 };
 
 /// The actor carrying out the GSF algorithm
@@ -96,10 +102,6 @@ struct GsfActor {
 
     /// When to discard components
     double weightCutoff = 1.0e-4;
-
-    /// A not so nice workaround to get the first backward state in the
-    /// MultiTrajectory for the DirectNavigator
-    std::function<void(result_type&, const LoggerWrapper&)> resultInitializer;
 
     /// When this option is enabled, material information on all surfaces is
     /// ignored. This disables the component convolution as well as the handling
@@ -186,20 +188,8 @@ struct GsfActor {
       return std::make_tuple(missed, reachable);
     }();
 
-    // Workaround to initialize e.g. MultiTrajectory in backward mode
-    if (!result.haveInitializedResult && m_cfg.resultInitializer) {
-      m_cfg.resultInitializer(result, logger);
-      result.haveInitializedResult = true;
-    }
-
-    // Initialize the tips if they are empty (should only happen at first pass)
-    if (result.parentTips.empty()) {
-      result.parentTips.resize(stepper.numberComponents(state.stepping),
-                               MultiTrajectoryTraits::kInvalid);
-    }
-
     if (result.parentTips.size() != stepper.numberComponents(state.stepping)) {
-      ACTS_ERROR("component number mismatch:"
+      ACTS_ERROR("Component number mismatch:"
                  << result.parentTips.size() << " vs "
                  << stepper.numberComponents(state.stepping));
 
@@ -209,8 +199,9 @@ struct GsfActor {
     // There seem to be cases where this is not always after initializing the
     // navigation from a surface. Some later functions assume this criterium
     // to be fulfilled.
-    bool on_surface = reachable_count == 0 &&
-                      missed_count < stepper.numberComponents(state.stepping);
+    const bool on_surface =
+        reachable_count == 0 &&
+        missed_count < stepper.numberComponents(state.stepping);
 
     // We only need to do something if we are on a surface
     if (state.navigation.currentSurface && on_surface) {
@@ -430,21 +421,9 @@ struct GsfActor {
 
     // We must differ between surface types, since there can be different
     // local coordinates
-    // TODO add other surface types
-    switch (surface.type()) {
-      case Surface::Cylinder: {
-        // The cylinder coordinate is phi*R, so we need to pass R
-        detail::AngleDescription::Cylinder angle_desc;
-        std::get<0>(angle_desc).constant =
-            static_cast<const CylinderSurface&>(surface).bounds().get(
-                CylinderBounds::eR);
-
-        detail::reduceWithKLDistance(cmps, final_cmp_number, proj, angle_desc);
-      } break;
-      default: {
-        detail::reduceWithKLDistance(cmps, final_cmp_number, proj);
-      }
-    }
+    detail::angleDescriptionSwitch(surface, [&](const auto& desc) {
+      detail::reduceWithKLDistance(cmps, final_cmp_number, proj, desc);
+    });
   }
 
   /// Removes the components which are missed and update the list of parent tips
@@ -639,6 +618,13 @@ struct GsfActor {
       ++result.measurementStates;
     }
 
+    // Store the combined version of the components
+    addCombinedState(
+        state, *result.fittedStates, result.currentTips, result.weightsOfStates,
+        *result.combinedStates, result.lastCombinedTrackIndex,
+        state.stepping.navDir == Acts::NavigationDirection::Forward);
+    result.lastCombinedMeasurementIndex = result.lastCombinedTrackIndex;
+
     // Return sucess
     return Acts::Result<void>::success();
   }
@@ -690,6 +676,12 @@ struct GsfActor {
 
     ++result.processedStates;
 
+    // Store the combined version of the components
+    addCombinedState(
+        state, *result.fittedStates, result.currentTips, result.weightsOfStates,
+        *result.combinedStates, result.lastCombinedTrackIndex,
+        state.stepping.navDir == Acts::NavigationDirection::Forward);
+
     return Result<void>::success();
   }
 
@@ -729,6 +721,69 @@ struct GsfActor {
         throw_assert(singleState.stepping.cov.array().isFinite().all(),
                      "covariance not finite after update");
       }
+    }
+  }
+
+  /// Add a combined state to the trajectory
+  template <typename propagator_state_t>
+  void addCombinedState(
+      const propagator_state_t& propstate,
+      const MultiTrajectory<traj_t>& componentStates,
+      const std::vector<MultiTrajectoryTraits::IndexType>& tips,
+      const std::map<MultiTrajectoryTraits::IndexType, ActsScalar>& weights,
+      MultiTrajectory<traj_t>& combinedStates,
+      std::size_t& lastCombinedTrackIndex, bool isForwardPass) const {
+    const auto& logger = propstate.options.logger;
+    const auto currentSurface = propstate.navigation.currentSurface;
+
+    if (isForwardPass) {
+      lastCombinedTrackIndex = combinedStates.addTrackState(
+          TrackStatePropMask::All, lastCombinedTrackIndex);
+      auto state = combinedStates.getTrackState(lastCombinedTrackIndex);
+
+      // Copy all the flags
+      state.copyFrom(componentStates.getTrackState(tips.front()));
+
+      MultiTrajectoryProjector<StatesType::ePredicted, traj_t> proj{
+          componentStates, weights};
+
+      auto [pars, cov] =
+          angleDescriptionSwitch(*currentSurface, [&](const auto& desc) {
+            return detail::combineGaussianMixture(tips, proj, desc);
+          });
+
+      state.predicted() = std::move(pars);
+      state.predictedCovariance() = std::move(*cov);
+      state.setReferenceSurface(currentSurface->getSharedPtr());
+
+    } else {
+      // Maybe replace this with map sometimes?
+      auto idx = MultiTrajectoryTraits::kInvalid;
+      combinedStates.visitBackwards(
+          lastCombinedTrackIndex, [&](const auto& state) {
+            if (&state.referenceSurface() == currentSurface) {
+              idx = state.index();
+            }
+          });
+
+      if (idx == MultiTrajectoryTraits::kInvalid) {
+        ACTS_VERBOSE("Did not find forward state for "
+                     << currentSurface->geometryId());
+        return;
+      }
+
+      auto state = combinedStates.getTrackState(idx);
+
+      MultiTrajectoryProjector<StatesType::eFiltered, traj_t> proj{
+          componentStates, weights};
+
+      auto [pars, cov] =
+          angleDescriptionSwitch(*currentSurface, [&](const auto& desc) {
+            return detail::combineGaussianMixture(tips, proj, desc);
+          });
+
+      state.filtered() = std::move(pars);
+      state.filteredCovariance() = std::move(*cov);
     }
   }
 };

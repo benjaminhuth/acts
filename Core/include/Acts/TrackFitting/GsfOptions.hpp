@@ -72,6 +72,8 @@ struct GsfOptions {
   bool abortOnError = true;
 
   bool disableAllMaterialHandling = false;
+
+  bool enableSmoothing = false;
 };
 
 }  // namespace Acts

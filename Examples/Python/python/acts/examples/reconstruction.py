@@ -610,7 +610,7 @@ def addKalmanTracks(
         inputInitialTrackParameters="estimatedparameters",
         outputTrajectories="trajectories",
         directNavigation=directNavigation,
-        pickTrack=-1,
+        pickTrack=0,
         trackingGeometry=trackingGeometry,
         dFit=acts.examples.TrackFittingAlgorithm.makeKalmanFitterFunction(
             field, **kalmanOptions
@@ -628,15 +628,17 @@ def addTruthTrackingGsf(
     s: acts.examples.Sequencer,
     trackingGeometry: acts.TrackingGeometry,
     field: acts.MagneticFieldProvider,
+    options: Optional[dict] = None,
     logLevel: Optional[acts.logging.Level] = None,
 ) -> None:
 
     customLogLevel = acts.examples.defaultLogging(s, logLevel)
 
-    gsfOptions = {
+    gsfOptions = options or {
         "maxComponents": 12,
         "abortOnError": False,
         "disableAllMaterialHandling": False,
+        "finalReductionMethod": acts.examples.FinalReductionMethod.mean,
     }
 
     gsfAlg = acts.examples.TrackFittingAlgorithm(
@@ -647,7 +649,7 @@ def addTruthTrackingGsf(
         inputInitialTrackParameters="estimatedparameters",
         outputTrajectories="gsf_trajectories",
         directNavigation=False,
-        pickTrack=-1,
+        pickTrack=0,
         trackingGeometry=trackingGeometry,
         fit=acts.examples.TrackFittingAlgorithm.makeGsfFitterFunction(
             trackingGeometry, field, **gsfOptions
