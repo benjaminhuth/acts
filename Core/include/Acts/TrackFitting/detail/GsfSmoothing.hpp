@@ -137,7 +137,7 @@ auto smoothAndCombineTrajectories(
     const std::map<MultiTrajectoryTraits::IndexType, double> &bwdWeights,
     bool doSmoothing, LoggerWrapper logger = getDummyLogger()) {
   KalmanFitterResult<traj_t> result;
-  // result.fittedStates = std::make_shared<traj_t>();
+  result.fittedStates = std::make_shared<traj_t>();
 
   visitMultiTrajectoryMultiComponents(
       bwd, bwdStartTips, [&](const auto &bwdTips) {
