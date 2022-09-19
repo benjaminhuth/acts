@@ -385,11 +385,11 @@ struct GaussianSumFitter {
                                               << ", holes: "
                                               << bwdGsfResult.measurementHoles);
 
-    auto smoothResult = detail::smoothAndCombineTrajectories<traj_t, true>(
-        fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-        fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
-        options.enableSmoothing, logger);
+//     auto smoothResult = detail::smoothAndCombineTrajectories<traj_t>(
+//         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+//         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
+//         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
+//         options.enableSmoothing, logger);
 
     // Compute the missed active surfaces as the union of the forward and
     // backward pass missed active surfaces

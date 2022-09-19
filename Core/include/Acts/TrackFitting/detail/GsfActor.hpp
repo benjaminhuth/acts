@@ -37,6 +37,9 @@ struct GsfResult {
   /// The multi-trajectory which stores the graph of components
   traj_t fittedStates;
 
+  /// The index pointing to the tip of the combined trajectory
+  std::size_t lastCombinedState = MultiTrajectoryTraits::kInvalid;
+
   /// This provides the weights for the states in the MultiTrajectory. Each
   /// entry maps to one track state. TODO This is a workaround until the
   /// MultiTrajectory can handle weights
@@ -108,6 +111,9 @@ struct GsfActor {
 
     /// Whether to abort immediately when an error occurs
     bool abortOnError = false;
+
+    /// Wether we are in the backward pass
+    bool isForwardPass = true;
 
     /// The extensions
     GsfExtensions<traj_t> extensions;
@@ -638,6 +644,9 @@ struct GsfActor {
       ++result.measurementStates;
     }
 
+    // Store the combined version of the components
+    addCombinedState();
+
     // Return sucess
     return Acts::Result<void>::success();
   }
@@ -689,6 +698,9 @@ struct GsfActor {
 
     ++result.processedStates;
 
+    // Store the combined version of the components
+    addCombinedState();
+
     return Result<void>::success();
   }
 
@@ -728,6 +740,51 @@ struct GsfActor {
         throw_assert(singleState.stepping.cov.array().isFinite().all(),
                      "covariance not finite after update");
       }
+    }
+  }
+
+  /// Add a combined state to the trajectory
+  void addCombinedState(
+      const std::vector<MultiTrajectoryTraits::IndexType>& tips,
+      const MultiTrajectory<traj_t>& componentStates,
+      const std::map<MultiTrajectoryTraits::IndexType, ActsScalar>& weights,
+      std::size_t& lastCombinedTip, MultiTrajectory<traj_t>& combinedStates,
+      const Surface* currentSurface) const {
+    if (m_cfg.isForwardPass) {
+      lastCombinedTip = combinedStates.addTrackState(TrackStatePropMask::All,
+                                                     lastCombinedTip);
+      auto state = combinedStates.getTrackState(lastCombinedTip);
+
+      MultiTrajectoryProjector<StatesType::ePredicted, traj_t> proj {
+        componentStates, weights
+      };
+
+      const auto [pars, cov] =
+          detail::combineBoundGaussianMixture(tips.begin(), tips.end(), proj);
+          
+      state.predicted() = pars;
+      state.predictedCovariance() = cov;
+      state.setReferenceSurface(currentSurface->getSharedPtr());
+      
+    } else {
+      auto idx = MultiTrajectoryTraits::kInvalid;
+      combinedStates.visitBackwards(lastCombinedTip, [&](const auto &state) {
+        if( &(*state.referenceSurface()) == currentSurface ) {
+          idx = state.index();
+        }
+      });
+      
+      auto state = combinedStates.getTrackState(idx);
+      
+      MultiTrajectoryProjector<StatesType::eFiltered, traj_t> proj {
+        componentStates, weights
+      };
+      
+            const auto [pars, cov] =
+          detail::combineBoundGaussianMixture(tips.begin(), tips.end(), proj);
+          
+      state.filtered() = pars;
+      state.filteredCovariance() = cov;
     }
   }
 };
