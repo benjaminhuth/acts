@@ -409,36 +409,46 @@ struct GaussianSumFitter {
                                               << ", holes: "
                                               << bwdGsfResult.measurementHoles);
 
-    //     auto smoothResult = detail::smoothAndCombineTrajectories<traj_t>(
-    //         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-    //         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-    //         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
-    //         options.enableSmoothing, logger);
-
-    // Compute the missed active surfaces as the union of the forward and
-    // backward pass missed active surfaces
-    // TODO this is quite expencive computationally, maybe just use from fwd?
-    auto fwdActSurf = fwdGsfResult.missedActiveSurfaces;
-    std::sort(fwdActSurf.begin(), fwdActSurf.end());
-
-    auto bwdActSurf = bwdGsfResult.missedActiveSurfaces;
-    std::sort(bwdActSurf.begin(), bwdActSurf.end());
-
-    std::vector<const Surface*> missedActiveSurfaces;
-    std::set_union(fwdActSurf.begin(), fwdActSurf.end(), bwdActSurf.begin(),
-                   bwdActSurf.end(), std::back_inserter(missedActiveSurfaces));
-
     Acts::KalmanFitterResult<traj_t> kalmanResult;
-
     kalmanResult.fittedStates = trajectory;
     kalmanResult.lastTrackIndex = fwdGsfResult.lastCombinedTrackIndex;
     kalmanResult.lastMeasurementIndex =
         fwdGsfResult.lastCombinedMeasurementIndex;
 
-    kalmanResult.missedActiveSurfaces = missedActiveSurfaces;
-
-    // set parameters
     kalmanResult.fittedParameters = *(*bwdResult).endParameters;
+
+    if (options.enableSmoothing) {
+      detail::smoothTrajectory(
+          *fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+          fwdGsfResult.weightsOfStates, *bwdGsfResult.fittedStates,
+          bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
+          *kalmanResult.fittedStates, kalmanResult.lastTrackIndex, logger);
+      kalmanResult.smoothed = true;
+
+    } else {
+      kalmanResult.smoothed = false;
+    }
+
+    kalmanResult.reversed = true;
+    kalmanResult.finished = true;
+
+    // Compute the missed active surfaces as the union of the forward and
+    // backward pass missed active surfaces
+    // TODO this is quite expencive computationally, maybe just use from fwd?
+    {
+      auto fwdActSurf = fwdGsfResult.missedActiveSurfaces;
+      std::sort(fwdActSurf.begin(), fwdActSurf.end());
+
+      auto bwdActSurf = bwdGsfResult.missedActiveSurfaces;
+      std::sort(bwdActSurf.begin(), bwdActSurf.end());
+
+      std::vector<const Surface*> missedActiveSurfaces;
+      std::set_union(fwdActSurf.begin(), fwdActSurf.end(), bwdActSurf.begin(),
+                     bwdActSurf.end(),
+                     std::back_inserter(missedActiveSurfaces));
+
+      kalmanResult.missedActiveSurfaces = missedActiveSurfaces;
+    }
 
     return kalmanResult;
   }

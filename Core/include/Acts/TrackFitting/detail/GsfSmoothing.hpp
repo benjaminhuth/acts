@@ -128,17 +128,15 @@ auto visitMultiTrajectoryMultiComponents(
 /// TODO change std::vector< size_t > to boost::small_vector for better
 /// performance
 template <typename traj_t>
-auto smoothAndCombineTrajectories(
+auto smoothTrajectory(
     const MultiTrajectory<traj_t> &fwd,
     const std::vector<MultiTrajectoryTraits::IndexType> &fwdStartTips,
     const std::map<MultiTrajectoryTraits::IndexType, double> &fwdWeights,
     const MultiTrajectory<traj_t> &bwd,
     const std::vector<MultiTrajectoryTraits::IndexType> &bwdStartTips,
     const std::map<MultiTrajectoryTraits::IndexType, double> &bwdWeights,
-    bool doSmoothing, LoggerWrapper logger = getDummyLogger()) {
-  KalmanFitterResult<traj_t> result;
-  result.fittedStates = std::make_shared<traj_t>();
-
+    MultiTrajectory<traj_t> &res, MultiTrajectoryTraits::IndexType resTip,
+    LoggerWrapper logger = getDummyLogger()) {
   visitMultiTrajectoryMultiComponents(
       bwd, bwdStartTips, [&](const auto &bwdTips) {
         const auto firstBwdState = bwd.getTrackState(bwdTips.front());
@@ -167,95 +165,45 @@ auto smoothAndCombineTrajectories(
         fwdTips.erase(std::unique(fwdTips.begin(), fwdTips.end()),
                       fwdTips.end());
 
-        // Add state to MultiTrajectory
-        result.lastTrackIndex = result.fittedStates.addTrackState(
-            TrackStatePropMask::All, result.lastTrackIndex);
-        result.processedStates++;
+        // Search state in result trajectory
+        auto resIndex = MultiTrajectoryTraits::kInvalid;
+        res.visitBackwards(resTip, [&](const auto &proxy) {
+          if (proxy.referenceSurface().geometryId() == bwdGeoId) {
+            resIndex = proxy.index();
+          }
+        });
 
-        auto proxy = result.fittedStates.getTrackState(result.lastTrackIndex);
+        if (resIndex == MultiTrajectoryTraits::kInvalid) {
+          ACTS_ERROR("Did not find " << bwdGeoId << " in result trajectory");
+        }
 
-        // This way we copy all relevant flags and the calibrated field. However
-        // this assumes that the relevant flags do not differ between components
-        proxy.copyFrom(firstBwdState);
+        auto proxy = res.getTrackState(resIndex);
 
-        // Define some Projector types we need in the following
         using PredProjector =
             MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
         using FiltProjector =
             MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
 
-        if (proxy.typeFlags().test(Acts::TrackStateFlag::HoleFlag)) {
-          result.measurementHoles++;
-        } else {
-          // We also need to save outlier states here, otherwise they would not
-          // be included in the MT if they are at the end of the track
-          result.lastMeasurementIndex = result.lastTrackIndex;
+        auto smoothedStateResult = bayesianSmoothing(
+            fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
+            PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
+
+        if (!smoothedStateResult.ok()) {
+          ACTS_WARNING("Smoothing failed on " << bwdGeoId);
+          return;
         }
 
-        // If we have a hole or an outlier, just take the combination of
-        // filtered and predicted and no smoothed state
-        if (not proxy.typeFlags().test(Acts::TrackStateFlag::MeasurementFlag)) {
-          const auto [mean, cov] =
-              angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
-                return combineGaussianMixture(
-                    bwdTips, FiltProjector{bwd, bwdWeights}, desc);
-              });
+        const auto &smoothedState = *smoothedStateResult;
 
-          proxy.predicted() = mean;
-          proxy.predictedCovariance() = cov.value();
-          using PM = TrackStatePropMask;
-          proxy.shareFrom(proxy, PM::Predicted, PM::Filtered);
+        const auto [smoothedMean, smoothedCov] =
+            angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
+              return combineGaussianMixture(smoothedState, Acts::Identity{}, desc);
+            });
 
-        } else {
-          result.measurementStates++;
-
-          // The predicted state is the forward pass
-          const auto [fwdMeanPred, fwdCovPred] =
-              angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
-                return combineGaussianMixture(
-                    fwdTips, PredProjector{fwd, fwdWeights}, desc);
-              });
-          proxy.predicted() = fwdMeanPred;
-          proxy.predictedCovariance() = fwdCovPred.value();
-
-          // The filtered state is the backward pass
-          const auto [bwdMeanFilt, bwdCovFilt] =
-              angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
-                return combineGaussianMixture(
-                    bwdTips, FiltProjector{bwd, bwdWeights}, desc);
-              });
-          proxy.filtered() = bwdMeanFilt;
-          proxy.filteredCovariance() = bwdCovFilt.value();
-
-          // Do the smoothing
-          if (doSmoothing) {
-            auto smoothedStateResult = bayesianSmoothing(
-                fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
-                PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
-
-            if (!smoothedStateResult.ok()) {
-              ACTS_WARNING("Smoothing failed on " << bwdGeoId);
-              return;
-            }
-
-            const auto &smoothedState = *smoothedStateResult;
-
-            // The smoothed state is a combination
-            const auto [smoothedMean, smoothedCov] =
-                combineBoundGaussianMixture(smoothedState.begin(),
-                                            smoothedState.end());
-            proxy.smoothed() = smoothedMean;
-            proxy.smoothedCovariance() = smoothedCov.value();
-            ACTS_VERBOSE("Added smoothed state to MultiTrajectory");
-          }
-        }
+        proxy.smoothed() = smoothedMean;
+        proxy.smoothedCovariance() = smoothedCov.value();
+        ACTS_VERBOSE("Added smoothed state to MultiTrajectory");
       });
-
-  result.smoothed = true;
-  result.reversed = true;
-  result.finished = true;
-
-  return result;
 }
 
 }  // namespace detail
