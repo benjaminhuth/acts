@@ -267,7 +267,8 @@ struct GaussianSumFitter {
 
       auto& r = inputResult.template get<detail::GsfResult<traj_t>>();
 
-      r.fittedStates = trajectory;
+      r.combinedStates = trajectory;
+      r.fittedStates = std::make_shared<traj_t>();
 
       if constexpr (not IsMultiParameters::value) {
         using Charge = typename IsMultiParameters::Charge;
@@ -276,9 +277,14 @@ struct GaussianSumFitter {
             sParameters.referenceSurface().getSharedPtr(),
             sParameters.parameters(), sParameters.covariance());
 
+        r.parentTips.resize(1, MultiTrajectoryTraits::kInvalid);
+
         return m_propagator.propagate(params, fwdPropOptions,
                                       std::move(inputResult));
       } else {
+        r.parentTips.resize(sParameters.components().size(),
+                            MultiTrajectoryTraits::kInvalid);
+
         return m_propagator.propagate(sParameters, fwdPropOptions,
                                       std::move(inputResult));
       }
@@ -326,51 +332,16 @@ struct GaussianSumFitter {
           options.disableAllMaterialHandling;
       actor.m_cfg.extensions = options.extensions;
 
-      // Workaround to get the first state into the MultiTrajectory seems also
-      // to be necessary for standard navigator to prevent double kalman
-      // update on the last surface
-      actor.m_cfg.resultInitializer = [&fwdGsfResult](auto& result,
-                                                      const auto& gsf_logger) {
-        result.currentTips.clear();
-
-        // Manually expand the logging macro here since a function parameter
-        // named 'logger' seems to trigger a false-positive for gcc's
-        // -Wshadow warning
-        gsf_logger().log(Acts::Logging::VERBOSE,
-                         "Initialize the MultiTrajectory with information "
-                         "provided to the Actor");
-
-        for (const auto idx : fwdGsfResult.lastMeasurementTips) {
-          result.currentTips.push_back(
-              result.fittedStates->addTrackState(TrackStatePropMask::All));
-
-          auto proxy =
-              result.fittedStates->getTrackState(result.currentTips.back());
-          proxy.copyFrom(fwdGsfResult.fittedStates->getTrackState(idx));
-          result.weightsOfStates[result.currentTips.back()] =
-              fwdGsfResult.weightsOfStates.at(idx);
-
-          // Because we are backwards, we use forward filtered as predicted
-          using PM = TrackStatePropMask;
-          proxy.shareFrom(proxy, PM::Filtered, PM::Predicted);
-
-          // Mark surface as visited
-          result.visitedSurfaces.insert(proxy.referenceSurface().geometryId());
-        }
-
-        result.parentTips = result.currentTips;
-        result.measurementStates++;
-        result.processedStates++;
-      };
-
       bwdPropOptions.direction = gsfBackward;
 
-      // TODO somehow this proagation fails if we target the first
-      // measuerement surface, go instead back to beamline or to start
-      // parameters for now
       const Surface& target = options.referenceSurface
                                   ? *options.referenceSurface
                                   : sParameters.referenceSurface();
+
+      // Initialize result in backward mode. This also includes taking the last
+      // state from the forward result as the first state in the backward
+      // result.
+      using PM = TrackStatePropMask;
 
       typename propagator_t::template action_list_t_result_t<
           BoundTrackParameters, decltype(bwdPropOptions.actionList)>
@@ -378,7 +349,33 @@ struct GaussianSumFitter {
 
       auto& r = inputResult.template get<detail::GsfResult<traj_t>>();
 
-      r.fittedStates = trajectory;
+      r.combinedStates = trajectory;
+      r.fittedStates = std::make_shared<traj_t>();
+
+      for (const auto idx : fwdGsfResult.lastMeasurementTips) {
+        r.currentTips.push_back(
+            r.fittedStates->addTrackState(TrackStatePropMask::All));
+
+        auto proxy = r.fittedStates->getTrackState(r.currentTips.back());
+        proxy.copyFrom(fwdGsfResult.fittedStates->getTrackState(idx));
+        r.weightsOfStates[r.currentTips.back()] =
+            fwdGsfResult.weightsOfStates.at(idx);
+
+        // Because we are backwards, we use forward filtered as predicted
+        proxy.shareFrom(proxy, PM::Filtered, PM::Predicted);
+
+        // Mark surface as visited
+        r.visitedSurfaces.insert(proxy.referenceSurface().geometryId());
+      }
+
+      r.parentTips = r.currentTips;
+      r.measurementStates++;
+      r.processedStates++;
+
+      auto lastCombined =
+          r.combinedStates->getTrackState(fwdGsfResult.lastCombinedTrackIndex);
+      lastCombined.shareFrom(lastCombined, PM::Filtered, PM::Predicted);
+      r.lastCombinedTrackIndex = fwdGsfResult.lastCombinedTrackIndex;
 
       return m_propagator
           .template propagate<decltype(params), decltype(bwdPropOptions),
@@ -412,11 +409,11 @@ struct GaussianSumFitter {
                                               << ", holes: "
                                               << bwdGsfResult.measurementHoles);
 
-//     auto smoothResult = detail::smoothAndCombineTrajectories<traj_t>(
-//         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-//         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
-//         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
-//         options.enableSmoothing, logger);
+    //     auto smoothResult = detail::smoothAndCombineTrajectories<traj_t>(
+    //         fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
+    //         fwdGsfResult.weightsOfStates, bwdGsfResult.fittedStates,
+    //         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates,
+    //         options.enableSmoothing, logger);
 
     // Compute the missed active surfaces as the union of the forward and
     // backward pass missed active surfaces
@@ -430,6 +427,13 @@ struct GaussianSumFitter {
     std::vector<const Surface*> missedActiveSurfaces;
     std::set_union(fwdActSurf.begin(), fwdActSurf.end(), bwdActSurf.begin(),
                    bwdActSurf.end(), std::back_inserter(missedActiveSurfaces));
+
+    Acts::KalmanFitterResult<traj_t> kalmanResult;
+
+    kalmanResult.fittedStates = trajectory;
+    kalmanResult.lastTrackIndex = fwdGsfResult.lastCombinedTrackIndex;
+    kalmanResult.lastMeasurementIndex =
+        fwdGsfResult.lastCombinedMeasurementIndex;
 
     kalmanResult.missedActiveSurfaces = missedActiveSurfaces;
 
