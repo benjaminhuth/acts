@@ -401,15 +401,6 @@ struct GaussianSumFitter {
     ////////////////////////////////////
     // Smooth and create Kalman Result
     ////////////////////////////////////
-    ACTS_VERBOSE(
-        "Gsf: Do final combination, smoothing: " << options.enableSmoothing);
-    ACTS_VERBOSE("- Fwd measurement states: " << fwdGsfResult.measurementStates
-                                              << ", holes: "
-                                              << fwdGsfResult.measurementHoles);
-    ACTS_VERBOSE("- Bwd measurement states: " << bwdGsfResult.measurementStates
-                                              << ", holes: "
-                                              << bwdGsfResult.measurementHoles);
-
     Acts::KalmanFitterResult<traj_t> kalmanResult;
     kalmanResult.fittedStates = trajectory;
     kalmanResult.lastTrackIndex = fwdGsfResult.lastCombinedTrackIndex;
@@ -450,6 +441,18 @@ struct GaussianSumFitter {
 
       kalmanResult.missedActiveSurfaces = missedActiveSurfaces;
     }
+
+    ACTS_VERBOSE("Gsf finalization:");
+    ACTS_VERBOSE("- smoothing: " << std::boolalpha << options.enableSmoothing);
+    ACTS_VERBOSE("- fwd measurement states: " << fwdGsfResult.measurementStates
+                                              << ", holes: "
+                                              << fwdGsfResult.measurementHoles);
+    ACTS_VERBOSE("- bwd measurement states: " << bwdGsfResult.measurementStates
+                                              << ", holes: "
+                                              << bwdGsfResult.measurementHoles);
+    ACTS_VERBOSE("- missed active surfaces (fwd n bwd): "
+                 << kalmanResult.missedActiveSurfaces);
+    ACTS_VERBOSE("- finial parameters: " << *kalmanResult.fittedParameters);
 
     return kalmanResult;
   }
