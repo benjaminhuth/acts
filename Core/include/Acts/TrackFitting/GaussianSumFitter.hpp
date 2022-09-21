@@ -451,8 +451,8 @@ struct GaussianSumFitter {
                                               << ", holes: "
                                               << bwdGsfResult.measurementHoles);
     ACTS_VERBOSE("- missed active surfaces (fwd n bwd): "
-                 << kalmanResult.missedActiveSurfaces);
-    ACTS_VERBOSE("- finial parameters: " << *kalmanResult.fittedParameters);
+                 << kalmanResult.missedActiveSurfaces.size());
+    ACTS_VERBOSE("- finial parameters:\n" << *kalmanResult.fittedParameters);
 
     return kalmanResult;
   }
