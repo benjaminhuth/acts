@@ -8,6 +8,7 @@
 
 #include "Acts/Plugins/ExaTrkX/ExaTrkXTrackFindingOnnx.hpp"
 #include "Acts/Plugins/ExaTrkX/ExaTrkXTrackFindingTorch.hpp"
+#include "Acts/Plugins/ExaTrkX/ExaTrkXTrackFindingCpu.hpp"
 #include "Acts/Plugins/Python/Utilities.hpp"
 #include "Acts/TrackFinding/MeasurementSelector.hpp"
 #include "ActsExamples/TrackFinding/SeedingAlgorithm.hpp"
@@ -79,6 +80,31 @@ void addExaTrkXTrackFinding(Context& ctx) {
     ACTS_PYTHON_MEMBER(rVal);
     ACTS_PYTHON_MEMBER(knnVal);
     ACTS_PYTHON_MEMBER(filterCut);
+    ACTS_PYTHON_STRUCT_END();
+  }
+#endif
+
+#ifdef ACTS_EXATRKX_CPU_BACKEND
+  {
+    using Alg = Acts::ExaTrkXTrackFindingCpu;
+    using Config = Alg::Config;
+
+    auto alg =
+        py::class_<Alg, Acts::ExaTrkXTrackFindingBase, std::shared_ptr<Alg>>(
+            mex, "ExaTrkXTrackFindingCpu")
+            .def(py::init<const Config&>(), py::arg("config"))
+            .def_property_readonly("config", &Alg::config);
+
+    auto c = py::class_<Config>(alg, "Config").def(py::init<>());
+    ACTS_PYTHON_STRUCT_BEGIN(c, Config);
+    ACTS_PYTHON_MEMBER(modelDir);
+    ACTS_PYTHON_MEMBER(spacepointFeatures);
+    ACTS_PYTHON_MEMBER(embeddingDim);
+    ACTS_PYTHON_MEMBER(rVal);
+    ACTS_PYTHON_MEMBER(knnVal);
+    ACTS_PYTHON_MEMBER(filterCut);
+    ACTS_PYTHON_MEMBER(n_chunks);
+    ACTS_PYTHON_MEMBER(edgeCut);
     ACTS_PYTHON_STRUCT_END();
   }
 #endif

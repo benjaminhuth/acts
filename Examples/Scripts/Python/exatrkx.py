@@ -19,6 +19,8 @@ if "__main__" == __name__:
         backend = ExaTrkXBackend.Onnx
     if "torch" in sys.argv:
         backend = ExaTrkXBackend.Torch
+    if "cpu" in sys.argv:
+        backend = ExaTrkXBackend.Cpu
 
     srcdir = Path(__file__).resolve().parent.parent.parent.parent
 
@@ -37,7 +39,7 @@ if "__main__" == __name__:
     )
     assert geometrySelection.exists()
 
-    if backend == ExaTrkXBackend.Torch:
+    if backend == ExaTrkXBackend.Torch or backend == ExaTrkXBackend.Cpu:
         modelDir = Path.cwd() / "torchscript_models"
         assert (modelDir / "embed.pt").exists()
         assert (modelDir / "filter.pt").exists()

@@ -6,38 +6,17 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include "Acts/Plugins/ExaTrkX/ExaTrkXTrackFindingTorch.hpp"
+#include "Acts/Plugins/ExaTrkX/ExaTrkXTrackFindingCpu.hpp"
 
 #include <boost/filesystem.hpp>
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <cuda_runtime_api.h>
 
 #include "torchInference.hpp"
-#include "buildEdges.hpp"
-
-using namespace torch::indexing;
-
-namespace {
-void print_current_cuda_meminfo(Acts::LoggerWrapper& logger) {
-  constexpr int kb = 1024;
-  constexpr int mb = kb * kb;
-
-  int device;
-  std::size_t free, total;
-  cudaMemGetInfo(&free, &total);
-  cudaGetDevice(&device);
-
-  ACTS_VERBOSE("Current CUDA device: " << device);
-  ACTS_VERBOSE("Memory (used / total) [in MB]: " << (total - free) / mb << " / "
-                                                 << total / mb);
-}
-}  // namespace
+#include "buildEdgesTBB.hpp"
 
 namespace Acts {
 
-ExaTrkXTrackFindingTorch::ExaTrkXTrackFindingTorch(
-    const ExaTrkXTrackFindingTorch::Config& config)
+ExaTrkXTrackFindingCpu::ExaTrkXTrackFindingCpu(
+    const ExaTrkXTrackFindingCpu::Config& config)
     : ExaTrkXTrackFindingBase("ExaTrkXTorch"), m_cfg(config) {
   using Path = boost::filesystem::path;
 
@@ -63,20 +42,21 @@ ExaTrkXTrackFindingTorch::ExaTrkXTrackFindingTorch(
   }
 }
 
-ExaTrkXTrackFindingTorch::~ExaTrkXTrackFindingTorch() {}
+ExaTrkXTrackFindingCpu::~ExaTrkXTrackFindingCpu() {}
 
-std::optional<ExaTrkXTime> ExaTrkXTrackFindingTorch::getTracks(
+std::optional<ExaTrkXTime> ExaTrkXTrackFindingCpu::getTracks(
     std::vector<float>& inputValues, std::vector<int>& spacepointIDs,
     std::vector<std::vector<int> >& trackCandidates, LoggerWrapper logger,
     bool recordTiming) const {
 
-  auto timing = torchInference(inputValues, spacepointIDs, trackCandidates, logger, recordTiming, buildEdges, print_current_cuda_meminfo);
+
+  auto e_model = m_embeddingModel->clone();
+  auto f_model = m_filterModel->clone();
+  auto g_model = m_gnnModel->clone();
 
 
-  c10::cuda::CUDACachingAllocator::emptyCache();
-
-  return timing;
-
+  return detail::torchInference(m_cfg, inputValues, spacepointIDs, trackCandidates, logger, recordTiming, at::kCPU, buildEdgesTBB, [](auto){}, e_model, f_model, g_model);
 }
 
 }  // namespace Acts
+

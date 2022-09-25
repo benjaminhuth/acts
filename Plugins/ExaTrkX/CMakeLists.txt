@@ -1,6 +1,10 @@
-set(SOURCES 
-  src/buildEdges.cpp
-)
+set(SOURCES "")
+
+if(ACTS_EXATRKX_ENABLE_ONNX OR ACTS_EXATRKX_ENABLE_TORCH)
+  list(APPEND SOURCES
+    src/buildEdgesFRNN.cpp
+  )
+endif()
 
 if(ACTS_EXATRKX_ENABLE_ONNX)
   list(APPEND SOURCES 
@@ -11,6 +15,13 @@ endif()
 if(ACTS_EXATRKX_ENABLE_TORCH)
   list(APPEND SOURCES 
     src/ExaTrkXTrackFindingTorch.cpp
+  )
+endif()
+
+if(ACTS_EXATRKX_ENABLE_CPU)
+  list(APPEND SOURCES
+    src/buildEdgesTBB.cpp
+    src/ExaTrkXTrackFindingCpu.cpp
   )
 endif()
 
@@ -52,8 +63,15 @@ target_link_libraries(
     Boost::boost
   PRIVATE
     ${TORCH_LIBRARIES}
-    frnn
 )
+
+if(ACTS_EXATRKX_ENABLE_ONNX OR ACTS_EXATRKX_ENABLE_TORCH)
+  target_link_libraries(
+    ActsPluginExaTrkX
+    PRIVATE
+      frnn
+  )
+endif()
 
 if(ACTS_EXATRKX_ENABLE_ONNX)
   target_compile_definitions(ActsPluginExaTrkX PUBLIC ACTS_EXATRKX_ONNX_BACKEND)
@@ -83,6 +101,31 @@ if(ACTS_EXATRKX_ENABLE_TORCH)
       "-Wl,-no-as-needed"
   )
 endif()
+
+if(ACTS_EXATRKX_ENABLE_CPU)
+  target_compile_definitions(ActsPluginExaTrkX PUBLIC ACTS_EXATRKX_CPU_BACKEND)
+
+  target_link_libraries(
+    ActsPluginExaTrkX
+    PRIVATE
+      TBB::tbb
+  )
+
+  target_link_libraries(
+    ActsPluginExaTrkX
+    PRIVATE
+      TorchScatter::TorchScatter
+  )
+
+  # Should not discard TorchScatter even if its not needed at this point
+  # since we need the scatter_max operation in the torch script later
+  target_link_options(
+    ActsPluginExaTrkX
+    PUBLIC
+      "-Wl,-no-as-needed"
+  )
+endif()
+
 
 
 install(

@@ -794,7 +794,7 @@ def addCKFTracks(
     return s
 
 
-ExaTrkXBackend = Enum("ExaTrkXBackend", "Torch Onnx")
+ExaTrkXBackend = Enum("ExaTrkXBackend", "Torch Onnx Cpu")
 
 
 def addExaTrkX(
@@ -839,11 +839,12 @@ def addExaTrkX(
     )
 
     # For now we don't configure only the common options so this works
-    exaTrkxModule = (
-        acts.examples.ExaTrkXTrackFindingTorch
-        if backend == ExaTrkXBackend.Torch
-        else acts.examples.ExaTrkXTrackFindingOnnx
-    )
+    if backend == ExaTrkXBackend.Torch:
+        exaTrkxModule = acts.examples.ExaTrkXTrackFindingTorch
+    elif backend == ExaTrkXBackend.Onnx:
+        exaTrkxModule = acts.examples.ExaTrkXTrackFindingOnnx
+    elif backend == ExaTrkXBackend.Cpu:
+        exaTrkxModule = acts.examples.ExaTrkXTrackFindingCpu
 
     exaTrkxFinding = exaTrkxModule(
         modelDir=str(modelDir),
