@@ -352,55 +352,6 @@ def addParticleSelection(
     )
 
 
-def addParticleSelection(
-    s: acts.examples.Sequencer,
-    preselectParticles: ParticleSelectorConfig,
-    inputParticles = "particles_input",
-    outputParticles = "particles_selected",
-) -> acts.examples.Sequencer:
-    """
-    This function steers the particle selection.
-    
-    Parameters
-    ----------
-    s: Sequencer
-        the sequencer module to which we add the ParticleSelector
-    preselectedParticles: ParticleSelectorConfig
-        the particle selection configuration
-    inputParticles: str
-        the identifier for the input particles to be selected
-    outputParticles: str
-        the identifier for the final selected particle collection
-    """
-    s.addAlgorithm(
-        acts.examples.ParticleSelector(
-            **acts.examples.defaultKWArgs(
-                rhoMin=preselectParticles.rho[0],
-                rhoMax=preselectParticles.rho[1],
-                absZMin=preselectParticles.absZ[0],
-                absZMax=preselectParticles.absZ[1],
-                timeMin=preselectParticles.time[0],
-                timeMax=preselectParticles.time[1],
-                phiMin=preselectParticles.phi[0],
-                phiMax=preselectParticles.phi[1],
-                etaMin=preselectParticles.eta[0],
-                etaMax=preselectParticles.eta[1],
-                absEtaMin=preselectParticles.absEta[0],
-                absEtaMax=preselectParticles.absEta[1],
-                ptMin=preselectParticles.pt[0],
-                ptMax=preselectParticles.pt[1],
-                removeCharged=preselectParticles.removeCharged,
-                removeNeutral=preselectParticles.removeNeutral,
-            ),
-            level=s.config.logLevel,
-            inputParticles=inputParticles,
-            outputParticles=outputParticles,
-        )
-    )
-
-    return s
-
-
 @acts.examples.NamedTypeArgs(
     preselectParticles=ParticleSelectorConfig,
 )
