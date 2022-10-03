@@ -301,7 +301,9 @@ struct GaussianSumFitter {
       return return_error_or_abort(fwdGsfResult.result.error());
     }
 
-    if (fwdGsfResult.processedStates == 0) {
+    // Check measurement states because without any measurement state the
+    // backwards fit cannot be initialized correctely
+    if (fwdGsfResult.measurementStates == 0) {
       return return_error_or_abort(GsfError::NoStatesCreated);
     }
 
