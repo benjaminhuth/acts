@@ -128,6 +128,28 @@ class BetheHeitlerApprox {
   }
 };
 
+
+/// This class approximates the Bethe-Heitler with only one component
+class BetheHeitlerApproxSingleCmp {
+  /// @brief Returns the number of components the returned mixture will have
+  constexpr auto numComponents() const { return 1; }
+
+  /// @brief Returns array with length 1
+  auto mixture(const ActsScalar x) const {
+    std::array<GaussianMixture, 1> ret{};
+
+    ret[0].weight = 1.0;
+    ret[0].mean = std::exp(-1. * x);
+    ret[0].var =
+        std::exp(-1. * x * std::log(3.) / std::log(2.)) - std::exp(-2. * x);
+
+    return ret;
+  }
+};
+
+
+
+
 template <std::size_t NCmps, std::size_t Order>
 auto load_bethe_heitler_data(const std::string &filepath) ->
     typename BetheHeitlerApprox<NCmps, Order>::Data {
