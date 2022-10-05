@@ -130,7 +130,7 @@ class BetheHeitlerApprox {
 
 
 /// This class approximates the Bethe-Heitler with only one component
-class BetheHeitlerApproxSingleCmp {
+struct BetheHeitlerApproxSingleCmp {
   /// @brief Returns the number of components the returned mixture will have
   constexpr auto numComponents() const { return 1; }
 
