@@ -415,7 +415,7 @@ struct GsfActor {
           }
         }();
 
-        (*new_cov)(eBoundQOverP, eBoundQOverP) += varInvP;
+        (*new_cov)(eBoundQOverP, eBoundQOverP) = varInvP;
         throw_assert(
             std::isfinite((*new_cov)(eBoundQOverP, eBoundQOverP)),
             "cov not finite, varInvP=" << varInvP << ", p_prev=" << p_prev
@@ -577,11 +577,11 @@ struct GsfActor {
       new_parent_tips.push_back(meta.parentIndex);
 
       auto& cmp = *res;
-      cmp.jacobian() = meta.jacobian;
-      cmp.jacToGlobal() = meta.jacToGlobal;
+      // cmp.jacobian() = meta.jacobian;
+      cmp.jacToGlobal() = surface.boundToFreeJacobian(state.geoContext, pars);
       cmp.pathAccumulated() = meta.pathLength;
-      cmp.derivative() = meta.derivative;
-      cmp.jacTransport() = meta.jacTransport;
+      // cmp.derivative() = meta.derivative;
+      // cmp.jacTransport() = meta.jacTransport;
     }
 
     return new_parent_tips;
