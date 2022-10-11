@@ -92,18 +92,18 @@ class ScopedGsfInfoPrinterAndChecker {
 
   void checks(const std::string_view &where) const {
     const auto cmps = m_stepper.constComponentIterable(m_state.stepping);
-
-    // If all are missed, weights have been reset to zero, so it might not be normalized
-    if( m_stepper.numberComponents(m_state.stepping) > m_missedCount ) {
+    // If all are missed, weights have been reset to zero, so it might not be
+    // normalized
+    if (m_stepper.numberComponents(m_state.stepping) > m_missedCount) {
       throw_assert(detail::weightsAreNormalized(
-                      cmps, [](const auto &cmp) { return cmp.weight(); }),
-                  "not normalized at " << where);
-
-      throw_assert(
-          std::all_of(cmps.begin(), cmps.end(),
-                      [](auto cmp) { return std::isfinite(cmp.weight()); }),
-          "some weights are not finite at " << where);
+                       cmps, [](const auto &cmp) { return cmp.weight(); }),
+                   "not normalized at " << where);
     }
+
+    throw_assert(
+        std::all_of(cmps.begin(), cmps.end(),
+                    [](auto cmp) { return std::isfinite(cmp.weight()); }),
+        "some weights are not finite at " << where);
   }
 
  public:

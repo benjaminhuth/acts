@@ -128,7 +128,6 @@ class BetheHeitlerApprox {
   }
 };
 
-
 /// This class approximates the Bethe-Heitler with only one component
 struct BetheHeitlerApproxSingleCmp {
   /// @brief Returns the number of components the returned mixture will have
@@ -146,9 +145,6 @@ struct BetheHeitlerApproxSingleCmp {
     return ret;
   }
 };
-
-
-
 
 template <std::size_t NCmps, std::size_t Order>
 auto load_bethe_heitler_data(const std::string &filepath) ->
