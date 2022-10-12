@@ -148,6 +148,12 @@ struct GsfActor {
   void operator()(propagator_state_t& state, const stepper_t& stepper,
                   result_type& result) const {
     assert(result.fittedStates && "No MultiTrajectory set");
+
+    // Return is we found an error earlier
+    if( not result.result.ok() ) {
+      return;
+    }
+
     const auto& logger = state.options.logger;
 
     // Set error or abort utility
@@ -261,26 +267,34 @@ struct GsfActor {
       // state with the filtered components.
       // NOTE because of early return before we know that we have a measurement
       if (not haveMaterial) {
-        kalmanUpdate(state, stepper, result, found_source_link->second);
+        auto res = kalmanUpdate(state, stepper, result, found_source_link->second);
+
+        if( not res.ok() ) {
+          result.result = res;
+          return;
+        }
 
         result.parentTips = updateStepper(state, stepper, result);
-
       }
       // We have material, we thus need a component cache since we will
       // convolute the components and later reduce them again before updating
       // the stepper
       else {
-        std::vector<ComponentCache> componentCache;
+        Result<void> res;
 
         if (haveMeasurement) {
-          kalmanUpdate(state, stepper, result, found_source_link->second);
-
-          convoluteComponents(state, stepper, result, componentCache);
+          res = kalmanUpdate(state, stepper, result, found_source_link->second);
         } else {
-          noMeasurementUpdate(state, stepper, result, false);
-
-          convoluteComponents(state, stepper, result, componentCache);
+          res = noMeasurementUpdate(state, stepper, result, false);
         }
+
+        if( not res.ok() ) {
+          result.result = res;
+          return;
+        }
+
+        std::vector<ComponentCache> componentCache;
+        convoluteComponents(state, stepper, result, componentCache);
 
         reduceComponents(stepper, surface, componentCache);
 
