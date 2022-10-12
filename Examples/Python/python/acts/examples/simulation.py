@@ -508,7 +508,7 @@ def addSimWriters(
 
 def addGeant4(
     s: acts.examples.Sequencer,
-    geometryService: Any,  # acts.examples.dd4hep.DD4hepGeometryService
+    geant4Detector: Any,
     trackingGeometry: acts.TrackingGeometry,
     field: acts.MagneticFieldProvider,
     rnd: acts.examples.RandomNumbers,
@@ -517,13 +517,16 @@ def addGeant4(
     seed: Optional[int] = None,
     preselectParticles: Optional[ParticleSelectorConfig] = ParticleSelectorConfig(),
     logLevel: Optional[acts.logging.Level] = None,
+    volumeMappings = None,
+    materialMappings = None,
 ) -> None:
     """This function steers the detector simulation using Geant4
 
     Parameters
     ----------
     s: Sequencer
-        the sequencer module to which we add the Geant4 steps (returned from addGeant4)
+        the sequencer module to which we add the Geant4 steps
+    geant4Detector : either from acts.examples.dd4hep.DD4hepGeometryService or from acts.examples.geant4.GdmlDetectorConstruction
     trackingGeometry : tracking geometry
     field : magnetic field
     rnd : RandomNumbers, None
@@ -536,10 +539,11 @@ def addGeant4(
         ParticleSelector configuration to select particles as input to Fatras. Each range is specified as a tuple of (min,max).
         Default of no selections specified in Examples/Algorithms/TruthTracking/ActsExamples/TruthTracking/ParticleSelector.hpp
         Specify preselectParticles=None to inhibit ParticleSelector altogether.
+    volumeMappings: names of volumes from the g4 geometry we want to map to the tracking geometry. Defaults if None or empty.
+    materialMappings: volumes with these materials we want to map to the tracking geometry. Defaults if None or empty.
     """
 
     from acts.examples.geant4 import Geant4Simulation, geant4SimulationConfig
-    from acts.examples.geant4.dd4hep import DDG4DetectorConstruction
 
     customLogLevel = acts.examples.defaultLogging(s, logLevel)
 
@@ -555,13 +559,14 @@ def addGeant4(
     else:
         particles_selected = "particles_input"
 
-    g4detector = DDG4DetectorConstruction(geometryService)
     g4conf = geant4SimulationConfig(
         level=customLogLevel(),
-        detector=g4detector,
+        detector=geant4Detector,
         inputParticles="particles_input",
         trackingGeometry=trackingGeometry,
         magneticField=field,
+        volumeMappings=[] if volumeMappings is None else volumeMappings,
+        materialMappings=[] if materialMappings is None else materialMappings,
     )
     g4conf.outputSimHits = "simhits"
     g4conf.outputParticlesInitial = "particles_initial"
