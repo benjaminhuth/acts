@@ -84,6 +84,8 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
 
   double max_mom = 0.0;
   int i_max_mom = 0;
+  int failed = 0;
+  int not_skipped = 0;
 
   // Perform the fit for each input track
   std::vector<std::reference_wrapper<const IndexSourceLink>> trackSourceLinks;
@@ -102,9 +104,11 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     // of entries in input and output containers matches.
     if (protoTrack.empty()) {
       trajectories.push_back(Trajectories());
-      ACTS_WARNING("Empty track " << itrack << " found.");
+      ACTS_VERBOSE("Empty track " << itrack << " found.");
       continue;
     }
+
+    not_skipped++;
 
     ACTS_VERBOSE("Initial parameters: "
                  << initialParams.fourPosition(ctx.geoContext).transpose()
@@ -165,10 +169,13 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
       // Fit failed. Add an empty result so the output container has
       // the same number of entries as the input.
       trajectories.push_back(Trajectories());
+
+      failed++;
     }
   }
 
   ACTS_INFO("Track with max momentum: " << i_max_mom << " with " << max_mom);
+  ACTS_INFO("Track failures: " << failed << " / " << not_skipped);
 
   ctx.eventStore.add(m_cfg.outputTrajectories, std::move(trajectories));
   return ActsExamples::ProcessCode::SUCCESS;
