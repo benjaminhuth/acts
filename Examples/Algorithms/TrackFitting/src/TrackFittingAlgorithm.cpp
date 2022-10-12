@@ -82,6 +82,9 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
                                Acts::LoggerWrapper{logger()},
                                Acts::PropagatorPlainOptions()};
 
+  double max_mom = 0.0;
+  int i_max_mom = 0;
+
   // Perform the fit for each input track
   std::vector<std::reference_wrapper<const IndexSourceLink>> trackSourceLinks;
   std::vector<const Acts::Surface*> surfSequence;
@@ -145,6 +148,10 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
         ACTS_VERBOSE("  " << params.parameters().transpose());
         // Push the fitted parameters to the container
         indexedParams.emplace(fitOutput.lastMeasurementIndex, params);
+        if (params.absoluteMomentum() > max_mom) {
+          max_mom = params.absoluteMomentum();
+          i_max_mom = itrack;
+        }
       } else {
         ACTS_DEBUG("No fitted parameters for track " << itrack);
       }
@@ -160,6 +167,8 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
       trajectories.push_back(Trajectories());
     }
   }
+
+  ACTS_INFO("Track with max momentum: " << i_max_mom << " with " << max_mom);
 
   ctx.eventStore.add(m_cfg.outputTrajectories, std::move(trajectories));
   return ActsExamples::ProcessCode::SUCCESS;

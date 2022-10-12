@@ -20,6 +20,8 @@
 #include "ActsExamples/MagneticField/MagneticField.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
+#define USE_SINGLE_CMP_BETHE_HEITLER 0
+
 using namespace ActsExamples;
 
 namespace {
@@ -119,8 +121,17 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
   cfg.resolveSensitive = true;
   Acts::Navigator navigator(cfg);
   Acts::Propagator propagator(std::move(stepper), std::move(navigator));
-  Acts::GaussianSumFitter<decltype(propagator), Acts::VectorMultiTrajectory>
-      trackFitter(std::move(propagator));
+
+#if USE_SINGLE_CMP_BETHE_HEITLER
+  auto bhapp = Acts::detail::BetheHeitlerApproxSingleCmp();
+#else
+  auto bhapp = Acts::detail::BetheHeitlerApprox<6, 5>(
+      Acts::detail::bh_cdf_cmps6_order5_data);
+#endif
+
+  Acts::GaussianSumFitter<decltype(propagator), Acts::VectorMultiTrajectory,
+                          decltype(bhapp)>
+      trackFitter(std::move(propagator), std::move(bhapp));
 
   // build the fitter functions. owns the fitter object.
   auto fitterFunction =
@@ -141,8 +152,17 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
   Acts::MultiEigenStepperLoop stepper(std::move(magneticField));
   Acts::DirectNavigator navigator;
   Acts::Propagator propagator(std::move(stepper), navigator);
-  Acts::GaussianSumFitter<decltype(propagator), Acts::VectorMultiTrajectory>
-      trackFitter(std::move(propagator));
+
+#if USE_SINGLE_CMP_BETHE_HEITLER
+  auto bhapp = Acts::detail::BetheHeitlerApproxSingleCmp();
+#else
+  auto bhapp = Acts::detail::BetheHeitlerApprox<6, 5>(
+      Acts::detail::bh_cdf_cmps6_order5_data);
+#endif
+
+  Acts::GaussianSumFitter<decltype(propagator), Acts::VectorMultiTrajectory,
+                          decltype(bhapp)>
+      trackFitter(std::move(propagator), std::move(bhapp));
 
   // build the fitter functions. owns the fitter object.
   auto fitterFunction =
