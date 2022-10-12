@@ -59,7 +59,8 @@ struct GsfResult {
   std::size_t measurementStates = 0;
   std::size_t measurementHoles = 0;
   std::size_t processedStates = 0;
-  std::set<Acts::GeometryIdentifier> visitedSurfaces;
+
+  std::vector<const Acts::Surface*> visitedSurfaces;
   std::vector<const Acts::Surface*> missedActiveSurfaces;
 
   // Propagate potential errors to the outside
@@ -150,7 +151,7 @@ struct GsfActor {
     assert(result.fittedStates && "No MultiTrajectory set");
 
     // Return is we found an error earlier
-    if( not result.result.ok() ) {
+    if (not result.result.ok()) {
       return;
     }
 
@@ -211,13 +212,16 @@ struct GsfActor {
 
       // Early return if we already were on this surface TODO why is this
       // necessary
-      const auto [it, success] =
-          result.visitedSurfaces.insert(surface.geometryId());
+      const bool visited = std::find(result.visitedSurfaces.begin(),
+                                     result.visitedSurfaces.end(),
+                                     &surface) != result.visitedSurfaces.end();
 
-      if (!success) {
+      if (visited) {
         ACTS_VERBOSE("Already visited surface, return");
         return;
       }
+
+      result.visitedSurfaces.push_back(&surface);
 
       removeMissedComponents(state, stepper, result.parentTips);
 
@@ -267,9 +271,10 @@ struct GsfActor {
       // state with the filtered components.
       // NOTE because of early return before we know that we have a measurement
       if (not haveMaterial) {
-        auto res = kalmanUpdate(state, stepper, result, found_source_link->second);
+        auto res =
+            kalmanUpdate(state, stepper, result, found_source_link->second);
 
-        if( not res.ok() ) {
+        if (not res.ok()) {
           result.result = res;
           return;
         }
@@ -288,7 +293,7 @@ struct GsfActor {
           res = noMeasurementUpdate(state, stepper, result, false);
         }
 
-        if( not res.ok() ) {
+        if (not res.ok()) {
           result.result = res;
           return;
         }
@@ -411,7 +416,7 @@ struct GsfActor {
           }
         }();
 
-        (*new_cov)(eBoundQOverP, eBoundQOverP) = varInvP;
+        (*new_cov)(eBoundQOverP, eBoundQOverP) += varInvP;
         throw_assert(
             std::isfinite((*new_cov)(eBoundQOverP, eBoundQOverP)),
             "cov not finite, varInvP=" << varInvP << ", p_prev=" << p_prev

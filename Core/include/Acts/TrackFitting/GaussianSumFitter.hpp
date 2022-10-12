@@ -395,7 +395,7 @@ struct GaussianSumFitter {
         return ResultType{GsfError::NoComponentCreated};
       }
 
-      r.visitedSurfaces.insert(surface->geometryId());
+      r.visitedSurfaces.push_back(&*surface);
       r.parentTips = r.currentTips;
       r.measurementStates++;
       r.processedStates++;
@@ -434,7 +434,12 @@ struct GaussianSumFitter {
                                               << ", holes: "
                                               << bwdGsfResult.measurementHoles);
 
-    auto smoothResult = detail::smoothAndCombineTrajectories<traj_t, true>(
+    if (bwdGsfResult.measurementStates != fwdGsfResult.measurementStates) {
+      ACTS_WARNING("Fwd and bwd measuerement states do not match, momentum = "
+                   << bwdResult->endParameters->absoluteMomentum());
+    }
+
+    auto smoothResult = detail::smoothAndCombineTrajectories<traj_t, false>(
         *fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
         fwdGsfResult.weightsOfStates, *bwdGsfResult.fittedStates,
         bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
@@ -443,10 +448,11 @@ struct GaussianSumFitter {
     auto& kalmanResult = std::get<0>(smoothResult);
 
     // Some test
-    if (std::get<1>(smoothResult).empty()) {
-      return return_error_or_abort(GsfError::NoStatesCreated);
-    }
+    // if (std::get<1>(smoothResult).empty()) {
+    //   return return_error_or_abort(GsfError::NoStatesCreated);
+    // }
 
+#if 0
     // Compute the missed active surfaces as the union of the forward and
     // backward pass missed active surfaces
     // TODO this is quite expencive computationally, maybe just use from fwd?
@@ -529,6 +535,9 @@ struct GaussianSumFitter {
 
       kalmanResult.fittedParameters = **lastResult;
     }
+#else
+    kalmanResult.fittedParameters = *bwdResult->endParameters;
+#endif
 
     return kalmanResult;
   }
