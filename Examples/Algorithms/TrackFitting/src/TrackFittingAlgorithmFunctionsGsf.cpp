@@ -13,6 +13,7 @@
 #include "Acts/Propagator/Navigator.hpp"
 #include "Acts/Propagator/Propagator.hpp"
 #include "Acts/Surfaces/Surface.hpp"
+#include "Acts/TrackFitting/BetheHeitlerApprox.hpp"
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/GaussianSumFitter.hpp"
@@ -20,7 +21,9 @@
 #include "ActsExamples/MagneticField/MagneticField.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
-#define USE_SINGLE_CMP_BETHE_HEITLER 0
+#include <filesystem>
+
+#define USE_SINGLE_CMP_BETHE_HEITLER 1
 
 using namespace ActsExamples;
 
@@ -112,6 +115,7 @@ std::shared_ptr<TrackFittingAlgorithm::TrackFitterFunction>
 TrackFittingAlgorithm::makeGsfFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
+    std::string lowParametersPath, std::string highParametersPath,
     std::size_t maxComponents, bool abortOnError,
     bool disableAllMaterialHandling) {
   Acts::MultiEigenStepperLoop stepper(std::move(magneticField));
@@ -123,14 +127,28 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
   Acts::Propagator propagator(std::move(stepper), std::move(navigator));
 
 #if USE_SINGLE_CMP_BETHE_HEITLER
-  auto bhapp = Acts::detail::BetheHeitlerApproxSingleCmp();
+  std::vector<double> ts;
+  std::generate(ts.begin(), ts.end(), [n = 0.0]() mutable { return std::exp(-0.001 * n++); });
+  auto bhapp = Acts::BetheHeitlerSimulatedAnnealingMinimizer<9>(ts);
 #else
-  auto bhapp = Acts::detail::BetheHeitlerApprox<6, 5>(
-      Acts::detail::bh_cdf_cmps6_order5_data);
+  auto makeBehteHeitlerApprox = [&]() {
+    if (std::filesystem::exists(lowParametersPath) &&
+        std::filesystem::exists(highParametersPath)) {
+      return Acts::AtlasBetheHeitlerApprox<6, 5>::loadFromFile(
+          lowParametersPath, highParametersPath);
+    } else {
+      std::cout << "WARNING: Could not find files, use standard configuration\n";
+      return Acts::AtlasBetheHeitlerApprox<6, 5>(Acts::bh_cdf_cmps6_order5_data,
+                                                 Acts::bh_cdf_cmps6_order5_data,
+                                                 true, true);
+    }
+  };
+
+  auto bhapp = makeBehteHeitlerApprox();
 #endif
 
-  Acts::GaussianSumFitter<decltype(propagator), Acts::VectorMultiTrajectory,
-                          decltype(bhapp)>
+  Acts::GaussianSumFitter<decltype(propagator), decltype(bhapp),
+                          Acts::VectorMultiTrajectory>
       trackFitter(std::move(propagator), std::move(bhapp));
 
   // build the fitter functions. owns the fitter object.
@@ -146,13 +164,13 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
 
 std::shared_ptr<TrackFittingAlgorithm::DirectedTrackFitterFunction>
 TrackFittingAlgorithm::makeGsfFitterFunction(
-    std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
-    std::size_t maxComponents, bool abortOnError,
-    bool disableAllMaterialHandling) {
+    std::shared_ptr<const Acts::MagneticFieldProvider> /*magneticField*/,
+    std::size_t /*maxComponents*/, bool /*abortOnError*/,
+    bool /*disableAllMaterialHandling*/) {
+#if 0
   Acts::MultiEigenStepperLoop stepper(std::move(magneticField));
   Acts::DirectNavigator navigator;
   Acts::Propagator propagator(std::move(stepper), navigator);
-
 #if USE_SINGLE_CMP_BETHE_HEITLER
   auto bhapp = Acts::detail::BetheHeitlerApproxSingleCmp();
 #else
@@ -173,4 +191,6 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
   fitterFunction->disableAllMaterialHandling = disableAllMaterialHandling;
 
   return fitterFunction;
+#endif
+  throw std::runtime_error("Direct fitting now not implemented");
 }

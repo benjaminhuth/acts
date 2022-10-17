@@ -23,7 +23,7 @@ using namespace Acts;
 
 namespace Acts::Python {
 
-void addTrackFitting(Context& ctx) {
+void addTrackFitting(Context &ctx) {
   auto mex = ctx.get("examples");
 
   {
@@ -32,7 +32,7 @@ void addTrackFitting(Context& ctx) {
 
     auto alg = py::class_<Alg, BareAlgorithm, std::shared_ptr<Alg>>(
                    mex, "SurfaceSortingAlgorithm")
-                   .def(py::init<const Alg::Config&, Acts::Logging::Level>(),
+                   .def(py::init<const Alg::Config &, Acts::Logging::Level>(),
                         py::arg("config"), py::arg("level"))
                    .def_property_readonly("config", &Alg::config);
 
@@ -53,7 +53,7 @@ void addTrackFitting(Context& ctx) {
     auto alg =
         py::class_<Alg, BareAlgorithm, std::shared_ptr<Alg>>(
             mex, "TrackFittingAlgorithm")
-            .def(py::init<const Alg::Config&, Acts::Logging::Level>(),
+            .def(py::init<const Alg::Config &, Acts::Logging::Level>(),
                  py::arg("config"), py::arg("level"))
             .def_property_readonly("config", &Alg::config)
             .def_static("makeKalmanFitterFunction",
@@ -80,8 +80,10 @@ void addTrackFitting(Context& ctx) {
                 py::overload_cast<
                     std::shared_ptr<const Acts::TrackingGeometry>,
                     std::shared_ptr<const Acts::MagneticFieldProvider>,
-                    std::size_t, bool, bool>(&Alg::makeGsfFitterFunction),
+                    std::string, std::string, std::size_t, bool,
+                    bool>(&Alg::makeGsfFitterFunction),
                 py::arg("trackingGeometry"), py::arg("magneticField"),
+                py::arg("lowParametersPath"), py::arg("highParametersPath"),
                 py::arg("maxComponents"), py::arg("abortOnError"),
                 py::arg("disableAllMaterialHandling"))
             .def_static(
