@@ -61,7 +61,7 @@ struct GaussianSumFitter {
   GaussianSumFitter(propagator_t&& propagator,
                     bethe_heitler_approx_t&& betheHeitlerApproximation)
       : m_propagator(std::move(propagator)),
-        m_betheHeitlerApproximation(betheHeitlerApproximation) {}
+        m_betheHeitlerApproximation(std::move(betheHeitlerApproximation)) {}
 
   /// The propagator instance used by the fit function
   propagator_t m_propagator;
@@ -314,6 +314,20 @@ struct GaussianSumFitter {
     ACTS_VERBOSE("- processed states: " << fwdGsfResult.processedStates);
     ACTS_VERBOSE("- measuerement states: " << fwdGsfResult.measurementStates);
 
+    // std::cout << "last meas momenta: ";
+    // for (const auto idx : fwdGsfResult.lastMeasurementTips) {
+    //     auto proxy = trajectory->getTrackState(idx);
+    //     std::cout << proxy.filtered()[eBoundQOverP] << "  ";
+    // }
+    // std::cout << "\n";
+    //
+    //
+    // std::cout << "last meas tips: ";
+    // for (const auto idx : fwdGsfResult.lastMeasurementTips) {
+    //     std::cout << idx << "  ";
+    // }
+    // std::cout << "\n";
+
     //////////////////
     // Backward pass
     //////////////////
@@ -359,6 +373,7 @@ struct GaussianSumFitter {
 
       r.fittedStates = trajectory;
 
+#if 1
       // We take the last measurement state (filtered) from the forward result
       // as the first measurement state in the backward result (predicted and
       // filtered), so we can skip the Kalman update on the first surface as
@@ -366,6 +381,8 @@ struct GaussianSumFitter {
       // propagation start parameters to ensure they are consistent.
       std::vector<std::tuple<double, BoundVector, BoundSymMatrix>> cmps;
       std::shared_ptr<const Surface> surface;
+
+      std::cout << "make first bwd idxs ";
 
       for (const auto idx : fwdGsfResult.lastMeasurementTips) {
         // TODO This should not happen, but very rarely does. Maybe investigate
@@ -376,6 +393,8 @@ struct GaussianSumFitter {
 
         r.currentTips.push_back(
             r.fittedStates->addTrackState(TrackStatePropMask::All));
+
+        std::cout << r.currentTips.back() << " ";
 
         auto proxy = r.fittedStates->getTrackState(r.currentTips.back());
         proxy.copyFrom(fwdGsfResult.fittedStates->getTrackState(idx));
@@ -394,6 +413,8 @@ struct GaussianSumFitter {
                         proxy.filteredCovariance()});
       }
 
+      std::cout << "at surface " << surface->geometryId() << "\n";
+
       if (cmps.empty()) {
         return ResultType{GsfError::NoComponentCreated};
       }
@@ -403,11 +424,48 @@ struct GaussianSumFitter {
       r.measurementStates++;
       r.processedStates++;
 
+      detail::normalizeWeights(cmps, [](auto &c)->double&{ return std::get<double>(c); });
+
       const auto params =
           MultiComponentBoundTrackParameters<SinglyCharged>(surface, cmps);
+#else
+      // Use this to take flags and uncalibrated
+      auto fwdProxy = fwdGsfResult.fittedStates->getTrackState(fwdGsfResult.lastMeasurementTips.front());
+
+      r.fittedStates = trajectory;
+      const auto &params = *fwdGsfResult.lastMeasurementState;
+
+      actor.m_cfg.firstSurface = &params.referenceSurface();
+
+      // for (const auto &[w, pars, cov] : params.components()) {
+      //   r.currentTips.push_back(
+      //       r.fittedStates->addTrackState(TrackStatePropMask::All));
+      //
+      //   auto proxy = r.fittedStates->getTrackState(r.currentTips.back());
+      //   // flags & uncalibrated
+      //   proxy.copyFrom(fwdProxy);
+      //
+      //   // kf states
+      //   proxy.predicted() = pars;
+      //   proxy.predictedCovariance() = *cov;
+      //   proxy.filtered() = pars;
+      //   proxy.filteredCovariance() = *cov;
+      //   r.weightsOfStates[r.currentTips.back()] = w;
+      //
+      //   // proxy.shareFrom(proxy, PM::Predicted, PM::Filtered);
+      //   proxy.setReferenceSurface(params.referenceSurface().getSharedPtr());
+      // }
+      //
+      // r.visitedSurfaces.push_back(&params.referenceSurface());
+      // r.parentTips = r.currentTips;
+      // r.measurementStates++;
+      // r.processedStates++;
+
+      r.parentTips.resize(params.components().size(), MultiTrajectoryTraits::kInvalid);
+#endif
 
       return m_propagator
-          .template propagate<decltype(params), decltype(bwdPropOptions),
+          .template propagate<std::decay_t<decltype(params)>, decltype(bwdPropOptions),
                               MultiStepperSurfaceReached>(
               params, target, bwdPropOptions, std::move(inputResult));
     }();

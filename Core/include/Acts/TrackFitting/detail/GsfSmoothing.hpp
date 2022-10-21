@@ -60,7 +60,7 @@ auto bayesianSmoothing(component_iterator_t fwdBegin,
 
       const auto new_weight = std::exp(-0.5 * exponent) * weight_a * weight_b;
 
-      if (new_weight < 1.e-8 or not std::isfinite(new_weight) ) {
+      if (new_weight < 1.e-8 or not std::isfinite(new_weight)) {
         continue;
       }
 
@@ -68,7 +68,7 @@ auto bayesianSmoothing(component_iterator_t fwdBegin,
     }
   }
 
-  if( smoothedState.empty() ) {
+  if (smoothedState.empty()) {
     return ResType(GsfError::SmoothingFailed);
   }
 
@@ -179,14 +179,21 @@ auto smoothAndCombineTrajectories(
     const auto firstBwdState = bwd.getTrackState(bwdTips.front());
     const auto &currentSurface = firstBwdState.referenceSurface();
 
+
+    std::cout << "Combine bwd idxs at " << currentSurface.geometryId() << ": ";
+    std::copy(bwdTips.begin(), bwdTips.end(), std::ostream_iterator<std::size_t>(std::cout, " "));
+    std::cout << "\n";
+
     // Search corresponding forward tips
     const auto bwdGeoId = currentSurface.geometryId();
     std::vector<MultiTrajectoryTraits::IndexType> fwdTips;
 
     for (const auto tip : fwdStartTips) {
-      fwd.visitBackwards(tip, [&](const auto &state) {
+      fwd.visitBackwards(tip, [&, found=false](const auto &state) mutable {
         if (state.referenceSurface().geometryId() == bwdGeoId) {
+          assert((not found && "surface not unique"));
           fwdTips.push_back(state.index());
+          found=true;
         }
       });
     }
@@ -264,29 +271,29 @@ auto smoothAndCombineTrajectories(
       proxy.filteredCovariance() = bwdCovFilt.value();
 
       // Do the smoothing
-      auto smoothedStateResult = bayesianSmoothing(
-          fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
-          PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
-
-      if (!smoothedStateResult.ok()) {
-        ACTS_WARNING("Smoothing failed on " << bwdGeoId);
-        continue;
-      }
-
-      const auto &smoothedState = *smoothedStateResult;
-
       if constexpr (ReturnSmootedStates) {
-        smoothedStates.push_back({&currentSurface, smoothedState});
-      }
+        auto smoothedStateResult = bayesianSmoothing(
+            fwdTips.begin(), fwdTips.end(), bwdTips.begin(), bwdTips.end(),
+            PredProjector{fwd, fwdWeights}, FiltProjector{bwd, bwdWeights});
 
-      // The smoothed state is a combination
-      const auto [smoothedMean, smoothedCov] =
-          angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
-            return combineGaussianMixture(smoothedState, Identity{}, desc);
-          });
-      proxy.smoothed() = smoothedMean;
-      proxy.smoothedCovariance() = smoothedCov.value();
-      ACTS_VERBOSE("Added smoothed state to MultiTrajectory");
+        if (!smoothedStateResult.ok()) {
+          ACTS_WARNING("Smoothing failed on " << bwdGeoId);
+          continue;
+        }
+
+        const auto &smoothedState = *smoothedStateResult;
+
+        smoothedStates.push_back({&currentSurface, smoothedState});
+
+        // The smoothed state is a combination
+        const auto [smoothedMean, smoothedCov] =
+            angleDescriptionSwitch(currentSurface, [&](const auto &desc) {
+              return combineGaussianMixture(smoothedState, Identity{}, desc);
+            });
+        proxy.smoothed() = smoothedMean;
+        proxy.smoothedCovariance() = smoothedCov.value();
+        ACTS_VERBOSE("Added smoothed state to MultiTrajectory");
+      }
     }
   }
 

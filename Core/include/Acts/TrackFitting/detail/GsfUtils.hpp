@@ -55,6 +55,7 @@ void normalizeWeights(component_range_t &cmps, const projector_t &proj) {
   // semantics, otherwise there is a `cannot bind ... to ...` error
   for (auto it = cmps.begin(); it != cmps.end(); ++it) {
     decltype(auto) cmp = *it;
+    throw_assert(std::isfinite(proj(cmp)), "weight not finite:" << proj(cmp));
     sum_of_weights += proj(cmp);
   }
 
@@ -95,14 +96,14 @@ class ScopedGsfInfoPrinterAndChecker {
     // If all are missed, weights have been reset to zero, so it might not be
     // normalized
     if (m_stepper.numberComponents(m_state.stepping) > m_missedCount) {
-      throw_assert(detail::weightsAreNormalized(
-                       cmps, [](const auto &cmp) { return cmp.weight(); }),
-                   "not normalized at " << where);
-
       throw_assert(
           std::all_of(cmps.begin(), cmps.end(),
                       [](auto cmp) { return std::isfinite(cmp.weight()); }),
           "some weights are not finite at " << where);
+
+      throw_assert(detail::weightsAreNormalized(
+                       cmps, [](const auto &cmp) { return cmp.weight(); }),
+                   "not normalized at " << where);
     }
   }
 

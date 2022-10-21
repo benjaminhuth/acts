@@ -54,6 +54,9 @@ struct GsfResult {
   /// reduction
   std::vector<MultiTrajectoryTraits::IndexType> parentTips;
 
+  /// Last measurement state AFTER the electron loss computation (compared to the MTJ that does store before the electron loss)
+  std::optional<MultiComponentBoundTrackParameters<SinglyCharged>> lastMeasurementState;
+
   /// Some counting
   std::size_t measurementStates = 0;
   std::size_t measurementHoles = 0;
@@ -108,6 +111,8 @@ struct GsfActor {
 
     /// The extensions
     GsfExtensions<traj_t> extensions;
+
+    const Surface *firstSurface = nullptr;
   } m_cfg;
 
   /// Stores meta information about the components
@@ -148,13 +153,13 @@ struct GsfActor {
   void operator()(propagator_state_t& state, const stepper_t& stepper,
                   result_type& result) const {
     assert(result.fittedStates && "No MultiTrajectory set");
+    const auto& logger = state.options.logger;
 
     // Return is we found an error earlier
     if (not result.result.ok()) {
+      ACTS_WARNING("result.result not ok, return!")
       return;
     }
-
-    const auto& logger = state.options.logger;
 
     // Set error or abort utility
     auto set_error_or_abort = [&](auto error) {
@@ -200,12 +205,12 @@ struct GsfActor {
 
     // There seem to be cases where this is not always after initializing the
     // navigation from a surface. Some later functions assume this criterium
-    // to be fulfilled.
+    // to be fulfilled. (The first surface when starting navigation from surface?)
     bool on_surface = reachable_count == 0 &&
                       missed_count < stepper.numberComponents(state.stepping);
 
     // We only need to do something if we are on a surface
-    if (state.navigation.currentSurface && on_surface) {
+    if (state.navigation.currentSurface && (on_surface || m_cfg.firstSurface == state.navigation.currentSurface)) {
       const auto& surface = *state.navigation.currentSurface;
       ACTS_VERBOSE("Step is at surface " << surface.geometryId());
 
@@ -222,7 +227,9 @@ struct GsfActor {
 
       result.visitedSurfaces.push_back(&surface);
 
-      removeMissedComponents(state, stepper, result.parentTips);
+      if ( m_cfg.firstSurface != state.navigation.currentSurface ) {
+        removeMissedComponents(state, stepper, result.parentTips);
+      }
 
       // Check what we have on this surface
       const auto found_source_link =
@@ -305,6 +312,19 @@ struct GsfActor {
         removeLowWeightComponents(componentCache);
 
         result.parentTips = updateStepper(state, stepper, componentCache);
+
+        // Store the post energy loss state
+        if( haveMeasurement ) {
+          std::vector<std::tuple<double, BoundVector, std::optional<BoundMatrix>>> v(componentCache.size());
+          std::transform(componentCache.begin(), componentCache.end(), v.begin(), [](const auto &c){
+            const auto &[pc, mc] = c;
+            return std::make_tuple(pc.weight, pc.boundPars, pc.boundCov);
+          });
+
+          normalizeWeights(v, [](auto &c)->double& { return std::get<double>(c); });
+
+          result.lastMeasurementState = MultiComponentBoundTrackParameters<SinglyCharged>(surface.getSharedPtr(), v);
+        }
       }
 
       // If we only done preUpdate before, now do postUpdate
