@@ -134,6 +134,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
 
     ACTS_DEBUG("Invoke fitter");
     auto mtj = std::make_shared<Acts::VectorMultiTrajectory>();
+    ACTS_INFO("Fit track " << itrack);
     auto result =
         fitTrack(trackSourceLinks, initialParams, options, surfSequence, mtj);
 
@@ -174,6 +175,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
     }
   }
 
+  ACTS_INFO("Event number" << ctx.eventNumber);
   ACTS_INFO("Track with max momentum: " << i_max_mom << " with " << max_mom);
   ACTS_INFO("Track failures: " << failed << " / " << not_skipped);
 

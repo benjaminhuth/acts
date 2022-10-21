@@ -23,8 +23,6 @@
 
 #include <filesystem>
 
-#define USE_SINGLE_CMP_BETHE_HEITLER 1
-
 using namespace ActsExamples;
 
 namespace {
@@ -111,6 +109,8 @@ struct DirectedFitterFunctionImpl
 };
 }  // namespace
 
+#define USE_CUSTOM_BETHE_HEITLER 0
+
 std::shared_ptr<TrackFittingAlgorithm::TrackFitterFunction>
 TrackFittingAlgorithm::makeGsfFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
@@ -126,10 +126,47 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
   Acts::Navigator navigator(cfg);
   Acts::Propagator propagator(std::move(stepper), std::move(navigator));
 
-#if USE_SINGLE_CMP_BETHE_HEITLER
-  std::vector<double> ts;
-  std::generate(ts.begin(), ts.end(), [n = 0.0]() mutable { return std::exp(-0.001 * n++); });
-  auto bhapp = Acts::BetheHeitlerSimulatedAnnealingMinimizer<9>(ts);
+#if USE_CUSTOM_BETHE_HEITLER
+  constexpr std::size_t NComponents = 12;
+
+  auto gen = std::make_shared<std::mt19937>(23465u);
+
+  const auto iterations = 3000;
+  const auto temperatures = []() {
+    std::vector<double> t;
+    for (int i = 0; i < iterations; ++i) {
+      t.push_back(1 * std::exp(-0.0001 * i));
+    }
+    return t;
+  }();
+
+  auto next = [](std::array<double, 3 * NComponents> ps,
+                 std::mt19937& generator) {
+    auto val_dist = std::uniform_real_distribution{-0.5, 0.5};
+
+    auto idx = std::uniform_int_distribution(0ul, ps.size())(generator);
+    ps[idx] += ps[idx] * val_dist(generator);
+
+    return ps;
+  };
+
+   const auto startValue = std::array<Acts::detail::GaussianComponent, NComponents>{{
+        {1, 0.5, 1.e-5},
+        {2, 0.99, 1.e-5},
+        {2, 0.99, 1.e-5},
+        {2, 0.99, 1.e-5},
+        {2,.99, 1.e-5},
+        {2,.99, 1.e-5},
+        {2, 0.99, 1.e-5},
+        {2,.99, 1.e-5},
+        {2,.99, 1.e-5},
+        {2, 0.99, 1.e-5},
+        {2,.99, 1.e-5},
+        {2,.99, 1.e-5},
+    }};
+
+  auto bhapp = Acts::BetheHeitlerSimulatedAnnealingMinimizer(
+      temperatures, startValue, gen, next);
 #else
   auto makeBehteHeitlerApprox = [&]() {
     if (std::filesystem::exists(lowParametersPath) &&
@@ -137,7 +174,8 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
       return Acts::AtlasBetheHeitlerApprox<6, 5>::loadFromFile(
           lowParametersPath, highParametersPath);
     } else {
-      std::cout << "WARNING: Could not find files, use standard configuration\n";
+      std::cout
+          << "WARNING: Could not find files, use standard configuration\n";
       return Acts::AtlasBetheHeitlerApprox<6, 5>(Acts::bh_cdf_cmps6_order5_data,
                                                  Acts::bh_cdf_cmps6_order5_data,
                                                  true, true);
@@ -171,7 +209,7 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
   Acts::MultiEigenStepperLoop stepper(std::move(magneticField));
   Acts::DirectNavigator navigator;
   Acts::Propagator propagator(std::move(stepper), navigator);
-#if USE_SINGLE_CMP_BETHE_HEITLER
+#if USE_CUSTOM_BETHE_HEITLER
   auto bhapp = Acts::detail::BetheHeitlerApproxSingleCmp();
 #else
   auto bhapp = Acts::detail::BetheHeitlerApprox<6, 5>(

@@ -13,18 +13,252 @@
 
 #include <array>
 #include <fstream>
+#include <mutex>
 #include <random>
 
 #include <boost/math/quadrature/trapezoidal.hpp>
+#include <boost/math/special_functions/gamma.hpp>
 
 namespace Acts {
 
-inline ActsScalar logistic_sigmoid(ActsScalar x) {
-  return 1. / (1 + std::exp(-x));
-}
+namespace detail {
 
 struct GaussianComponent {
   ActsScalar weight, mean, var;
+};
+
+/// Transform a gaussian component to a space where all values are defined from
+/// [-inf, inf]
+void transformComponent(const GaussianComponent &cmp,
+                        double &transformed_weight, double &transformed_mean,
+                        double &transformed_var) {
+  const auto &[weight, mean, var] = cmp;
+
+  transformed_weight = std::log(weight) - std::log(1 - weight);
+  transformed_mean = std::log(mean) - std::log(1 - mean);
+  transformed_var = std::log(var);
+}
+
+/// Transform a gaussian component back from the [-inf, inf]-space to the usual
+/// space
+auto inverseTransformComponent(double transformed_weight,
+                               double transformed_mean,
+                               double transformed_var) {
+  GaussianComponent cmp;
+  cmp.weight = 1. / (1 + std::exp(-transformed_weight));
+  cmp.mean = 1. / (1 + std::exp(-transformed_mean));
+  cmp.var = std::exp(transformed_var);
+
+  return cmp;
+}
+
+template <std::size_t NComponent>
+class GaussianMixtureModelPDF;
+
+template <std::size_t NComponents>
+class GaussianMixtureModelCDF {
+  std::array<GaussianComponent, NComponents> m_components;
+
+ public:
+  GaussianMixtureModelCDF(
+      const std::array<GaussianComponent, NComponents> &components)
+      : m_components(components) {}
+
+  double operator()(double x) {
+    auto cdf = [&](double mu, double sigma_squared) -> double {
+      return 0.5 * (1.0 + std::erf((x - mu) / (std::sqrt(2 * sigma_squared))));
+    };
+
+    double sum = 0;
+
+    for (const auto [weight, mean, sigma_squared] : m_components) {
+      sum += weight * cdf(mean, sigma_squared);
+    }
+
+    return sum;
+  }
+
+  auto pdf() const { GaussianMixtureModelPDF<NComponents>{m_components}; }
+};
+
+/// Compute the value of the gaussian mixture at x
+template <std::size_t NComponents>
+class GaussianMixtureModelPDF {
+  std::array<GaussianComponent, NComponents> m_components;
+
+ public:
+  GaussianMixtureModelPDF(
+      const std::array<GaussianComponent, NComponents> &components)
+      : m_components(components) {}
+
+  double operator()(double x) {
+    auto gaussian = [&](double mu, double sigma_squared) -> double {
+      return (1. / std::sqrt(sigma_squared * 2 * M_PI)) *
+             std::exp((-(x - mu) * (x - mu)) / (2 * sigma_squared));
+    };
+
+    double sum = 0;
+
+    for (const auto [weight, mean, sigma_squared] : m_components) {
+      sum += weight * gaussian(mean, sigma_squared);
+    }
+
+    return sum;
+  }
+
+  auto cdf() const { return GaussianMixtureModelCDF{m_components}; }
+};
+
+class BetheHeitlerCDF {
+  double m_thickness;
+
+ public:
+  BetheHeitlerCDF(double thicknessInX0) : m_thickness(thicknessInX0) {}
+
+  double operator()(double x) {
+    if (x <= 0.0) {
+      return 0.0;
+    }
+    if (x >= 1.0) {
+      return 1.0;
+    }
+
+    auto c = m_thickness / std::log(2);
+    return 1. - boost::math::gamma_p(c, -std::log(x));
+  }
+};
+
+/// Compute the Bethe-Heitler Distribution on a value x
+class BetheHeitlerPDF {
+  double m_thickness;
+
+ public:
+  BetheHeitlerPDF(double thicknessInX0) : m_thickness(thicknessInX0) {}
+
+  double operator()(double x) {
+    if (x <= 0.0 || x >= 1.0) {
+      return 0.0;
+    }
+
+    auto c = m_thickness / std::log(2);
+    return std::pow(-std::log(x), c - 1) / std::tgamma(c);
+  }
+
+  BetheHeitlerCDF cdf() const { return BetheHeitlerCDF{m_thickness}; }
+};
+
+/// Integrand for the CDF distance
+template <std::size_t NComponents>
+class CDFIntegrant {
+  GaussianMixtureModelCDF<NComponents> m_mixture;
+  BetheHeitlerCDF m_distribution;
+
+ public:
+  CDFIntegrant(const GaussianMixtureModelCDF<NComponents> &mixture,
+               const BetheHeitlerCDF &dist)
+      : m_mixture(mixture), m_distribution(dist) {}
+
+  double operator()(double x) {
+    return std::abs(m_mixture(x) - m_distribution(x));
+  }
+};
+
+template <int NComponents>
+class KLIntegrant {
+  GaussianMixtureModelPDF<NComponents> m_mixture;
+  BetheHeitlerPDF m_distribution;
+
+ public:
+  KLIntegrant(const GaussianMixtureModelPDF<NComponents> &mixture,
+              const BetheHeitlerPDF &dist)
+      : m_mixture(mixture), m_distribution(dist) {}
+
+  double operator()(double x) {
+    auto dist_x = m_distribution(x) == 0. ? std::numeric_limits<double>::min()
+                                          : m_distribution(x);
+    return std::log(dist_x / m_mixture(x)) * dist_x;
+  }
+};
+
+template <std::size_t NComponents>
+class FlatCache {
+  using Value =
+      std::pair<double, std::array<detail::GaussianComponent, NComponents>>;
+  std::vector<Value> m_cache;
+  const double m_tolerance;
+
+ public:
+  FlatCache(double tol) : m_tolerance(tol) {}
+
+  void insert(const Value &val) {
+    m_cache.push_back(val);
+    std::sort(m_cache.begin(), m_cache.end(),
+              [](const auto &a, const auto &b) { return a.first < b.first; });
+  }
+
+  std::optional<typename Value::second_type> findApprox(double x) const {
+#if 1
+    auto begin = std::lower_bound(
+        m_cache.begin(), m_cache.end(), x - m_tolerance,
+        [](const auto &p, const auto &v) { return p.first < v; });
+    auto end = std::upper_bound(
+        m_cache.begin(), m_cache.end(), x + m_tolerance,
+        [](const auto &v, const auto &p) { return v < p.first; });
+
+    if (begin == m_cache.end() or begin == end) {
+      return std::nullopt;
+    } else {
+      auto ret =
+          std::min_element(begin, end, [&](const auto &a, const auto &b) {
+            return std::abs(a.first - m_tolerance) <
+                   std::abs(b.first - m_tolerance);
+          });
+      return ret->second;
+    }
+#else
+    auto cached = std::min_element(
+        m_cache.begin(), m_cache.end(), [&](const auto &pa, const auto &pb) {
+          return std::abs(x - pa.first) < std::abs(x - pb.first);
+        });
+
+    if (cached != m_cache.end() and std::abs(cached->first - x) < m_tolerance) {
+      return cached->second;
+    } else {
+      return std::nullopt;
+    }
+#endif
+  }
+};
+}  // namespace detail
+
+/// This class approximates the Bethe-Heitler with only one component. The
+struct BetheHeitlerApproxSingleCmp {
+  /// Returns the number of components the returned mixture will have
+  constexpr auto numComponents() const { return 1; }
+
+  /// Checks if an input is valid for the parameterization. Since this is for
+  /// debugging, it always returns false
+  ///
+  /// @param x input in terms of x/x0
+  constexpr bool validXOverX0(ActsScalar) const { return false; }
+
+  /// Returns array with length 1 containing a 1-component-representation of the
+  /// Bethe-Heitler-Distribution
+  static auto mixture(const ActsScalar x) {
+    std::array<detail::GaussianComponent, 1> ret{};
+
+    ret[0].weight = 1.0;
+
+    const double c = x / std::log(2);
+    ret[0].mean = std::pow(2, -c);
+    ret[0].var = std::pow(3, -c) - std::pow(4, -c);
+
+    // ret[0].mean = std::exp(-1. * x);
+    // ret[0].var =
+    //     std::exp(-1. * x * std::log(3.) / std::log(2.)) - std::exp(-2. * x);
+
+    return ret;
+  }
 };
 
 /// This class approximates the Bethe-Heitler distribution as a gaussian
@@ -94,15 +328,15 @@ class AtlasBetheHeitlerApprox {
     // Lambda which builds the components
     auto make_mixture = [&](const Data &data, double xx, bool transform) {
       // Value initialization should garanuee that all is initialized to zero
-      std::array<GaussianComponent, NComponents> ret{};
+      std::array<detail::GaussianComponent, NComponents> ret{};
       ActsScalar weight_sum = 0;
       for (int i = 0; i < NComponents; ++i) {
         // These transformations must be applied to the data according to ATHENA
         // (TrkGaussianSumFilter/src/GsfCombinedMaterialEffects.cxx:79)
         if (transform) {
-          ret[i].weight = logistic_sigmoid(poly(xx, data[i].weightCoeffs));
-          ret[i].mean = logistic_sigmoid(poly(xx, data[i].meanCoeffs));
-          ret[i].var = std::exp(poly(xx, data[i].varCoeffs));
+          ret[i] = detail::inverseTransformComponent(
+              poly(xx, data[i].weightCoeffs), poly(xx, data[i].meanCoeffs),
+              poly(xx, data[i].varCoeffs));
         } else {
           ret[i].weight = poly(xx, data[i].weightCoeffs);
           ret[i].mean = poly(xx, data[i].meanCoeffs);
@@ -121,7 +355,7 @@ class AtlasBetheHeitlerApprox {
 
     // Return no change
     if (x < noChangeLimit) {
-      std::array<GaussianComponent, NComponents> ret{};
+      std::array<detail::GaussianComponent, NComponents> ret{};
 
       ret[0].weight = 1.0;
       ret[0].mean = 1.0;  // p_initial = p_final
@@ -131,13 +365,8 @@ class AtlasBetheHeitlerApprox {
     }
     // Return single gaussian approximation
     if (x < singleGaussianLimit) {
-      std::array<GaussianComponent, NComponents> ret{};
-
-      ret[0].weight = 1.0;
-      ret[0].mean = std::exp(-1. * x);
-      ret[0].var =
-          std::exp(-1. * x * std::log(3.) / std::log(2.)) - std::exp(-2. * x);
-
+      std::array<detail::GaussianComponent, NComponents> ret{};
+      ret[0] = BetheHeitlerApproxSingleCmp::mixture(x)[0];
       return ret;
     }
     // Return a component representation for lower x0
@@ -213,115 +442,58 @@ class AtlasBetheHeitlerApprox {
   }
 };
 
-/// This class approximates the Bethe-Heitler with only one component
-struct BetheHeitlerApproxSingleCmp {
-  /// Returns the number of components the returned mixture will have
-  constexpr auto numComponents() const { return 1; }
+template <std::size_t NComponents>
+struct DefaultNext {
+  auto operator()(std::array<double, 3 * NComponents> ps,
+                  std::mt19937 &gen) const {
+    auto val_dist = std::uniform_real_distribution{-0.5, 0.5};
+    for (auto &p : ps) {
+      p += val_dist(gen);
+    }
 
-  /// Checks if an input is valid for the parameterization. Since this is for
-  /// debugging, it always returns false
-  ///
-  /// @param x input in terms of x/x0
-  constexpr bool validXOverX0(ActsScalar) const { return false; }
-
-  /// Returns array with length 1
-  auto mixture(const ActsScalar x) const {
-    std::array<GaussianComponent, 1> ret{};
-
-    ret[0].weight = 1.0;
-    ret[0].mean = std::exp(-1. * x);
-    ret[0].var =
-        std::exp(-1. * x * std::log(3.) / std::log(2.)) - std::exp(-2. * x);
-
-    return ret;
+    return ps;
   }
 };
 
 /// This class does the approximation by minimizing the CDF distance
 /// individually for each point. Probably very slow, but good vor validating.
-template <std::size_t NComponents>
+template <std::size_t NComponents, typename next_t = DefaultNext<NComponents>>
 class BetheHeitlerSimulatedAnnealingMinimizer {
   std::vector<double> m_temperatures;
-  mutable std::mt19937 m_gen; // TODO how to solve this mutable?
-  std::array<GaussianComponent, NComponents> m_start_value;
+  std::array<detail::GaussianComponent, NComponents> m_startValue;
+  std::shared_ptr<std::mt19937> m_gen;
+  next_t m_next;
 
-  /// Compute the value of the gaussian mixture at x
-  class GaussianMixtureModel {
-    std::array<GaussianComponent, NComponents> m_components;
-
-   public:
-    GaussianMixtureModel(
-        const std::array<GaussianComponent, NComponents> &components)
-        : m_components(components) {}
-
-    double operator()(double x) {
-      auto gaussian = [&](double mu, double sigma) -> double {
-        return (1. / std::sqrt(sigma * sigma * 2 * M_PI)) *
-               std::exp((-(x - mu) * (x - mu)) / (2 * sigma * sigma));
-      };
-
-      double sum = 0;
-
-      for (const auto [w, m, s] : m_components) {
-        sum += w * gaussian(m, s);
-      }
-
-      return sum;
-    }
-  };
-
-  /// Compute the Bethe-Heitler Distribution on a value x
-  class BetheHeitlerDistribution {
-    double m_thickness;
-
-   public:
-    BetheHeitlerDistribution(double thicknessInX0)
-        : m_thickness(thicknessInX0) {}
-
-    double operator()(double x) {
-      if (x <= 0.0 || x >= 1.0) {
-        return 0.0;
-      }
-
-      auto c = m_thickness / std::log(2);
-      return std::pow(-std::log(x), c - 1) / std::tgamma(c);
-    }
-  };
-
-  /// Integrand for the CDF distance
-  class CDFIntegrant {
-    GaussianMixtureModel m_mixture;
-    BetheHeitlerDistribution m_distribution;
-
-   public:
-    CDFIntegrant(const GaussianMixtureModel &mixture,
-                 const BetheHeitlerDistribution &dist)
-        : m_mixture(mixture), m_distribution(dist) {}
-
-    double operator()(double x) {
-      return std::abs(m_mixture(x) - m_distribution(x));
-    }
-  };
+  // save time by caching
+  mutable detail::FlatCache<NComponents> m_cache;
 
  public:
   BetheHeitlerSimulatedAnnealingMinimizer(
       const std::vector<double> &temperatures,
-      std::mt19937 gen = std::mt19937{42})
-      : m_temperatures(temperatures), m_gen(gen) {
-    // Distribute means with to geometric series
-    std::array<GaussianComponent, NComponents> mixture{};
+      const std::array<detail::GaussianComponent, NComponents> &startValue,
+      std::shared_ptr<std::mt19937> gen, const next_t &next = next_t{})
+      : m_temperatures(temperatures),
+        m_startValue(startValue),
+        m_gen(gen),
+        m_next(next),
+        m_cache(0.001) {}
+
+  // Make a start value that is reasonable by distributing the means with to
+  // geometric series
+  static auto makeStartValue() {
+    std::array<detail::GaussianComponent, NComponents> mixture{};
     double m = 0.;
     for (auto i = 0ul; i < mixture.size(); ++i) {
       m += std::pow(0.5, i + 1);
 
       mixture[i].weight = 1. / (mixture.size() - i);
       mixture[i].mean = m;
-      mixture[i].var = 0.05 / (i + 1);
+      mixture[i].var = 0.005 / (i + 1);
     }
 
     detail::normalizeWeights(mixture,
-                             [](auto &a) -> double& { return a.weight; });
-    m_start_value = mixture;
+                             [](auto &a) -> double & { return a.weight; });
+    return mixture;
   }
 
   /// Returns the number of components the returned mixture will have
@@ -338,75 +510,105 @@ class BetheHeitlerSimulatedAnnealingMinimizer {
   /// given x/x0.
   ///
   /// @param x The input in terms of x/x0 (pathlength in terms of radiation length)
-  auto mixture(const ActsScalar x) const {
+  auto mixture(const ActsScalar x,
+               std::vector<double> *history = nullptr) const {
+    if( history ) {
+    history->reserve(m_temperatures.size());
+    }
+
+    const auto singleCmpApprox = BetheHeitlerApproxSingleCmp::mixture(x)[0];
+    const double &E1 = singleCmpApprox.mean;
+    const double &E2 = singleCmpApprox.var;
+
+    if (auto cached = m_cache.findApprox(x); cached) {
+      return *cached;
+    }
+
     // Helper function to do the integration
     auto integrate = [&](const auto &mixture) {
       return boost::math::quadrature::trapezoidal(
-          CDFIntegrant{GaussianMixtureModel{mixture},
-                       BetheHeitlerDistribution{x}},
+#if 1
+          detail::CDFIntegrant<NComponents>{
+              detail::GaussianMixtureModelCDF<NComponents>{mixture},
+              detail::BetheHeitlerCDF{x}},
+#else
+          detail::KLIntegrant<NComponents>{
+              detail::GaussianMixtureModelPDF<NComponents>{mixture},
+              detail::BetheHeitlerPDF{x}},
+
+#endif
           -0.5, 1.5);
     };
 
     // Transform to coordinates defined in [-inf, inf]
-    auto transform = [](const std::array<GaussianComponent, NComponents> &cs) {
-      auto ret = std::array<double, 3 * NComponents>{};
+    auto transform =
+        [](const std::array<detail::GaussianComponent, NComponents> &cmps) {
+          auto ret = std::array<double, 3 * NComponents>{};
 
-      auto it = ret.begin();
-      for (const auto &[w, m, s] : cs) {
-        *it = std::log(w) - std::log(1 - w);
-        ++it;
-        *it = std::log(m) - std::log(1 - m);
-        ++it;
-        *it = std::log(s);
-        ++it;
-      }
+          auto it = ret.begin();
+          for (const auto &cmp : cmps) {
+            detail::transformComponent(cmp, *it, *(it + 1), *(it + 2));
+            it += 3;
+          }
 
-      return ret;
-    };
+          return ret;
+        };
 
     // Transform from coordinates defined in [-inf, inf]
     auto inv_transform = [](const std::array<double, 3 * NComponents> &cs) {
-      auto ret = std::array<GaussianComponent, NComponents>{};
+      auto ret = std::array<detail::GaussianComponent, NComponents>{};
 
-      auto it = cs.cbegin();
-      for (auto &[w, m, s] : ret) {
-        w = 1. / (1 + std::exp(-*it));
-        ++it;
-        m = 1. / (1 + std::exp(-*it));
-        ++it;
-        s = std::exp(*it);
-        ++it;
+      auto it = cs.begin();
+      for (auto &cmp : ret) {
+        cmp = detail::inverseTransformComponent(*it, *(it + 1), *(it + 2));
+        it += 3;
       }
 
       return ret;
     };
 
-    // How to pick a new configuration
-    auto next = [&](auto ps) {
-      const double range = 0.3;
-      auto val_dist = std::uniform_real_distribution{-range, range};
-      for (auto &p : ps) {
-        p += val_dist(m_gen);
-      }
+    // The annealing function
+    auto minimize = [&](const auto &start_value) {
+      // Initialize state
+      auto current_distance = integrate(start_value);
+      auto current_params = transform(start_value);
 
-      return ps;
-    };
+      // seperately keep track of best solution
+      auto best_distance = current_distance;
+      auto best_params = start_value;
 
-    // Initialize state
-    auto current_distance = integrate(m_start_value);
-    auto current_params = transform(m_start_value);
+      for (auto T : m_temperatures) {
+        if (history) {
+          history->push_back(best_distance);
+        }
 
-    // seperately keep track of best solution
-    auto best_distance = current_distance;
-    auto best_params = m_start_value;
+        const auto new_params = m_next(current_params, *m_gen);
+        auto trafo_params = inv_transform(new_params);
+        detail::normalizeWeights(trafo_params,
+                                 [](auto &a) -> double & { return a.weight; });
 
-    for (auto T : m_temperatures) {
-      for (int i = 0; i < 10; ++i) {
-        const auto new_params = next(current_params);
-        auto new_params_transformed = inv_transform(new_params);
-        detail::normalizeWeights(new_params_transformed,
-                                 [](auto &a) -> double& { return a.weight; });
-        const double new_distance = integrate(new_params_transformed);
+        std::sort(best_params.begin(), best_params.end(),
+                  [](const auto &a, const auto &b) { return a.mean < b.mean; });
+
+        const auto sum1 = std::accumulate(
+            std::next(trafo_params.begin()), trafo_params.end(), 0.0,
+            [](const auto &s, const auto &c) { return s + c.weight * c.mean; });
+
+        const auto sum2 =
+            std::accumulate(std::next(trafo_params.begin()), trafo_params.end(),
+                            0.0, [](const auto &s, const auto &c) {
+                              return s + c.weight * (c.mean * c.mean + c.var);
+                            });
+
+        trafo_params[0].mean = (1. / trafo_params[0].weight) * (E1 - sum1);
+
+        const auto weightMeanSquared = trafo_params[0].weight *
+                                       trafo_params[0].mean *
+                                       trafo_params[0].mean;
+        trafo_params[0].mean =
+            1. / trafo_params[0].weight * (E2 - weightMeanSquared - sum2);
+
+        const double new_distance = integrate(trafo_params);
 
         if (not std::isfinite(new_distance)) {
           continue;
@@ -416,22 +618,102 @@ class BetheHeitlerSimulatedAnnealingMinimizer {
 
         if (new_distance < best_distance) {
           best_distance = new_distance;
-          best_params = new_params_transformed;
+          best_params = trafo_params;
         }
 
         if (new_distance < current_distance or
-            p < std::uniform_real_distribution{0., 1.0}(m_gen)) {
+            p < std::uniform_real_distribution{0., 1.0}(*m_gen)) {
           current_distance = new_distance;
           current_params = new_params;
         }
-
-        break;
       }
-    }
+      return std::make_tuple(best_distance, best_params);
+    };
 
+    // Correct mean & var
+#if 0
+    const double E1 = std::exp(-1. * x);
+    const double E2 =
+        std::exp(-1. * x * std::log(3.) / std::log(2.)) - std::exp(-2. * x);
+#endif
+
+    const double threshold = 0.0025;
+
+    auto [best_distance, best_params] = minimize(m_startValue);
+#if 0
+    // We want to modify the component with the smallest mean
+    std::sort(best_params.begin(), best_params.end(),
+              [](const auto &a, const auto &b) { return a.mean < b.mean; });
+
+    std::cout << "best distance " << best_distance << " at x/x0 = " << x
+              << std::endl;
+
+    std::cout << "mean result: " << std::accumulate(best_params.begin(), best_params.end(), 0.0, [](const auto &s, const auto &c){ return s + c.weight * c.mean; }) << "\n\tmeans:  ";
+    std::transform(best_params.begin(), best_params.end(), std::ostream_iterator<double>(std::cout, " "), [](const auto &c){ return c.mean; });
+    std::cout << "\n\tweights: ";
+    std::transform(best_params.begin(), best_params.end(), std::ostream_iterator<double>(std::cout, " "), [](const auto &c){ return c.weight; });
+    std::cout << "\nmean true: " << singleCmpApprox.mean << "\n";
+
+    // Evaluate these summes before modification
+    const auto sum1 = std::accumulate(
+        std::next(best_params.begin()), best_params.end(), 0.0,
+        [](const auto &s, const auto &c) { return s + c.weight * c.mean; });
+
+    const auto sum2 =
+        std::accumulate(std::next(best_params.begin()), best_params.end(), 0.0,
+                        [](const auto &s, const auto &c) {
+                          return s + c.weight * (c.mean * c.mean + c.var);
+                        });
+
+    const auto new_mean = (1. / best_params[0].weight) * (E1 - sum1);
+
+    const auto weightMeanSquared = best_params[0].weight * new_mean * new_mean;
+    const auto new_var =
+        1. / best_params[0].weight * (E2 - weightMeanSquared - sum2);
+
+    auto valid = [](const detail::GaussianComponent &cmp) {
+      return cmp.var > 0. && cmp.mean < 1. && cmp.var > 0.0 &&
+             std::isfinite(cmp.weight);
+    };
+
+    // TODO this can not be the case if the fit is bad for very low thicknesses
+    if (valid({best_params[0].weight, new_mean, new_var})) {
+      best_params[0].mean = new_mean;
+      best_params[0].var = new_var;
+      std::cout << "successfull corrected moments\n";
+    } else {
+      std::cout << "could not correct moments: " << best_params[0].mean << "+-" << best_params[0].var << " -> " << new_mean << "+-" << new_var << "\n";
+      auto foo = best_params;
+      foo[0].mean = new_mean;
+      foo[0].var = new_var;
+      std::cout << "corrected mean result: " << std::accumulate(foo.begin(), foo.end(), 0.0, [](const auto &s, const auto &c){ return s + c.weight * c.mean; }) << "\n";
+    }
+    std::cout << "-----------------------\n";
+
+    detail::normalizeWeights(best_params,
+                             [](auto &c) -> double & { return c.weight; });
+
+    throw_assert(std::all_of(best_params.begin(), best_params.end(), valid),
+                 "bal");
+    throw_assert(detail::weightsAreNormalized(
+                     best_params, [](const auto &c) { return c.weight; }),
+                 "not normalized");
+#endif
+    // Store in cache if result is good
+    if (best_distance < threshold) {
+      m_cache.insert({x, best_params});
+    }
     return best_params;
   }
 };
+
+// template <std::size_t NComponents>
+// std::map<float, std::array<GaussianComponent, NComponents>>
+// BetheHeitlerSimulatedAnnealingMinimizer<NComponents>::m_cache = {};
+//
+// template <std::size_t NComponents>
+// std::mutex
+// BetheHeitlerSimulatedAnnealingMinimizer<NComponents>::m_cache_mutex = {};
 
 /// These data are from ATLAS and allow using the GSF without loading files.
 /// However, this might not be the optimal parameterization. These data come
