@@ -85,7 +85,7 @@ ActsExamples::ProcessCode ActsExamples::ParticleSmearing::execute(
       const double newP = std::max(0.0, p + sigmaP * stdNormal(rng));
       params[Acts::eBoundQOverP] = (q != 0) ? (q / newP) : (1 / newP);
 
-      ACTS_VERBOSE("Smearing particle (pos, time, phi, theta, q/p):");
+      ACTS_VERBOSE("Smearing particle " << particle.pdg() << " (pos, time, phi, theta, q/p):");
       ACTS_VERBOSE(" from: " << particle.position().transpose() << ", " << time
                              << "," << phi << "," << theta << ","
                              << (q != 0 ? q / p : 1 / p));
@@ -118,7 +118,11 @@ ActsExamples::ProcessCode ActsExamples::ParticleSmearing::execute(
           m_cfg.initialVarInflation[Acts::eBoundQOverP] * sigmaQOverP *
           sigmaQOverP;
 
-      parameters.emplace_back(perigee, params, q, cov);
+      if( std::abs(q) > 1) {
+        ACTS_WARNING("Particle of charge " << q << " encountered, pass as " << q/std::abs(q));
+      }
+
+      parameters.emplace_back(perigee, params, q/std::abs(q), cov);
     }
   }
 
