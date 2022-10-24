@@ -278,8 +278,6 @@ struct GaussianSumFitter {
       if constexpr (not IsMultiParameters::value) {
         using Charge = typename IsMultiParameters::Charge;
 
-        r.parentTips.resize(1, MultiTrajectoryTraits::kInvalid);
-
         MultiComponentBoundTrackParameters<Charge> params(
             sParameters.referenceSurface().getSharedPtr(),
             sParameters.parameters(), sParameters.covariance());
@@ -287,9 +285,6 @@ struct GaussianSumFitter {
         return m_propagator.propagate(params, fwdPropOptions,
                                       std::move(inputResult));
       } else {
-        r.parentTips.resize(sParameters.components().size(),
-                            MultiTrajectoryTraits::kInvalid);
-
         return m_propagator.propagate(sParameters, fwdPropOptions,
                                       std::move(inputResult));
       }
@@ -305,7 +300,7 @@ struct GaussianSumFitter {
       return return_error_or_abort(fwdGsfResult.result.error());
     }
 
-    if (fwdGsfResult.processedStates == 0) {
+    if (fwdGsfResult.measurementStates == 0) {
       return return_error_or_abort(GsfError::NoStatesCreated);
     }
 
@@ -373,7 +368,7 @@ struct GaussianSumFitter {
 
       r.fittedStates = trajectory;
 
-#if 1
+#if 0
       // We take the last measurement state (filtered) from the forward result
       // as the first measurement state in the backward result (predicted and
       // filtered), so we can skip the Kalman update on the first surface as
@@ -429,13 +424,19 @@ struct GaussianSumFitter {
       const auto params =
           MultiComponentBoundTrackParameters<SinglyCharged>(surface, cmps);
 #else
-      // Use this to take flags and uncalibrated
-      auto fwdProxy = fwdGsfResult.fittedStates->getTrackState(fwdGsfResult.lastMeasurementTips.front());
-
       r.fittedStates = trajectory;
-      const auto &params = *fwdGsfResult.lastMeasurementState;
 
-      actor.m_cfg.firstSurface = &params.referenceSurface();
+      assert((fwdGsfResult.lastMeasurementTip != MultiTrajectoryTraits::kInvalid && "tip is invalid"));
+      auto proxy = r.fittedStates->getTrackState(fwdGsfResult.lastMeasurementTip);
+      proxy.filtered() = proxy.predicted();
+      proxy.filteredCovariance() = proxy.predictedCovariance();
+
+      r.currentTip = fwdGsfResult.lastMeasurementTip;
+      r.visitedSurfaces.push_back(&proxy.referenceSurface());
+      r.measurementStates++;
+      r.processedStates++;
+
+      const auto &params = *fwdGsfResult.lastMeasurementState;
 
       // for (const auto &[w, pars, cov] : params.components()) {
       //   r.currentTips.push_back(
@@ -460,8 +461,6 @@ struct GaussianSumFitter {
       // r.parentTips = r.currentTips;
       // r.measurementStates++;
       // r.processedStates++;
-
-      r.parentTips.resize(params.components().size(), MultiTrajectoryTraits::kInvalid);
 #endif
 
       return m_propagator
@@ -500,18 +499,10 @@ struct GaussianSumFitter {
                    << bwdResult->endParameters->absoluteMomentum());
     }
 
-    auto smoothResult = detail::smoothAndCombineTrajectories<traj_t, false>(
-        *fwdGsfResult.fittedStates, fwdGsfResult.currentTips,
-        fwdGsfResult.weightsOfStates, *bwdGsfResult.fittedStates,
-        bwdGsfResult.currentTips, bwdGsfResult.weightsOfStates, logger);
-
-    // Cannot use structured binding since they cannot be captured in lambda
-    auto& kalmanResult = std::get<0>(smoothResult);
-
-    // Some test
-    // if (std::get<1>(smoothResult).empty()) {
-    //   return return_error_or_abort(GsfError::NoStatesCreated);
-    // }
+    KalmanFitterResult<traj_t> kalmanResult;
+    kalmanResult.fittedStates = fwdGsfResult.fittedStates;
+    kalmanResult.lastTrackIndex = fwdGsfResult.currentTip;
+    kalmanResult.lastMeasurementIndex = fwdGsfResult.lastMeasurementTip;
 
 #if 0
     // Compute the missed active surfaces as the union of the forward and
