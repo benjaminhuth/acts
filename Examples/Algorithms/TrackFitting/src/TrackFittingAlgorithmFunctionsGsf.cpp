@@ -117,8 +117,10 @@ TrackFittingAlgorithm::makeGsfFitterFunction(
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
     std::string lowParametersPath, std::string highParametersPath,
     std::size_t maxComponents, bool abortOnError,
-    bool disableAllMaterialHandling) {
-  Acts::MultiEigenStepperLoop stepper(std::move(magneticField));
+    bool disableAllMaterialHandling,
+    Acts::FinalReductionMethod finalReductionMethod) {
+  Acts::MultiEigenStepperLoop stepper(std::move(magneticField),
+                                      finalReductionMethod);
   Acts::Navigator::Config cfg{trackingGeometry};
   cfg.resolvePassive = false;
   cfg.resolveMaterial = true;
@@ -204,9 +206,11 @@ std::shared_ptr<TrackFittingAlgorithm::DirectedTrackFitterFunction>
 TrackFittingAlgorithm::makeGsfFitterFunction(
     std::shared_ptr<const Acts::MagneticFieldProvider> /*magneticField*/,
     std::size_t /*maxComponents*/, bool /*abortOnError*/,
-    bool /*disableAllMaterialHandling*/) {
+    bool /*disableAllMaterialHandling*/,
+    Acts::FinalReductionMethod /*finalReductionMethod*/) {
 #if 0
-  Acts::MultiEigenStepperLoop stepper(std::move(magneticField));
+  Acts::MultiEigenStepperLoop stepper(std::move(magneticField),
+                                      finalReductionMethod);
   Acts::DirectNavigator navigator;
   Acts::Propagator propagator(std::move(stepper), navigator);
 #if USE_CUSTOM_BETHE_HEITLER
