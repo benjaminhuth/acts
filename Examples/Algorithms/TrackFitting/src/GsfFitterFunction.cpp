@@ -33,12 +33,12 @@ using Propagator = Acts::Propagator<MultiStepper, Acts::Navigator>;
 using DirectPropagator = Acts::Propagator<MultiStepper, Acts::DirectNavigator>;
 
 #if USE_CUSTOM_BETHE_HEITLER
-using BHApprox = Acts::Experimental::BetheHeitlerSimulatedAnnealingMinimizer
+using BHApprox = Acts::Experimental::BetheHeitlerSimulatedAnnealingMinimizer;
 #else
 using BHApprox = Acts::Experimental::AtlasBetheHeitlerApprox<6, 5>;
 #endif
 
-    using Fitter =
+using Fitter =
         Acts::Experimental::GaussianSumFitter<Propagator, BHApprox,
                                               Acts::VectorMultiTrajectory>;
 using DirectFitter =
@@ -117,9 +117,9 @@ ActsExamples::makeGsfFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
     std::string lowBetheHeitlerPath, std::string highBetheHeitlerPath,
-    std::size_t maxComponents, bool abortOnError,
-    bool disableAllMaterialHandling) {
-  MultiStepper stepper(std::move(magneticField));
+    std::size_t maxComponents, Acts::FinalReductionMethod finalReductionMethod,
+    bool abortOnError, bool disableAllMaterialHandling) {
+  MultiStepper stepper(std::move(magneticField), finalReductionMethod);
 
 #if USE_CUSTOM_BETHE_HEITLER
   constexpr std::size_t NComponents = 12;

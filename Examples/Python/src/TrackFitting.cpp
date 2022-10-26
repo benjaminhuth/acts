@@ -34,6 +34,7 @@ void addTrackFitting(Context& ctx) {
                                 outputProtoTracks);
 
   {
+<<<<<<< HEAD
     using Alg = ActsExamples::TrackFittingAlgorithm;
     using Config = Alg::Config;
 
@@ -60,6 +61,13 @@ void addTrackFitting(Context& ctx) {
     ACTS_PYTHON_MEMBER(trackingGeometry);
     ACTS_PYTHON_MEMBER(pickTrack);
     ACTS_PYTHON_STRUCT_END();
+=======
+    ACTS_PYTHON_DECLARE_ALGORITHM(
+        ActsExamples::TrackFittingAlgorithm, mex, "TrackFittingAlgorithm",
+        inputMeasurements, directNavigation, inputSourceLinks, inputProtoTracks,
+        inputInitialTrackParameters, outputTrajectories, fit, trackingGeometry,
+        pickTrack);
+>>>>>>> feature/multi-stepper-max-weight
 
     mex.def(
         "makeKalmanFitterFunction",
@@ -72,10 +80,16 @@ void addTrackFitting(Context& ctx) {
         py::arg("reverseFilteringMomThreshold"),
         py::arg("freeToBoundCorrection"));
 
+    py::enum_<Acts::FinalReductionMethod>(mex, "FinalReductionMethod")
+        .value("mean", Acts::FinalReductionMethod::eMean)
+        .value("mode", Acts::FinalReductionMethod::eMode)
+        .value("maxWeight", Acts::FinalReductionMethod::eMaxWeight);
+
     mex.def(
         "makeGsfFitterFunction",
         py::overload_cast<std::shared_ptr<const Acts::TrackingGeometry>,
                           std::shared_ptr<const Acts::MagneticFieldProvider>,
+<<<<<<< HEAD
                           std::string, std::string, std::size_t, bool, bool>(
             &ActsExamples::makeGsfFitterFunction),
         py::arg("trackingGeometry"), py::arg("magneticField"),
@@ -83,6 +97,13 @@ void addTrackFitting(Context& ctx) {
         py::arg("highBetheHeitlerPath") = "", py::arg("maxComponents") = 12,
         py::arg("abortOnError") = false,
         py::arg("disableAllMaterialHandling") = false);
+=======
+                          std::size_t, Acts::FinalReductionMethod, bool, bool>(
+            &ActsExamples::makeGsfFitterFunction),
+        py::arg("trackingGeometry"), py::arg("magneticField"),
+        py::arg("maxComponents"), py::arg("finalReductionMethod"),
+        py::arg("abortOnError"), py::arg("disableAllMaterialHandling"));
+>>>>>>> feature/multi-stepper-max-weight
   }
 
   {

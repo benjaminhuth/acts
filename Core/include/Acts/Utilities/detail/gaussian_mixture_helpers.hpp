@@ -15,11 +15,8 @@
 #include "Acts/Utilities/detail/periodic.hpp"
 
 #include <cmath>
-#include <numeric>
 #include <optional>
 #include <tuple>
-
-#include <Eigen/Eigenvalues>
 
 namespace Acts {
 namespace detail {
