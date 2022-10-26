@@ -115,7 +115,7 @@ struct GsfActor {
     std::optional<std::size_t> numberMeasurements;
 
     /// The extensions
-    GsfExtensions<traj_t> extensions;
+    Experimental::GsfExtensions<traj_t> extensions;
   } m_cfg;
 
   /// Stores meta information about the components

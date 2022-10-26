@@ -16,6 +16,7 @@
 namespace plt = matplotlibcpp;
 
 using namespace Acts;
+using namespace Acts::Experimental;
 
 void test_flat_cache() {
     detail::FlatCache<1> cache(0.1);

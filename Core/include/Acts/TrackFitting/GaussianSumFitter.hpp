@@ -41,6 +41,8 @@ struct IsMultiComponentBoundParameters<MultiComponentBoundTrackParameters<T>>
 
 }  // namespace detail
 
+namespace Experimental {
+
 /// Gaussian Sum Fitter implementation.
 /// @tparam propagator_t The propagator type on which the algorithm is built on
 /// @tparam bethe_heitler_approx_t The type of the Bethe-Heitler-Approximation
@@ -589,4 +591,5 @@ struct GaussianSumFitter {
   }
 };
 
+}  // namespace Experimental
 }  // namespace Acts

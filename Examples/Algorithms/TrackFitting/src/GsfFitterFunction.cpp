@@ -33,14 +33,14 @@ using Propagator = Acts::Propagator<MultiStepper, Acts::Navigator>;
 using DirectPropagator = Acts::Propagator<MultiStepper, Acts::DirectNavigator>;
 
 #if USE_CUSTOM_BETHE_HEITLER
-using BHApprox = Acts::BetheHeitlerSimulatedAnnealingMinimizer
+using BHApprox = Acts::Experimental::BetheHeitlerSimulatedAnnealingMinimizer
 #else
-using BHApprox = Acts::AtlasBetheHeitlerApprox<6, 5>;
+using BHApprox = Acts::Experimental::AtlasBetheHeitlerApprox<6, 5>;
 #endif
 
-using Fitter = Acts::GaussianSumFitter<Propagator, BHApprox, Acts::VectorMultiTrajectory>;
+using Fitter = Acts::Experimental::GaussianSumFitter<Propagator, BHApprox, Acts::VectorMultiTrajectory>;
 using DirectFitter =
-    Acts::GaussianSumFitter<DirectPropagator, BHApprox, Acts::VectorMultiTrajectory>;
+    Acts::Experimental::GaussianSumFitter<DirectPropagator, BHApprox, Acts::VectorMultiTrajectory>;
 
 struct GsfFitterFunctionImpl
     : public ActsExamples::TrackFittingAlgorithm::TrackFitterFunction {
@@ -59,12 +59,12 @@ struct GsfFitterFunctionImpl
   auto makeGsfOptions(
       const ActsExamples::TrackFittingAlgorithm::GeneralFitterOptions& options)
       const {
-    Acts::GsfExtensions<Acts::VectorMultiTrajectory> extensions;
+    Acts::Experimental::GsfExtensions<Acts::VectorMultiTrajectory> extensions;
     extensions.updater.connect<
         &Acts::GainMatrixUpdater::operator()<Acts::VectorMultiTrajectory>>(
         &updater);
 
-    Acts::GsfOptions<Acts::VectorMultiTrajectory> gsfOptions{
+    Acts::Experimental::GsfOptions<Acts::VectorMultiTrajectory> gsfOptions{
         options.geoContext,
         options.magFieldContext,
         options.calibrationContext,
@@ -163,13 +163,13 @@ ActsExamples::makeGsfFitterFunction(
   auto makeBehteHeitlerApprox = [&]() {
     if (std::filesystem::exists(lowBetheHeitlerPath) &&
         std::filesystem::exists(highBetheHeitlerPath)) {
-      return Acts::AtlasBetheHeitlerApprox<6, 5>::loadFromFile(
+      return Acts::Experimental::AtlasBetheHeitlerApprox<6, 5>::loadFromFile(
           lowBetheHeitlerPath, highBetheHeitlerPath);
     } else {
       std::cout
           << "WARNING: Could not find files, use standard configuration\n";
-      return Acts::AtlasBetheHeitlerApprox<6, 5>(Acts::bh_cdf_cmps6_order5_data,
-                                                 Acts::bh_cdf_cmps6_order5_data,
+      return Acts::Experimental::AtlasBetheHeitlerApprox<6, 5>(Acts::Experimental::bh_cdf_cmps6_order5_data,
+                                                 Acts::Experimental::bh_cdf_cmps6_order5_data,
                                                  true, true);
     }
   };
