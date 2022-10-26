@@ -278,8 +278,6 @@ struct GaussianSumFitter {
       if constexpr (not IsMultiParameters::value) {
         using Charge = typename IsMultiParameters::Charge;
 
-        r.parentTips.resize(1, MultiTrajectoryTraits::kInvalid);
-
         MultiComponentBoundTrackParameters<Charge> params(
             sParameters.referenceSurface().getSharedPtr(),
             sParameters.parameters(), sParameters.covariance());
@@ -287,9 +285,6 @@ struct GaussianSumFitter {
         return m_propagator.propagate(params, fwdPropOptions,
                                       std::move(inputResult));
       } else {
-        r.parentTips.resize(sParameters.components().size(),
-                            MultiTrajectoryTraits::kInvalid);
-
         return m_propagator.propagate(sParameters, fwdPropOptions,
                                       std::move(inputResult));
       }

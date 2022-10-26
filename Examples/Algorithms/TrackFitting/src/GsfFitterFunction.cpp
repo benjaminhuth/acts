@@ -161,10 +161,10 @@ ActsExamples::makeGsfFitterFunction(
       temperatures, startValue, gen, next);
 #else
   auto makeBehteHeitlerApprox = [&]() {
-    if (std::filesystem::exists(lowParametersPath) &&
-        std::filesystem::exists(highParametersPath)) {
+    if (std::filesystem::exists(lowBetheHeitlerPath) &&
+        std::filesystem::exists(highBetheHeitlerPath)) {
       return Acts::AtlasBetheHeitlerApprox<6, 5>::loadFromFile(
-          lowParametersPath, highParametersPath);
+          lowBetheHeitlerPath, highBetheHeitlerPath);
     } else {
       std::cout
           << "WARNING: Could not find files, use standard configuration\n";
