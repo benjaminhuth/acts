@@ -514,8 +514,8 @@ class BetheHeitlerSimulatedAnnealingMinimizer {
   /// @param x The input in terms of x/x0 (pathlength in terms of radiation length)
   auto mixture(const ActsScalar x,
                std::vector<double> *history = nullptr) const {
-    if( history ) {
-    history->reserve(m_temperatures.size());
+    if (history) {
+      history->reserve(m_temperatures.size());
     }
 
     const auto singleCmpApprox = BetheHeitlerApproxSingleCmp::mixture(x)[0];

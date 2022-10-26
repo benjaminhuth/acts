@@ -79,8 +79,9 @@ void addTrackFitting(Context& ctx) {
                           std::string, std::string, std::size_t, bool, bool>(
             &ActsExamples::makeGsfFitterFunction),
         py::arg("trackingGeometry"), py::arg("magneticField"),
-        py::arg("lowBetheHeitlerPath") = "", py::arg("highBetheHeitlerPath") = "",
-        py::arg("maxComponents") = 12, py::arg("abortOnError") = false,
+        py::arg("lowBetheHeitlerPath") = "",
+        py::arg("highBetheHeitlerPath") = "", py::arg("maxComponents") = 12,
+        py::arg("abortOnError") = false,
         py::arg("disableAllMaterialHandling") = false);
   }
 

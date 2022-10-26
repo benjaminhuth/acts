@@ -15,10 +15,10 @@
 #include "Acts/Propagator/Navigator.hpp"
 #include "Acts/Propagator/Propagator.hpp"
 #include "Acts/Surfaces/Surface.hpp"
+#include "Acts/TrackFitting/BetheHeitlerApprox.hpp"
 #include "Acts/TrackFitting/GainMatrixSmoother.hpp"
 #include "Acts/TrackFitting/GainMatrixUpdater.hpp"
 #include "Acts/TrackFitting/GaussianSumFitter.hpp"
-#include "Acts/TrackFitting/BetheHeitlerApprox.hpp"
 #include "Acts/Utilities/Helpers.hpp"
 #include "ActsExamples/MagneticField/MagneticField.hpp"
 
@@ -38,9 +38,12 @@ using BHApprox = Acts::Experimental::BetheHeitlerSimulatedAnnealingMinimizer
 using BHApprox = Acts::Experimental::AtlasBetheHeitlerApprox<6, 5>;
 #endif
 
-using Fitter = Acts::Experimental::GaussianSumFitter<Propagator, BHApprox, Acts::VectorMultiTrajectory>;
+    using Fitter =
+        Acts::Experimental::GaussianSumFitter<Propagator, BHApprox,
+                                              Acts::VectorMultiTrajectory>;
 using DirectFitter =
-    Acts::Experimental::GaussianSumFitter<DirectPropagator, BHApprox, Acts::VectorMultiTrajectory>;
+    Acts::Experimental::GaussianSumFitter<DirectPropagator, BHApprox,
+                                          Acts::VectorMultiTrajectory>;
 
 struct GsfFitterFunctionImpl
     : public ActsExamples::TrackFittingAlgorithm::TrackFitterFunction {
@@ -142,20 +145,21 @@ ActsExamples::makeGsfFitterFunction(
     return ps;
   };
 
-   const auto startValue = std::array<Acts::detail::GaussianComponent, NComponents>{{
-        {1, 0.5, 1.e-5},
-        {2, 0.99, 1.e-5},
-        {2, 0.99, 1.e-5},
-        {2, 0.99, 1.e-5},
-        {2,.99, 1.e-5},
-        {2,.99, 1.e-5},
-        {2, 0.99, 1.e-5},
-        {2,.99, 1.e-5},
-        {2,.99, 1.e-5},
-        {2, 0.99, 1.e-5},
-        {2,.99, 1.e-5},
-        {2,.99, 1.e-5},
-    }};
+  const auto startValue =
+      std::array<Acts::detail::GaussianComponent, NComponents>{{
+          {1, 0.5, 1.e-5},
+          {2, 0.99, 1.e-5},
+          {2, 0.99, 1.e-5},
+          {2, 0.99, 1.e-5},
+          {2, .99, 1.e-5},
+          {2, .99, 1.e-5},
+          {2, 0.99, 1.e-5},
+          {2, .99, 1.e-5},
+          {2, .99, 1.e-5},
+          {2, 0.99, 1.e-5},
+          {2, .99, 1.e-5},
+          {2, .99, 1.e-5},
+      }};
 
   auto bhapp = Acts::BetheHeitlerSimulatedAnnealingMinimizer(
       temperatures, startValue, gen, next);
@@ -168,9 +172,9 @@ ActsExamples::makeGsfFitterFunction(
     } else {
       std::cout
           << "WARNING: Could not find files, use standard configuration\n";
-      return Acts::Experimental::AtlasBetheHeitlerApprox<6, 5>(Acts::Experimental::bh_cdf_cmps6_order5_data,
-                                                 Acts::Experimental::bh_cdf_cmps6_order5_data,
-                                                 true, true);
+      return Acts::Experimental::AtlasBetheHeitlerApprox<6, 5>(
+          Acts::Experimental::bh_cdf_cmps6_order5_data,
+          Acts::Experimental::bh_cdf_cmps6_order5_data, true, true);
     }
   };
 

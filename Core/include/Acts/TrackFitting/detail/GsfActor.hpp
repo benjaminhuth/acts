@@ -279,8 +279,8 @@ struct GsfActor {
       if (not haveMaterial) {
         TemporaryStates tmpStates;
 
-        auto res =
-            kalmanUpdate(state, stepper, result, tmpStates, found_source_link->second);
+        auto res = kalmanUpdate(state, stepper, result, tmpStates,
+                                found_source_link->second);
 
         if (not res.ok()) {
           result.result = res;
@@ -297,7 +297,8 @@ struct GsfActor {
         Result<void> res;
 
         if (haveMeasurement) {
-          res = kalmanUpdate(state, stepper, result, tmpStates, found_source_link->second);
+          res = kalmanUpdate(state, stepper, result, tmpStates,
+                             found_source_link->second);
         } else {
           res = noMeasurementUpdate(state, stepper, result, tmpStates, false);
         }
@@ -500,10 +501,8 @@ struct GsfActor {
 
   /// Function that updates the stepper from the MultiTrajectory
   template <typename propagator_state_t, typename stepper_t>
-  void updateStepper(
-      propagator_state_t& state, const stepper_t& stepper,
-      const TemporaryStates& tmpStates) const {
-
+  void updateStepper(propagator_state_t& state, const stepper_t& stepper,
+                     const TemporaryStates& tmpStates) const {
     auto cmps = stepper.componentIterable(state.stepping);
 
     for (auto [idx, cmp] : zip(tmpStates.tips, cmps)) {
@@ -532,9 +531,8 @@ struct GsfActor {
 
   /// Function that updates the stepper from the ComponentCache
   template <typename propagator_state_t, typename stepper_t>
-  void updateStepper(
-      propagator_state_t& state, const stepper_t& stepper,
-      const std::vector<ComponentCache>& componentCache) const {
+  void updateStepper(propagator_state_t& state, const stepper_t& stepper,
+                     const std::vector<ComponentCache>& componentCache) const {
     const auto& surface = *state.navigation.currentSurface;
     const auto& logger = state.options.logger;
 
@@ -568,8 +566,7 @@ struct GsfActor {
   /// weights, renormalizes all components, and does some statistics.
   template <typename propagator_state_t, typename stepper_t>
   Result<void> kalmanUpdate(propagator_state_t& state, const stepper_t& stepper,
-                            result_type& result,
-                            TemporaryStates &tmpStates,
+                            result_type& result, TemporaryStates& tmpStates,
                             const SourceLink& source_link) const {
     const auto& surface = *state.navigation.currentSurface;
 
@@ -629,15 +626,14 @@ struct GsfActor {
     std::vector<std::tuple<double, BoundVector, BoundMatrix>> v;
 
     // TODO why can 0 weight happen?
-    for(const auto &idx : tmpStates.tips) {
+    for (const auto& idx : tmpStates.tips) {
       const auto [w, p, c] = proj(idx);
-      if( w > 0.0 ) {
+      if (w > 0.0) {
         v.push_back({w, p, *c});
       }
     }
 
-    normalizeWeights(
-        v, [](auto& c) -> double& { return std::get<double>(c); });
+    normalizeWeights(v, [](auto& c) -> double& { return std::get<double>(c); });
 
     result.lastMeasurementState =
         MultiComponentBoundTrackParameters<SinglyCharged>(
@@ -651,7 +647,7 @@ struct GsfActor {
   Result<void> noMeasurementUpdate(propagator_state_t& state,
                                    const stepper_t& stepper,
                                    result_type& result,
-                                   TemporaryStates &tmpStates,
+                                   TemporaryStates& tmpStates,
                                    bool doCovTransport) const {
     const auto& surface = *state.navigation.currentSurface;
 
@@ -692,8 +688,7 @@ struct GsfActor {
 
     ++result.processedStates;
 
-    addCombinedState(result, tmpStates, surface,
-                     state.stepping.navDir);
+    addCombinedState(result, tmpStates, surface, state.stepping.navDir);
 
     return Result<void>::success();
   }
@@ -737,16 +732,17 @@ struct GsfActor {
     }
   }
 
-  void addCombinedState(
-      result_type& result, const TemporaryStates &tmpStates,
-      const Surface& surface, NavigationDirection navDir) const {
+  void addCombinedState(result_type& result, const TemporaryStates& tmpStates,
+                        const Surface& surface,
+                        NavigationDirection navDir) const {
     using PredProjector =
         MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
     using FiltProjector =
         MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
 
     if (navDir == NavigationDirection::Forward) {
-      result.currentTip = result.fittedStates->addTrackState(TrackStatePropMask::All, result.currentTip);
+      result.currentTip = result.fittedStates->addTrackState(
+          TrackStatePropMask::All, result.currentTip);
       auto proxy = result.fittedStates->getTrackState(result.currentTip);
 
       proxy.copyFrom(tmpStates.traj.getTrackState(tmpStates.tips.front()));
@@ -755,7 +751,8 @@ struct GsfActor {
       const auto [filtMean, filtCov] =
           angleDescriptionSwitch(surface, [&](const auto& desc) {
             return combineGaussianMixture(
-                tmpStates.tips, FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
+                tmpStates.tips,
+                FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
           });
 
       proxy.predicted() = filtMean;
@@ -764,7 +761,8 @@ struct GsfActor {
       proxy.filteredCovariance() = filtCov.value();
       proxy.setReferenceSurface(surface.getSharedPtr());
     } else {
-      assert(( result.currentTip != MultiTrajectoryTraits::kInvalid && "tip not valid"));
+      assert((result.currentTip != MultiTrajectoryTraits::kInvalid &&
+              "tip not valid"));
       result.fittedStates->applyBackwards(
           result.currentTip, [&](auto trackState) {
             auto fSurface = &trackState.referenceSurface();
@@ -772,7 +770,8 @@ struct GsfActor {
               const auto [filtMean, filtCov] =
                   angleDescriptionSwitch(surface, [&](const auto& desc) {
                     return combineGaussianMixture(
-                        tmpStates.tips, FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
+                        tmpStates.tips,
+                        FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
                   });
 
               trackState.filtered() = filtMean;

@@ -159,9 +159,7 @@ struct MaxMomentumReducerLoop {
   }
 };
 
-
-
-/// @enum FinalReductionMethod 
+/// @enum FinalReductionMethod
 ///
 /// Available methods for the reduction in the @class MultiEigenStepperLoop .boundState() and
 /// .curvilinearState()
@@ -628,9 +626,10 @@ class MultiEigenStepperLoop
     std::array<int, 4> counts = {0, 0, 0, 0};
 
     for (auto& component : state.components) {
-      // TODO this is to prevent invalidated components from being updated, not sure why this happens.
-      // With the new GSF structure it should be possible to just remove components from the std::vector in the state
-      if(component.weight == 0.0) {
+      // TODO this is to prevent invalidated components from being updated, not
+      // sure why this happens. With the new GSF structure it should be possible
+      // to just remove components from the std::vector in the state
+      if (component.weight == 0.0) {
         continue;
       }
       component.status = detail::updateSingleSurfaceStatus<SingleStepper>(

@@ -422,8 +422,11 @@ struct GaussianSumFitter {
 #else
       r.fittedStates = trajectory;
 
-      assert((fwdGsfResult.lastMeasurementTip != MultiTrajectoryTraits::kInvalid && "tip is invalid"));
-      auto proxy = r.fittedStates->getTrackState(fwdGsfResult.lastMeasurementTip);
+      assert(
+          (fwdGsfResult.lastMeasurementTip != MultiTrajectoryTraits::kInvalid &&
+           "tip is invalid"));
+      auto proxy =
+          r.fittedStates->getTrackState(fwdGsfResult.lastMeasurementTip);
       proxy.filtered() = proxy.predicted();
       proxy.filteredCovariance() = proxy.predictedCovariance();
 
@@ -432,7 +435,7 @@ struct GaussianSumFitter {
       r.measurementStates++;
       r.processedStates++;
 
-      const auto &params = *fwdGsfResult.lastMeasurementState;
+      const auto& params = *fwdGsfResult.lastMeasurementState;
 
       // for (const auto &[w, pars, cov] : params.components()) {
       //   r.currentTips.push_back(
@@ -459,10 +462,10 @@ struct GaussianSumFitter {
       // r.processedStates++;
 #endif
 
-      return m_propagator
-          .template propagate<std::decay_t<decltype(params)>, decltype(bwdPropOptions),
-                              MultiStepperSurfaceReached>(
-              params, target, bwdPropOptions, std::move(inputResult));
+      return m_propagator.template propagate<std::decay_t<decltype(params)>,
+                                             decltype(bwdPropOptions),
+                                             MultiStepperSurfaceReached>(
+          params, target, bwdPropOptions, std::move(inputResult));
     }();
 
     if (!bwdResult.ok()) {

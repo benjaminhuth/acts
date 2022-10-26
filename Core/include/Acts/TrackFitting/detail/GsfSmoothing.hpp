@@ -178,9 +178,9 @@ auto smoothAndCombineTrajectories(
     const auto firstBwdState = bwd.getTrackState(bwdTips.front());
     const auto &currentSurface = firstBwdState.referenceSurface();
 
-
     std::cout << "Combine bwd idxs at " << currentSurface.geometryId() << ": ";
-    std::copy(bwdTips.begin(), bwdTips.end(), std::ostream_iterator<std::size_t>(std::cout, " "));
+    std::copy(bwdTips.begin(), bwdTips.end(),
+              std::ostream_iterator<std::size_t>(std::cout, " "));
     std::cout << "\n";
 
     // Search corresponding forward tips
@@ -188,11 +188,11 @@ auto smoothAndCombineTrajectories(
     std::vector<MultiTrajectoryTraits::IndexType> fwdTips;
 
     for (const auto tip : fwdStartTips) {
-      fwd.visitBackwards(tip, [&, found=false](const auto &state) mutable {
+      fwd.visitBackwards(tip, [&, found = false](const auto &state) mutable {
         if (state.referenceSurface().geometryId() == bwdGeoId) {
           assert((not found && "surface not unique"));
           fwdTips.push_back(state.index());
-          found=true;
+          found = true;
         }
       });
     }
