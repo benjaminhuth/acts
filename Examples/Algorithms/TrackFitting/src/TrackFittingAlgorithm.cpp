@@ -86,6 +86,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
   int i_max_mom = 0;
   int failed = 0;
   int not_skipped = 0;
+  auto mtj = std::make_shared<Acts::VectorMultiTrajectory>();
 
   // Perform the fit for each input track
   std::vector<std::reference_wrapper<const IndexSourceLink>> trackSourceLinks;
@@ -178,6 +179,9 @@ ActsExamples::ProcessCode ActsExamples::TrackFittingAlgorithm::execute(
   ACTS_INFO("Event number" << ctx.eventNumber);
   ACTS_INFO("Track with max momentum: " << i_max_mom << " with " << max_mom);
   ACTS_INFO("Track failures: " << failed << " / " << not_skipped);
+  std::stringstream ss;
+  mtj->statistics().toStream(ss);
+  ACTS_INFO(ss.str());
 
   ctx.eventStore.add(m_cfg.outputTrajectories, std::move(trajectories));
   return ActsExamples::ProcessCode::SUCCESS;

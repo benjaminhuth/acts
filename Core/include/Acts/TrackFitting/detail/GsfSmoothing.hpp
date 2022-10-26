@@ -35,7 +35,8 @@ auto bayesianSmoothing(component_iterator_t fwdBegin,
                        component_iterator_t bwdBegin,
                        component_iterator_t bwdEnd,
                        fwd_projector_t fwdProjector = fwd_projector_t{},
-                       bwd_projector_t bwdProjector = bwd_projector_t{}) {
+                       bwd_projector_t bwdProjector = bwd_projector_t{},
+                       ActsScalar weightCutoff = 1.e-16) {
   std::vector<std::tuple<double, BoundVector, std::optional<BoundSymMatrix>>>
       smoothedState;
 
@@ -60,11 +61,9 @@ auto bayesianSmoothing(component_iterator_t fwdBegin,
 
       const auto new_weight = std::exp(-0.5 * exponent) * weight_a * weight_b;
 
-      if (new_weight < 1.e-8 or not std::isfinite(new_weight)) {
-        continue;
+      if (std::isfinite(new_weight) and new_weight > weightCutoff) {
+        smoothedState.push_back({new_weight, new_pars, new_cov});
       }
-
-      smoothedState.push_back({new_weight, new_pars, new_cov});
     }
   }
 

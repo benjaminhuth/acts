@@ -278,6 +278,8 @@ struct GaussianSumFitter {
       if constexpr (not IsMultiParameters::value) {
         using Charge = typename IsMultiParameters::Charge;
 
+        r.parentTips.resize(1, MultiTrajectoryTraits::kInvalid);
+
         MultiComponentBoundTrackParameters<Charge> params(
             sParameters.referenceSurface().getSharedPtr(),
             sParameters.parameters(), sParameters.covariance());
@@ -285,6 +287,9 @@ struct GaussianSumFitter {
         return m_propagator.propagate(params, fwdPropOptions,
                                       std::move(inputResult));
       } else {
+        r.parentTips.resize(sParameters.components().size(),
+                            MultiTrajectoryTraits::kInvalid);
+
         return m_propagator.propagate(sParameters, fwdPropOptions,
                                       std::move(inputResult));
       }
@@ -377,8 +382,6 @@ struct GaussianSumFitter {
       std::vector<std::tuple<double, BoundVector, BoundSymMatrix>> cmps;
       std::shared_ptr<const Surface> surface;
 
-      std::cout << "make first bwd idxs ";
-
       for (const auto idx : fwdGsfResult.lastMeasurementTips) {
         // TODO This should not happen, but very rarely does. Maybe investigate
         // later
@@ -388,8 +391,6 @@ struct GaussianSumFitter {
 
         r.currentTips.push_back(
             r.fittedStates->addTrackState(TrackStatePropMask::All));
-
-        std::cout << r.currentTips.back() << " ";
 
         auto proxy = r.fittedStates->getTrackState(r.currentTips.back());
         proxy.copyFrom(fwdGsfResult.fittedStates->getTrackState(idx));
@@ -407,8 +408,6 @@ struct GaussianSumFitter {
         cmps.push_back({fwdGsfResult.weightsOfStates.at(idx), proxy.filtered(),
                         proxy.filteredCovariance()});
       }
-
-      std::cout << "at surface " << surface->geometryId() << "\n";
 
       if (cmps.empty()) {
         return ResultType{GsfError::NoComponentCreated};

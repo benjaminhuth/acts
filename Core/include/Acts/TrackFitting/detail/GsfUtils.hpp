@@ -94,8 +94,9 @@ class ScopedGsfInfoPrinterAndChecker {
 
   void checks(const std::string_view &where) const {
     const auto cmps = m_stepper.constComponentIterable(m_state.stepping);
-    // If all are missed, weights have been reset to zero, so it might not be
-    // normalized
+    // If all components are missed, their weights have been reset to zero.
+    // In this case the weights might not be normalized and not even be
+    // finite due to a division by zero.
     if (m_stepper.numberComponents(m_state.stepping) > m_missedCount) {
       throw_assert(
           std::all_of(cmps.begin(), cmps.end(),
@@ -188,7 +189,7 @@ void computePosteriorWeights(
     const auto factor = std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
 
     // If something is not finite here, just leave the weight as it is
-    if ( std::isfinite(factor) ) {
+    if (std::isfinite(factor)) {
       weights.at(tip) *= factor;
     }
   }
