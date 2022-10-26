@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "Acts/Propagator/MultiEigenStepperLoop.hpp"
 #include "ActsExamples/TrackFitting/TrackFittingAlgorithm.hpp"
 
 namespace ActsExamples {
@@ -16,7 +17,7 @@ std::shared_ptr<TrackFittingAlgorithm::TrackFitterFunction>
 makeGsfFitterFunction(
     std::shared_ptr<const Acts::TrackingGeometry> trackingGeometry,
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField,
-    std::string lowBetheHeitlerPath = "", std::string highBetheHeitlerPath = "",
+    std::string lowBetheHeitlerPath, std::string highBetheHeitlerPath,
     std::size_t maxComponents, Acts::FinalReductionMethod finalReductionMethod,
     bool abortOnError, bool disableAllMaterialHandling);
 
