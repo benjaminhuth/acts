@@ -191,6 +191,8 @@ void computePosteriorWeights(
     // If something is not finite here, just leave the weight as it is
     if (std::isfinite(factor)) {
       weights.at(tip) *= factor;
+    } else {
+      weights.at(tip) = 0.0;
     }
   }
 }
