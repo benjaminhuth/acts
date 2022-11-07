@@ -13,7 +13,7 @@ on:
     types:
       - opened
       - reopened
-      - synchronize 
+      - synchronize
       - unlabeled
 
 env:
@@ -26,6 +26,7 @@ env:
 
 #lassdasdfakjhlkhlhlkhlkhlkhlkhlkjhlk<sdafasfasdfasd
 # if: (github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')
+# blub
 
 jobs:
   dump_contexts_to_log:
