@@ -31,7 +31,7 @@ jobs:
         id: github_context_step
         run: echo '${{ toJSON(github) }}'
   lcg:
-    if: "${{ (github.event.action != 'unlabeled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabeled' && github.event.label.name == ':construction: WIP') }}"
+    if: (github.event.action != 'unlabeled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabeled' && github.event.label.name == ':construction: WIP')
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/${{ matrix.image }}:v29
     strategy:
