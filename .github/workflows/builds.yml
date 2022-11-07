@@ -22,11 +22,6 @@ env:
   CCACHE_DIR: ${{ github.workspace }}/ccache
   CCACHE_MAXSIZE: 500M
   CCACHE_KEY_SUFFIX: r1
-  LEFT: "${{ (github.event.action == 'unlabeled' && github.event.label.name == ':construction: WIP') }}"
-
-#lassdasdfakjhlkhlhlkhlkhlkhlkhlkjhlk<sdafasfasdfasd
-# if: (github.event.action != 'unlabled' && !contains(github.event.pull_request.labels.*.name, ':construction: WIP')) || (github.event.action == 'unlabled' && github.event.label == ':construction: WIP')
-# blub
 
 jobs:
   dump_contexts_to_log:
@@ -133,7 +128,6 @@ jobs:
         run: ${SETUP} && ./build-downstream/bin/ShowActsVersion
 
   linux_ubuntu:
-    if: "${{ (github.event.action != 'unlabeled') || (github.event.action == 'unlabeled' && github.event.label.name == ':construction: WIP') }}"
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/ubuntu2004:v29
     env:
