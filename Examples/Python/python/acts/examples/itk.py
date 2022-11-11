@@ -6,7 +6,7 @@ import acts.examples
 from acts.examples import TGeoDetector
 
 from acts.examples.reconstruction import (
-    SeedfinderConfigArg,
+    SeedFinderConfigArg,
     SeedFilterConfigArg,
     SpacePointGridConfigArg,
     SeedingAlgorithmConfigArg,
@@ -53,6 +53,22 @@ def buildITkGeometry(
     equidistant = TGeoDetector.Config.BinningType.equidistant
     arbitrary = TGeoDetector.Config.BinningType.arbitrary
 
+    # ## Create TGeo geometry from `tgeo_fileName = itk-hgtd/ATLAS-ITk-HGTD.tgeo.root`.
+    # The `subVolumeName` and `sensitiveNames` specified below may change with new geometry versions
+    # in the root file (it changed ATLAS-P2-23 -> ATLAS-P2-RUN4-01-00-00).
+    # `TGeoParser` searches the tree below `subVolumeName` for all elements that match any of the
+    # list of `sensitiveNames` wildcards and also fall inside the `rRange`/`zRange` selections.
+    # If no `TGeoDetectorElements`` are found for an ACTS `Volume()`, then `TGeoDetector.create()`
+    # raises an exception along the lines of:
+    # 1. Missing tracking geometry - or
+    # 2. Incorrect binning configuration found: Number of configurations does not match number of protolayers
+    # Unless you know in advance, working out what names to change may not be trivial.
+    # I (@timadye) used a combination of
+    # * adding `printf`s in `Acts::TGeoParser::select()` (useful to find what it found with the old version),
+    # * printing object descendants from root (good for making long lists, but navigation cumbersome), and
+    # * browsing `TGeoManager` with ROOT's `TBrowser` (easy to navigate, but have to scan through long lists by eye).
+    # If the detector has moved significantly, it may be necessary to change the `rRange`/`zRange`.
+    # This specification should be kept in sync with `itk-hgtd/tgeo-atlas-itk-hgtd.json`.
     return TGeoDetector.create(
         fileName=str(tgeo_fileName),
         mdecorator=matDeco,
@@ -71,8 +87,8 @@ def buildITkGeometry(
                 binToleranceZ=(5 * u.mm, 5 * u.mm),
                 binTolerancePhi=(0.025 * u.mm, 0.025 * u.mm),
                 layers=LayerTriplet(True),
-                subVolumeName=LayerTriplet("Pixel::Pixel"),
-                sensitiveNames=LayerTriplet(["Pixel::siLog"]),
+                subVolumeName=LayerTriplet("ITkPixel__ITkPixelDetector"),
+                sensitiveNames=LayerTriplet(["ITkPixel__*_Sensor"]),
                 sensitiveAxes=LayerTriplet("YZX"),
                 rRange=LayerTriplet((0 * u.mm, 135 * u.mm)),
                 zRange=LayerTriplet(
@@ -109,8 +125,8 @@ def buildITkGeometry(
                 binToleranceZ=(5 * u.mm, 5 * u.mm),
                 binTolerancePhi=(0.025 * u.mm, 0.025 * u.mm),
                 layers=LayerTriplet(True),
-                subVolumeName=LayerTriplet("Pixel::Pixel"),
-                sensitiveNames=LayerTriplet(["Pixel::siLog"]),
+                subVolumeName=LayerTriplet("ITkPixel__ITkPixelDetector"),
+                sensitiveNames=LayerTriplet(["ITkPixel__*_Sensor"]),
                 sensitiveAxes=LayerTriplet("YZX"),
                 rRange=LayerTriplet((135 * u.mm, 350 * u.mm)),
                 zRange=LayerTriplet(
@@ -149,15 +165,11 @@ def buildITkGeometry(
                 binToleranceZ=(5 * u.mm, 5 * u.mm),
                 binTolerancePhi=(0.025 * u.mm, 0.025 * u.mm),
                 layers=LayerTriplet(True),
-                subVolumeName=LayerTriplet(
-                    negative="*",
-                    central="SCT::SCT_Barrel",
-                    positive="*",
-                ),
+                subVolumeName=LayerTriplet("ITkStrip__ITkStrip"),
                 sensitiveNames=LayerTriplet(
-                    negative=["SCT::ECSensor*"],
-                    central=["SCT::BRLSensor*"],
-                    positive=["SCT::ECSensor*"],
+                    negative=["ITkStrip__ECSensor*"],
+                    central=["ITkStrip__BRLSensor*"],
+                    positive=["ITkStrip__ECSensor*"],
                 ),
                 sensitiveAxes=LayerTriplet("XYZ"),
                 rRange=LayerTriplet(
@@ -225,8 +237,8 @@ def buildITkGeometry(
                 binToleranceZ=(5 * u.mm, 5 * u.mm),
                 binTolerancePhi=(0.25 * u.mm, 0.25 * u.mm),
                 layers=LayerTriplet(positive=True, central=False, negative=True),
-                subVolumeName=LayerTriplet("HGTD::HGTD"),
-                sensitiveNames=LayerTriplet(["HGTD::HGTDSiSensor*"]),
+                subVolumeName=LayerTriplet("HGTD__HGTD"),
+                sensitiveNames=LayerTriplet(["HGTD__HGTDSiSensor*"]),
                 sensitiveAxes=LayerTriplet("XYZ"),
                 rRange=LayerTriplet(
                     negative=(0 * u.mm, 1050 * u.mm),
@@ -314,6 +326,9 @@ def itkSeedingAlgConfig(inputSpacePointsType):
         rMaxSeedConf=140 * u.mm,
         nTopForLargeR=1,
         nTopForSmallR=2,
+        seedConfMinBottomRadius=60.0 * u.mm,
+        seedConfMaxZOrigin=150.0 * u.mm,
+        minImpactSeedConf=1.0 * u.mm,
     )  # contains parameters for seed confirmation
     forwardSeedConfirmationRange = acts.SeedConfirmationRangeConfig(
         zMinSeedConf=-3000 * u.mm,
@@ -321,25 +336,15 @@ def itkSeedingAlgConfig(inputSpacePointsType):
         rMaxSeedConf=140 * u.mm,
         nTopForLargeR=1,
         nTopForSmallR=2,
+        seedConfMinBottomRadius=60.0 * u.mm,
+        seedConfMaxZOrigin=150.0 * u.mm,
+        minImpactSeedConf=1.0 * u.mm,
     )
+    zOriginWeightFactor = 1
     compatSeedWeight = 100
     curvatureSortingInFilter = True
     phiMin = 0
     phiMax = 2 * math.pi
-    zBinEdges = [
-        -3000.0,
-        -2500.0,
-        -1400.0,
-        -925.0,
-        -450.0,
-        -250.0,
-        250.0,
-        450.0,
-        925.0,
-        1400.0,
-        2500.0,
-        3000.0,
-    ]  # zBinEdges enables non-equidistant binning in z, in case the binning is not defined the edges are evaluated automatically using equidistant binning
     phiBinDeflectionCoverage = 3
     numPhiNeighbors = 1
 
@@ -462,7 +467,7 @@ def itkSeedingAlgConfig(inputSpacePointsType):
         useDeltaRorTopRadius = False
 
     # fill namedtuples
-    seedfinderConfigArg = SeedfinderConfigArg(
+    seedFinderConfigArg = SeedFinderConfigArg(
         maxSeedsPerSpM=maxSeedsPerSpM,
         cotThetaMax=cotThetaMax,
         sigmaScattering=sigmaScattering,
@@ -495,6 +500,7 @@ def itkSeedingAlgConfig(inputSpacePointsType):
     )
     seedFilterConfigArg = SeedFilterConfigArg(
         impactWeightFactor=impactWeightFactor,
+        zOriginWeightFactor=zOriginWeightFactor,
         compatSeedWeight=compatSeedWeight,
         compatSeedLimit=compatSeedLimit,
         numSeedIncrement=numSeedIncrement,
@@ -520,7 +526,7 @@ def itkSeedingAlgConfig(inputSpacePointsType):
     )
 
     return (
-        seedfinderConfigArg,
+        seedFinderConfigArg,
         seedFilterConfigArg,
         spacePointGridConfigArg,
         seedingAlgorithmConfigArg,

@@ -10,6 +10,10 @@ on:
     paths-ignore:
       - "docs/**"
 
+concurrency: 
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
 env:
   CTEST_OUTPUT_ON_FAILURE: 1
   HOMEBREW_NO_INSTALL_CLEANUP: 1
@@ -260,12 +264,19 @@ jobs:
       - name: Unpack build
         run: mkdir build && tar xf build.tar.gz -C build
 
+      - name: Save PR number
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          mkdir -p physmon
+          echo ${{ github.event.number }} > physmon/pr_number
+          echo ${{ github.event.pull_request.head.sha }} > physmon/sha
+
       - name: Physics performance checks
         shell: bash
         run: >
           echo "::group::Dependencies"
           && git config --global safe.directory "$GITHUB_WORKSPACE"
-          && pip3 install histcmp==0.4.4
+          && pip3 install histcmp==0.5.2
           && pip3 install -r Examples/Scripts/requirements.txt
           && /usr/local/bin/download_geant4_data.sh
           && source /usr/local/bin/thisroot.sh
@@ -383,7 +394,7 @@ jobs:
       PRELOAD: export LD_PRELOAD=/opt/lcg/gcc/10/x86_64-centos8/lib64/libstdc++.so.6
       INSTALL_DIR: ${{ github.workspace }}/install
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Install dependencies
           # Install tbb-devel also to build the examples
         run: >
@@ -421,7 +432,7 @@ jobs:
       - name: ccache stats
         run: ccache -s
       - name: Unit tests
-        run: ${SETUP} && ${PRELOAD} && cmake --build build --target test
+        run: ${SETUP} && cmake --build build --target test
       - name: Integration tests
         run: ${SETUP} && cmake --build build --target integrationtests
       - name: Install
@@ -479,7 +490,7 @@ jobs:
           brew install cmake eigen ninja ccache
           && sudo mkdir /usr/local/acts
           && sudo chown $USER /usr/local/acts
-          && wget --verbose --progress=dot:giga --continue --retry-connrefused --tries=5 --timeout=2 -O deps.tar.gz https://acts.web.cern.ch/ci/macOS/deps.1e4136f.tar.gz
+          && wget --verbose --progress=dot:giga --continue --retry-connrefused --tries=5 --timeout=2 -O deps.tar.gz https://acts.web.cern.ch/ci/macOS/deps.ce7b5a4.tar.gz
           && tar -xf deps.tar.gz -C /usr/local/acts
 
       - name: Cache build
@@ -519,7 +530,7 @@ jobs:
         run: cmake --build build --target integrationtests
       - name: Install
         run: cmake --build build --target install
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: acts-macos
           path: ${{ env.INSTALL_DIR }}
@@ -540,7 +551,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ghcr.io/acts-project/ubuntu1804_cuda:v29
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Cache build
         uses: actions/cache@v3
@@ -573,7 +584,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Cache build
         uses: actions/cache@v3
@@ -602,4 +613,3 @@ jobs:
           && cmake --build build
       - name: ccache stats
         run: ccache -s
-

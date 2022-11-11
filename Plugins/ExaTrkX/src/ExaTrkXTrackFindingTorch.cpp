@@ -8,7 +8,8 @@
 
 #include "Acts/Plugins/ExaTrkX/ExaTrkXTrackFindingTorch.hpp"
 
-#include <boost/filesystem.hpp>
+#include <filesystem>
+
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
@@ -46,7 +47,7 @@ namespace Acts {
 ExaTrkXTrackFindingTorch::ExaTrkXTrackFindingTorch(
     const ExaTrkXTrackFindingTorch::Config& config)
     : ExaTrkXTrackFindingBase("ExaTrkXTorch"), m_cfg(config) {
-  using Path = boost::filesystem::path;
+  using Path = std::filesystem::path;
 
   const Path embedModelPath = Path(m_cfg.modelDir) / "embed.pt";
   const Path filterModelPath = Path(m_cfg.modelDir) / "filter.pt";
@@ -86,8 +87,11 @@ std::optional<ExaTrkXTime> ExaTrkXTrackFindingTorch::getTracks(
 
   // Clone models (solve memory leak? members can be const...)
   auto e_model = m_embeddingModel->clone();
+  e_model.to(device);
   auto f_model = m_filterModel->clone();
+  f_model.to(device);
   auto g_model = m_gnnModel->clone();
+  g_model.to(device);
 
   // printout the r,phi,z of the first spacepoint
   ACTS_VERBOSE("First spacepoint information [r, phi, z]: "

@@ -18,6 +18,7 @@
 #include "Acts/Utilities/Logger.hpp"
 
 namespace Acts {
+namespace Experimental {
 
 /// The extensions needed for the GSF
 template <typename traj_t>
@@ -69,9 +70,12 @@ struct GsfOptions {
 
   std::size_t maxComponents = 4;
 
+  double weightCutoff = 1.e-4;
+
   bool abortOnError = true;
 
   bool disableAllMaterialHandling = false;
 };
 
+}  // namespace Experimental
 }  // namespace Acts
