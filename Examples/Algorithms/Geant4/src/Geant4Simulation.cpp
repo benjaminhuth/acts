@@ -42,6 +42,7 @@ void setUserActions(manager_t& manager, actions_t& actions) {
     }
   }
 }
+
 }  // namespace
 
 ActsExamples::Geant4Simulation::Geant4Simulation(
@@ -148,9 +149,31 @@ ActsExamples::ProcessCode ActsExamples::Geant4Simulation::execute(
   // Register the current event store to the registry
   // this will allow access from the User*Actions
   eventData.store = &(ctx.eventStore);
+  
+  // Particles outside of Geant4 volume seem to lead to segfault
+  auto worldSolid = m_cfg.detectorConstruction->Construct()->GetLogicalVolume()->GetSolid();
+  
+  G4ThreeVector min, max;
+  worldSolid->BoundingLimits(min, max);
+  
+  ACTS_INFO("world min: " << min);
+  ACTS_INFO("world max: " << max);
+  
+  auto notInWorld = [&](const ActsFatras::Particle &part) {
+    const auto &pos = part.position();
+    return not worldSolid->Inside(G4ThreeVector(pos[0], pos[1], pos[2]));
+  };
+  
+  auto &particles = eventData.particlesInitial;
+  ACTS_VERBOSE("simulate " << particles.size() << " particles");
+  
+  const auto sizeBefore = particles.size();
+  particles.erase(std::remove_if(particles.begin(), particles.end(), notInWorld), particles.end());
+  
+  ACTS_INFO("Removed " << sizeBefore - particles.size() << " particles outside of Geant4 world solid");
 
-  ACTS_DEBUG("Sending Geant RunManager the BeamOn() command.");
   // Start simulation. each track is simulated as a separate Geant4 event.
+  ACTS_DEBUG("Sending Geant RunManager the BeamOn() command.");
   m_cfg.runManager->BeamOn(1);
 
   // Output handling: Initial/Final particles
