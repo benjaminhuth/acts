@@ -41,8 +41,10 @@ ParticleSelectorConfig = namedtuple(
         "pt",  # (min,max)
         "removeCharged",  # bool
         "removeNeutral",  # bool
+        "removeEarlyEnergyLoss", # bool
+        "removeEarlyEnergyLossThreshold", # float
     ],
-    defaults=[(None, None)] * 7 + [None] * 2,
+    defaults=[(None, None)] * 7 + [None] * 4,
 )
 
 
@@ -306,6 +308,7 @@ def addParticleSelection(
     s: acts.examples.Sequencer,
     preselectParticles: ParticleSelectorConfig,
     inputParticles="particles_input",
+    inputSimHits="simhits",
     outputParticles="particles_selected",
     logLevel: Optional[acts.logging.Level] = None,
 ) -> None:
@@ -344,9 +347,12 @@ def addParticleSelection(
                 ptMax=preselectParticles.pt[1],
                 removeCharged=preselectParticles.removeCharged,
                 removeNeutral=preselectParticles.removeNeutral,
+                removeEarlyEnergyLoss=preselectParticles.removeEarlyEnergyLoss,
+                removeEarlyEnergyLossThreshold=preselectParticles.removeEarlyEnergyLossThreshold,
             ),
             level=customLogLevel(),
             inputParticles=inputParticles,
+            inputSimHits=inputSimHits,
             outputParticles=outputParticles,
         )
     )

@@ -55,7 +55,7 @@ class ParticleSelector final : public BareAlgorithm {
     /// Remove particles with energy loss at first hit
     bool removeEarlyEnergyLoss = false;
     /// With what energy loss the removeEarlyEnergyLoss should be applied
-    double energyLossThreshold = 100_MeV;
+    double removeEarlyEnergyLossThreshold = 100 / Acts::UnitConstants::MeV;
   };
 
   ParticleSelector(const Config& config, Acts::Logging::Level level);

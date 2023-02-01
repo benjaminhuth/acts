@@ -46,6 +46,10 @@ ActsExamples::ParticleSelector::ParticleSelector(const Config& config,
                                        << ")");
   ACTS_DEBUG("remove charged particles " << m_cfg.removeCharged);
   ACTS_DEBUG("remove neutral particles " << m_cfg.removeNeutral);
+  ACTS_DEBUG("remove particles with early energy loss "
+             << m_cfg.removeEarlyEnergyLoss << " (threshold: "
+             << m_cfg.removeEarlyEnergyLossThreshold / Acts::UnitConstants::MeV
+             << " MeV)");
 }
 
 ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
@@ -82,7 +86,7 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
   namespace bc = boost::container;
   const auto energyLossParticleIds =
       [&]() -> bc::flat_set<ActsFatras::Barcode> {
-    if (not m_cfg.energyLossThreshold) {
+    if (not m_cfg.removeEarlyEnergyLoss) {
       return {};
     }
     const auto& inputHits =
@@ -91,12 +95,12 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
     std::vector<ActsFatras::Barcode> toFilter;
     for (const auto& hit : inputHits) {
       if (hit.index() == 0 and
-          hit.depositedEnergy() > m_cfg.energyLossThreshold) {
+          hit.depositedEnergy() > m_cfg.removeEarlyEnergyLossThreshold) {
         toFilter.push_back(hit.particleId());
       }
     }
 
-    ACTS_DEBUG("Filter " << toFilter.size()
+    ACTS_DEBUG("Remove " << toFilter.size()
                          << " particles with early energy loss");
 
     std::sort(toFilter.begin(), toFilter.end());

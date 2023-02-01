@@ -96,6 +96,7 @@ void addTruthTracking(Context& ctx) {
 
     ACTS_PYTHON_STRUCT_BEGIN(c, Config);
     ACTS_PYTHON_MEMBER(inputParticles);
+    ACTS_PYTHON_MEMBER(inputSimHits);
     ACTS_PYTHON_MEMBER(outputParticles);
     ACTS_PYTHON_MEMBER(rhoMin);
     ACTS_PYTHON_MEMBER(rhoMax);
@@ -113,6 +114,8 @@ void addTruthTracking(Context& ctx) {
     ACTS_PYTHON_MEMBER(ptMax);
     ACTS_PYTHON_MEMBER(removeCharged);
     ACTS_PYTHON_MEMBER(removeNeutral);
+    ACTS_PYTHON_MEMBER(removeEarlyEnergyLoss);
+    ACTS_PYTHON_MEMBER(removeEarlyEnergyLossThreshold);
     ACTS_PYTHON_STRUCT_END();
 
     pythonRangeProperty(c, "rho", &Config::rhoMin, &Config::rhoMax);
