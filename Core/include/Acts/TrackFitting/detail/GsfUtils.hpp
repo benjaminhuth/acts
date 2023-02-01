@@ -85,11 +85,10 @@ class ScopedGsfInfoPrinterAndChecker {
       auto getVector = [&](auto idx) {
         return cmp.pars().template segment<3>(idx).transpose();
       };
-      ACTS_VERBOSE("  #" << i++ << " pos: " << getVector(eFreePos0) << ", dir: "
+      ACTS_VERBOSE("  #" << std::setprecision(3) << i++ << " pos: " << getVector(eFreePos0) << ", dir: "
                          << getVector(eFreeDir0) << ", weight: " << cmp.weight()
                          << ", status: " << cmp.status()
-                         << ", qop: " << cmp.pars()[eFreeQOverP]
-                         << ", det(cov): " << cmp.cov().determinant());
+                         << ", p: " << 1./std::abs(cmp.pars()[eFreeQOverP]));
     }
   }
 
