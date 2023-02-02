@@ -419,8 +419,8 @@ struct GaussianSumFitter {
       track.setReferenceSurface(params.referenceSurface().getSharedPtr());
     }
 
-    track.nMeasurements() = fwdGsfResult.measurementStates;
-    track.nHoles() = fwdGsfResult.measurementHoles;
+    track.nMeasurements() = std::min(fwdGsfResult.measurementStates, bwdGsfResult.measurementStates);
+    track.nHoles() = std::max(fwdGsfResult.measurementHoles, bwdGsfResult.measurementHoles);
 
     return track;
   }

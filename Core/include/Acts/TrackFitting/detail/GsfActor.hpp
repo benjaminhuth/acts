@@ -585,11 +585,30 @@ struct GsfActor {
       tmpStates.weights[tmpStates.tips.back()] = cmp.weight();
     }
 
+    std::vector<double> old_weights;
+    for (auto tip : tmpStates.tips) {
+      old_weights.push_back(tmpStates.weights.at(tip));
+    }
+
     computePosteriorWeights(tmpStates.traj, tmpStates.tips, tmpStates.weights);
+
+    for (auto i = 0ul; i < old_weights.size(); ++i) {
+      ACTS_VERBOSE("  weight before normalization: " <<
+                   std::setprecision(3) << tmpStates.weights.at(i));
+    }
 
     detail::normalizeWeights(tmpStates.tips, [&](auto idx) -> double& {
       return tmpStates.weights.at(idx);
     });
+
+    for (auto i = 0ul; i < old_weights.size(); ++i) {
+      auto proxy = tmpStates.traj.getTrackState(tmpStates.tips.at(i));
+      ACTS_VERBOSE("  weight update: p=" <<
+                   std::setprecision(3) << 1. / std::abs(proxy.filtered()[eBoundQOverP]) << ", chi2="
+                   << proxy.chi2() << ", weight: " << old_weights.at(i)
+                   << " -> " << tmpStates.weights.at(i));
+    }
+
 
     // Do the statistics
     ++result.processedStates;

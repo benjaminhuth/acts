@@ -85,10 +85,11 @@ class ScopedGsfInfoPrinterAndChecker {
       auto getVector = [&](auto idx) {
         return cmp.pars().template segment<3>(idx).transpose();
       };
-      ACTS_VERBOSE("  #" << std::setprecision(3) << i++ << " pos: " << getVector(eFreePos0) << ", dir: "
+      ACTS_VERBOSE("  #" << std::setprecision(3) << i++
+                         << " pos: " << getVector(eFreePos0) << ", dir: "
                          << getVector(eFreeDir0) << ", weight: " << cmp.weight()
                          << ", status: " << cmp.status()
-                         << ", p: " << 1./std::abs(cmp.pars()[eFreeQOverP]));
+                         << ", p: " << 1. / std::abs(cmp.pars()[eFreeQOverP]));
     }
   }
 
@@ -147,8 +148,37 @@ class ScopedGsfInfoPrinterAndChecker {
   }
 };
 
+template <int D>
+class MultivariateNormalPDF {
+  ActsVector<D> m_mean;
+  ActsSymMatrix<D> m_invCov;
+  ActsScalar m_normFactor;
+
+ public:
+  MultivariateNormalPDF(const ActsVector<D> &mean, const ActsSymMatrix<D> &cov)
+      : m_mean(mean),
+        m_invCov(cov.inverse()),
+        m_normFactor(std::sqrt(std::pow(2 * M_PI, D) * cov.determinant())) {}
+
+  ActsScalar operator()(ActsVector<D> x) const {
+    ActsVector<D> diff = x - m_mean;
+    return m_normFactor *
+           std::exp(-0.5 * diff.transpose() * (m_invCov * diff).eval());
+  }
+};
+
 ActsScalar calculateDeterminant(
     const double *fullCalibrated, const double *fullCalibratedCovariance,
+    TrackStateTraits<MultiTrajectoryTraits::MeasurementSizeMax,
+                     true>::Covariance predictedCovariance,
+    TrackStateTraits<MultiTrajectoryTraits::MeasurementSizeMax, true>::Projector
+        projector,
+    unsigned int calibratedSize);
+
+ActsScalar calculateFactor(
+    const double *fullCalibrated, const double *fullCalibratedCovariance,
+    TrackStateTraits<MultiTrajectoryTraits::MeasurementSizeMax,
+                     true>::Parameters predicted,
     TrackStateTraits<MultiTrajectoryTraits::MeasurementSizeMax,
                      true>::Covariance predictedCovariance,
     TrackStateTraits<MultiTrajectoryTraits::MeasurementSizeMax, true>::Projector
@@ -159,6 +189,7 @@ ActsScalar calculateDeterminant(
 /// with non-Gaussian noise"`. See also the implementation in Athena at
 /// PosteriorWeightsCalculator.cxx
 /// @note The weights are not renormalized!
+#if 0
 template <typename D>
 void computePosteriorWeights(
     const MultiTrajectory<D> &mt,
@@ -200,6 +231,35 @@ void computePosteriorWeights(
     }
   }
 }
+#else
+template <typename D>
+void computePosteriorWeights(
+    const MultiTrajectory<D> &mt,
+    const std::vector<MultiTrajectoryTraits::IndexType> &tips,
+    std::map<MultiTrajectoryTraits::IndexType, double> &weights) {
+  // Loop over the tips and compute new weights
+  for (auto tip : tips) {
+    const auto state = mt.getTrackState(tip);
+    constexpr static auto K = MultiTrajectoryTraits::MeasurementSizeMax;
+
+    // This abuses an incorrectly sized vector / matrix to access the
+    // data pointer! This works (don't use the matrix as is!), but be
+    // careful!
+    auto factor = calculateFactor(
+        state.template calibrated<K>().data(),
+        state.template calibratedCovariance<K>().data(), state.predicted(),
+        state.predictedCovariance(), state.projector(), state.calibratedSize());
+
+    // If something is not finite here, just leave the weight as it is
+    weights.at(tip) *= factor;
+
+    const double minWeight = 1.e-15;
+    if( not std::isfinite(weights.at(tip)) or weights.at(tip) < minWeight ) {
+      weights.at(tip) = minWeight;
+    }
+  }
+}
+#endif
 
 /// Enumeration type to allow templating on the state we want to project on with
 /// a MultiTrajectory
