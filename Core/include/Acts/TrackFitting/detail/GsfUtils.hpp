@@ -202,7 +202,7 @@ template <typename D>
 void computePosteriorWeights(
     const MultiTrajectory<D> &mt,
     const std::vector<MultiTrajectoryTraits::IndexType> &tips,
-    std::map<MultiTrajectoryTraits::IndexType, double> &weights) {
+    std::unordered_map<MultiTrajectoryTraits::IndexType, double> &weights) {
   switch (choice) {
     case 0: {
       // Helper Function to compute detR
@@ -309,7 +309,7 @@ inline std::ostream &operator<<(std::ostream &os, StatesType type) {
 template <StatesType type, typename traj_t>
 struct MultiTrajectoryProjector {
   const MultiTrajectory<traj_t> &mt;
-  const std::map<MultiTrajectoryTraits::IndexType, double> &weights;
+  const std::unordered_map<MultiTrajectoryTraits::IndexType, double> &weights;
 
   auto operator()(MultiTrajectoryTraits::IndexType idx) const {
     const auto proxy = mt.getTrackState(idx);

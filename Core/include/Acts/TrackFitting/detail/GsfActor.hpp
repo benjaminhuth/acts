@@ -108,6 +108,9 @@ struct GsfActor {
     /// be started backwards in the first pass
     bool inReversePass = false;
 
+    /// How to combine the multi-component states in the MultiTrajectory
+    FinalReductionMethod reductionMethod = FinalReductionMethod::eMaxWeight;
+
     const Logger* logger{nullptr};
   } m_cfg;
 
@@ -139,7 +142,7 @@ struct GsfActor {
   struct TemporaryStates {
     traj_t traj;
     std::vector<MultiTrajectoryTraits::IndexType> tips;
-    std::map<MultiTrajectoryTraits::IndexType, double> weights;
+    std::unordered_map<MultiTrajectoryTraits::IndexType, double> weights;
   };
 
   /// Broadcast Cache Type
@@ -593,8 +596,8 @@ struct GsfActor {
     computePosteriorWeights(tmpStates.traj, tmpStates.tips, tmpStates.weights);
 
     for (auto i = 0ul; i < old_weights.size(); ++i) {
-      ACTS_VERBOSE("  weight before normalization: " <<
-                   std::setprecision(3) << tmpStates.weights.at(i));
+      ACTS_VERBOSE("  weight before normalization: "
+                   << std::setprecision(3) << tmpStates.weights.at(i));
     }
 
     detail::normalizeWeights(tmpStates.tips, [&](auto idx) -> double& {
@@ -603,12 +606,12 @@ struct GsfActor {
 
     for (auto i = 0ul; i < old_weights.size(); ++i) {
       auto proxy = tmpStates.traj.getTrackState(tmpStates.tips.at(i));
-      ACTS_VERBOSE("  weight update: p=" <<
-                   std::setprecision(3) << 1. / std::abs(proxy.filtered()[eBoundQOverP]) << ", chi2="
+      ACTS_VERBOSE("  weight update: p="
+                   << std::setprecision(3)
+                   << 1. / std::abs(proxy.filtered()[eBoundQOverP]) << ", chi2="
                    << proxy.chi2() << ", weight: " << old_weights.at(i)
                    << " -> " << tmpStates.weights.at(i));
     }
-
 
     // Do the statistics
     ++result.processedStates;
@@ -735,25 +738,49 @@ struct GsfActor {
 
   void addCombinedState(result_type& result, const TemporaryStates& tmpStates,
                         const Surface& surface) const {
-    using PredProjector =
-        MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
-    using FiltProjector =
-        MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
+    // Make a projector that gives the predicted state
+    auto prtProjector = [](const TemporaryStates& s) {
+      return MultiTrajectoryProjector<StatesType::ePredicted, traj_t>{
+          s.traj, s.weights};
+    };
+
+    // Make a projector that gives the filtered state
+    auto fltProjector = [](const TemporaryStates& s) {
+      return MultiTrajectoryProjector<StatesType::eFiltered, traj_t>{s.traj,
+                                                                     s.weights};
+    };
+
+    // Combine components based on the configured method
+    auto combine = [this, &surface](const TemporaryStates& states, const auto& proj_factory, auto combined_mean, auto combined_cov) {
+      const auto proj = proj_factory(states);
+      switch (m_cfg.reductionMethod) {
+        case FinalReductionMethod::eMean: {
+          const auto &[m, c] = angleDescriptionSwitch(surface, [&](const auto& desc) {
+            return combineGaussianMixture(states.tips, proj, desc);
+          });
+          combined_mean = m;
+          combined_cov = c.value();
+        } break;
+        case FinalReductionMethod::eMaxWeight: {
+          const auto& maxWeightTip =
+              std::max_element(states.weights.begin(), states.weights.end(),
+                               [](const auto& a, const auto& b) {
+                                 return a.second < b.second;
+                               })
+                  ->first;
+          const auto& [w, m, c] = proj(maxWeightTip);
+          combined_mean = m;
+          combined_cov = c.value();
+        }
+      }
+    };
 
     // We do not need smoothed and jacobian for now
-    const auto mask = TrackStatePropMask::Calibrated |
-                      TrackStatePropMask::Predicted |
-                      TrackStatePropMask::Filtered;
+    const auto mask =
+        TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
+        TrackStatePropMask::Filtered | TrackStatePropMask::Smoothed;
 
     if (not m_cfg.inReversePass) {
-      // The predicted state is the forward pass
-      const auto [filtMean, filtCov] =
-          angleDescriptionSwitch(surface, [&](const auto& desc) {
-            return combineGaussianMixture(
-                tmpStates.tips,
-                FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
-          });
-
       result.currentTip =
           result.fittedStates->addTrackState(mask, result.currentTip);
       auto proxy = result.fittedStates->getTrackState(result.currentTip);
@@ -762,12 +789,11 @@ struct GsfActor {
       proxy.setReferenceSurface(surface.getSharedPtr());
       proxy.copyFrom(firstCmpProxy, mask);
 
-      // We set predicted & filtered the same so that the fields are not
-      // uninitialized when not finding this state in the reverse pass.
-      proxy.predicted() = filtMean;
-      proxy.predictedCovariance() = filtCov.value();
-      proxy.filtered() = filtMean;
-      proxy.filteredCovariance() = filtCov.value();
+      combine(tmpStates, prtProjector, proxy.predicted(), proxy.predictedCovariance());
+      combine(tmpStates, fltProjector, proxy.filtered(), proxy.filteredCovariance());
+
+      proxy.smoothed() = BoundVector::Zero();
+      proxy.smoothedCovariance() = BoundSymMatrix::Zero();
     } else {
       assert((result.currentTip != MultiTrajectoryTraits::kInvalid &&
               "tip not valid"));
@@ -775,15 +801,7 @@ struct GsfActor {
           result.currentTip, [&](auto trackState) {
             auto fSurface = &trackState.referenceSurface();
             if (fSurface == &surface) {
-              const auto [filtMean, filtCov] =
-                  angleDescriptionSwitch(surface, [&](const auto& desc) {
-                    return combineGaussianMixture(
-                        tmpStates.tips,
-                        FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
-                  });
-
-              trackState.filtered() = filtMean;
-              trackState.filteredCovariance() = filtCov.value();
+              combine(tmpStates, fltProjector, trackState.smoothed(), trackState.smoothedCovariance());
               return false;
             }
             return true;
@@ -799,6 +817,7 @@ struct GsfActor {
     m_cfg.abortOnError = options.abortOnError;
     m_cfg.disableAllMaterialHandling = options.disableAllMaterialHandling;
     m_cfg.weightCutoff = options.weightCutoff;
+    m_cfg.reductionMethod = options.reductionMethod;
   }
 };
 

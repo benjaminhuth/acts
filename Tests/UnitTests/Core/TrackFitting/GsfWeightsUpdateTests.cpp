@@ -83,7 +83,7 @@ BOOST_AUTO_TEST_CASE(WeightsUpdate1D) {
   const double measStddev = 0.1_mm;
 
   Acts::VectorMultiTrajectory mtj;
-  std::map<Acts::MultiTrajectoryTraits::IndexType, double> weights;
+  std::unordered_map<Acts::MultiTrajectoryTraits::IndexType, double> weights;
   std::vector<Acts::MultiTrajectoryTraits::IndexType> tips;
 
   for (auto i = 0ul; i < nComponents; ++i) {
