@@ -185,82 +185,114 @@ ActsScalar calculateFactor(
         projector,
     unsigned int calibratedSize);
 
+const int choice = [] {
+  const char *c = std::getenv("ACTS_WEIGHTS_UPDATE");
+  if( not c ) {
+    std::cout << "WARNING: ACTS_WEIGHTS_UPDATE not set, default to 0\n";
+    return 0;
+  }
+  return std::atoi(c);
+}();
+
 /// Reweight the components according to `R. Frühwirth, "Track fitting
 /// with non-Gaussian noise"`. See also the implementation in Athena at
 /// PosteriorWeightsCalculator.cxx
 /// @note The weights are not renormalized!
-#if 0
 template <typename D>
 void computePosteriorWeights(
     const MultiTrajectory<D> &mt,
     const std::vector<MultiTrajectoryTraits::IndexType> &tips,
     std::map<MultiTrajectoryTraits::IndexType, double> &weights) {
-  // Helper Function to compute detR
+  switch (choice) {
+    case 0: {
+      // Helper Function to compute detR
 
-  // Find minChi2, this can be used to factor some things later in the
-  // exponentiation
-  const auto minChi2 =
-      mt.getTrackState(*std::min_element(tips.begin(), tips.end(),
-                                         [&](const auto &a, const auto &b) {
-                                           return mt.getTrackState(a).chi2() <
-                                                  mt.getTrackState(b).chi2();
-                                         }))
-          .chi2();
+      // Find minChi2, this can be used to factor some things later in the
+      // exponentiation
+      const auto minChi2 =
+          mt.getTrackState(
+                *std::min_element(tips.begin(), tips.end(),
+                                  [&](const auto &a, const auto &b) {
+                                    return mt.getTrackState(a).chi2() <
+                                           mt.getTrackState(b).chi2();
+                                  }))
+              .chi2();
 
-  // Loop over the tips and compute new weights
-  for (auto tip : tips) {
-    const auto state = mt.getTrackState(tip);
-    const double chi2 = state.chi2() - minChi2;
-    const double detR = calculateDeterminant(
+      // Loop over the tips and compute new weights
+      for (auto tip : tips) {
+        const auto state = mt.getTrackState(tip);
+        const double chi2 = state.chi2() - minChi2;
+        const double detR = calculateDeterminant(
+            // This abuses an incorrectly sized vector / matrix to access the
+            // data pointer! This works (don't use the matrix as is!), but be
+            // careful!
+            state
+                .template calibrated<
+                    MultiTrajectoryTraits::MeasurementSizeMax>()
+                .data(),
+            state
+                .template calibratedCovariance<
+                    MultiTrajectoryTraits::MeasurementSizeMax>()
+                .data(),
+            state.predictedCovariance(), state.projector(),
+            state.calibratedSize());
+
+        const auto factor = std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
+
+        // If something is not finite here, just leave the weight as it is
+        if (std::isfinite(factor)) {
+          weights.at(tip) *= factor;
+        }
+      }
+    } break;
+    case 1: {
+      for (auto tip : tips) {
+        const auto state = mt.getTrackState(tip);
+        constexpr static auto K = MultiTrajectoryTraits::MeasurementSizeMax;
+
         // This abuses an incorrectly sized vector / matrix to access the
         // data pointer! This works (don't use the matrix as is!), but be
         // careful!
-        state.template calibrated<MultiTrajectoryTraits::MeasurementSizeMax>()
-            .data(),
-        state
-            .template calibratedCovariance<
-                MultiTrajectoryTraits::MeasurementSizeMax>()
-            .data(),
-        state.predictedCovariance(), state.projector(), state.calibratedSize());
+        auto factor =
+            calculateFactor(state.template calibrated<K>().data(),
+                            state.template calibratedCovariance<K>().data(),
+                            state.predicted(), state.predictedCovariance(),
+                            state.projector(), state.calibratedSize());
 
-    const auto factor = std::sqrt(1. / detR) * std::exp(-0.5 * chi2);
+        // If something is not finite here, just leave the weight as it is
+        weights.at(tip) *= factor;
 
-    // If something is not finite here, just leave the weight as it is
-    if (std::isfinite(factor)) {
-      weights.at(tip) *= factor;
+        const double minWeight = 1.e-15;
+        if (not std::isfinite(weights.at(tip)) or weights.at(tip) < minWeight) {
+          weights.at(tip) = minWeight;
+        }
+      }
+    } break;
+    case 2: {
+      for (auto tip : tips) {
+        const auto state = mt.getTrackState(tip);
+        constexpr static auto K = MultiTrajectoryTraits::MeasurementSizeMax;
+
+        // This abuses an incorrectly sized vector / matrix to access the
+        // data pointer! This works (don't use the matrix as is!), but be
+        // careful!
+        auto factor =
+            calculateFactor(state.template calibrated<K>().data(),
+                            state.template calibratedCovariance<K>().data(),
+                            state.filtered(), state.filteredCovariance(),
+                            state.projector(), state.calibratedSize());
+
+        // If something is not finite here, just leave the weight as it is
+        weights.at(tip) *= factor;
+
+        const double minWeight = 1.e-15;
+        if (not std::isfinite(weights.at(tip)) or weights.at(tip) < minWeight) {
+          weights.at(tip) = minWeight;
+        }
+      }
     }
   }
 }
-#else
-template <typename D>
-void computePosteriorWeights(
-    const MultiTrajectory<D> &mt,
-    const std::vector<MultiTrajectoryTraits::IndexType> &tips,
-    std::map<MultiTrajectoryTraits::IndexType, double> &weights) {
-  // Loop over the tips and compute new weights
-  for (auto tip : tips) {
-    const auto state = mt.getTrackState(tip);
-    constexpr static auto K = MultiTrajectoryTraits::MeasurementSizeMax;
-
-    // This abuses an incorrectly sized vector / matrix to access the
-    // data pointer! This works (don't use the matrix as is!), but be
-    // careful!
-    auto factor = calculateFactor(
-        state.template calibrated<K>().data(),
-        state.template calibratedCovariance<K>().data(), state.predicted(),
-        state.predictedCovariance(), state.projector(), state.calibratedSize());
-
-    // If something is not finite here, just leave the weight as it is
-    weights.at(tip) *= factor;
-
-    const double minWeight = 1.e-15;
-    if( not std::isfinite(weights.at(tip)) or weights.at(tip) < minWeight ) {
-      weights.at(tip) = minWeight;
-    }
-  }
-}
-#endif
-
 /// Enumeration type to allow templating on the state we want to project on with
 /// a MultiTrajectory
 enum class StatesType { ePredicted, eFiltered, eSmoothed };
