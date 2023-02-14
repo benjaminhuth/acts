@@ -60,9 +60,15 @@ TrajectoryState trajectoryState(const Acts::MultiTrajectory<traj_t>& multiTraj,
     const auto& layer = geoID.layer();
     trajState.nStates++;
     trajState.NDF += state.calibratedSize();
-    auto typeFlags = state.typeFlags();
-    if (typeFlags.test(Acts::TrackStateFlag::MeasurementFlag)) {
-      if (typeFlags.test(Acts::TrackStateFlag::SharedHitFlag)) {
+
+    const auto& flags = state.typeFlags();
+
+    assert(!(flags.test(MeasurementFlag) && flags.test(OutlierFlag)));
+    assert(!(flags.test(MeasurementFlag) && flags.test(HoleFlag)));
+    assert(!(flags.test(HoleFlag) && flags.test(OutlierFlag)));
+
+    if (flags.test(MeasurementFlag)) {
+      if (flags.test(SharedHitFlag)) {
         trajState.nSharedHits++;
       }
       trajState.nMeasurements++;
@@ -70,12 +76,12 @@ TrajectoryState trajectoryState(const Acts::MultiTrajectory<traj_t>& multiTraj,
       trajState.measurementVolume.push_back(volume);
       trajState.measurementLayer.push_back(layer);
       trajState.chi2Sum += state.chi2();
-    } else if (typeFlags.test(Acts::TrackStateFlag::OutlierFlag)) {
+    } else if (flags.test(OutlierFlag)) {
       trajState.nOutliers++;
       trajState.outlierChi2.push_back(state.chi2());
       trajState.outlierVolume.push_back(volume);
       trajState.outlierLayer.push_back(layer);
-    } else if (typeFlags.test(Acts::TrackStateFlag::HoleFlag)) {
+    } else if (flags.test(HoleFlag)) {
       trajState.nHoles++;
     }
   });

@@ -268,14 +268,6 @@ struct GaussianSumFitter {
       using IsMultiParameters =
           detail::IsMultiComponentBoundParameters<start_parameters_t>;
 
-      typename propagator_t::template action_list_t_result_t<
-          CurvilinearTrackParameters, decltype(fwdPropOptions.actionList)>
-          inputResult;
-
-      auto& r = inputResult.template get<detail::GsfResult<traj_t>>();
-
-      r.fittedStates = &trackContainer.trackStateContainer();
-
       // This allows the initialization with single- and multicomponent start
       // parameters
       if constexpr (not IsMultiParameters::value) {
@@ -285,11 +277,9 @@ struct GaussianSumFitter {
             sParameters.referenceSurface().getSharedPtr(),
             sParameters.parameters(), sParameters.covariance());
 
-        return m_propagator.propagate(params, fwdPropOptions,
-                                      std::move(inputResult));
+        return m_propagator.propagate(params, fwdPropOptions);
       } else {
-        return m_propagator.propagate(sParameters, fwdPropOptions,
-                                      std::move(inputResult));
+        return m_propagator.propagate(sParameters, fwdPropOptions);
       }
     }();
 
@@ -354,19 +344,22 @@ struct GaussianSumFitter {
 
       auto& r = inputResult.template get<detail::GsfResult<traj_t>>();
 
-      r.fittedStates = &trackContainer.trackStateContainer();
-
+      // Add first trackstate that we already had on the forward pass
       assert(
           (fwdGsfResult.lastMeasurementTip != MultiTrajectoryTraits::kInvalid &&
            "tip is invalid"));
 
-      auto proxy =
-          r.fittedStates->getTrackState(fwdGsfResult.lastMeasurementTip);
-      proxy.filtered() = proxy.predicted();
-      proxy.filteredCovariance() = proxy.predictedCovariance();
+      auto lastFwdState = fwdGsfResult.fittedStates.getTrackState(
+          fwdGsfResult.lastMeasurementTip);
 
-      r.currentTip = fwdGsfResult.lastMeasurementTip;
-      r.visitedSurfaces.push_back(&proxy.referenceSurface());
+      r.currentTip = r.fittedStates.addTrackState(
+          TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
+          TrackStatePropMask::Filtered);
+      r.lastMeasurementTip = r.currentTip;
+      auto firstBwdState = r.fittedStates.getTrackState(r.currentTip);
+      firstBwdState.copyFrom(lastFwdState);
+
+      r.visitedSurfaces.push_back(&firstBwdState.referenceSurface());
       r.measurementStates++;
       r.processedStates++;
 
@@ -408,9 +401,85 @@ struct GaussianSumFitter {
       ACTS_DEBUG("Fwd and bwd measuerement states do not match");
     }
 
+    // Get a new track proxy object
     auto track = trackContainer.getTrack(trackContainer.addTrack());
+    auto& trackStates = trackContainer.trackStateContainer();
 
-    track.tipIndex() = fwdGsfResult.lastMeasurementTip;
+    for (const auto& fwdState : fwdGsfResult.fittedStates.trackStateRange(
+             fwdGsfResult.lastMeasurementTip)) {
+      using Acts::TrackStateFlag;
+
+      // For a measurement, check the backwards state
+      if (fwdState.typeFlags().test(MeasurementFlag)) {
+        track.nMeasurements()++;
+
+        // Search backward state
+        std::optional<MultiTrajectoryTraits::IndexType> bwdIdx;
+        for (const auto& state : bwdGsfResult.fittedStates.trackStateRange(
+                 bwdGsfResult.lastMeasurementTip)) {
+          if (&state.referenceSurface() == &fwdState.referenceSurface()) {
+            bwdIdx = state.index();
+            break;
+          }
+        }
+
+        // If found backward state, compute smoothed
+        if (bwdIdx) {
+          const auto& bwdState =
+              bwdGsfResult.fittedStates.getTrackState(*bwdIdx);
+
+          track.tipIndex() = trackStates.addTrackState(TrackStatePropMask::All,
+                                                       track.tipIndex());
+          auto newState = trackStates.getTrackState(track.tipIndex());
+
+          newState.copyFrom(fwdState);
+
+          // Dummy for now
+          newState.smoothed() = bwdState.filtered();
+          newState.smoothedCovariance() = bwdState.filteredCovariance();
+          ACTS_DEBUG("Combined: Measurment on "
+                     << newState.referenceSurface().geometryId());
+        }
+        // If not found, mark as outlier
+        else {
+          track.tipIndex() = trackStates.addTrackState(
+              TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
+                  TrackStatePropMask::Filtered,
+              track.tipIndex());
+          auto newState = trackStates.getTrackState(track.tipIndex());
+
+          newState.copyFrom(fwdState);
+          newState.typeFlags().set(OutlierFlag);
+          newState.typeFlags().reset(MeasurementFlag);
+          ACTS_DEBUG("Combined: Outlier (bwd miss) on "
+                     << newState.referenceSurface().geometryId());
+        }
+        // In all other cases, just take fwd state for now
+      } else {
+        track.tipIndex() = trackStates.addTrackState(
+            TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
+                TrackStatePropMask::Filtered,
+            track.tipIndex());
+        auto newState = trackStates.getTrackState(track.tipIndex());
+
+        newState.copyFrom(fwdState);
+        assert(newState.typeFlags().test(OutlierFlag) ||
+               newState.typeFlags().test(HoleFlag) || 
+               newState.typeFlags().test(MaterialFlag));
+
+        if (newState.typeFlags().test(OutlierFlag)) {
+          ACTS_DEBUG("Combined: Outlier (fwd outlier) on "
+                     << newState.referenceSurface().geometryId());
+        } else if( newState.typeFlags().test(MaterialFlag) ) {
+          ACTS_DEBUG("Combined: Material state on "
+                     << newState.referenceSurface().geometryId());
+        } else {
+          ACTS_DEBUG("Combined: Hole on "
+                     << newState.referenceSurface().geometryId());
+          track.nHoles()++;
+        }
+      }
+    }
 
     if (options.referenceSurface) {
       const auto& params = *bwdResult->endParameters;
@@ -418,9 +487,6 @@ struct GaussianSumFitter {
       track.covariance() = params.covariance().value();
       track.setReferenceSurface(params.referenceSurface().getSharedPtr());
     }
-
-    track.nMeasurements() = fwdGsfResult.measurementStates;
-    track.nHoles() = fwdGsfResult.measurementHoles;
 
     return track;
   }

@@ -138,7 +138,7 @@ class VectorTrackContainer final : public detail_vtc::VectorTrackContainerBase {
   }
 
   IndexType addTrack_impl() {
-    m_tipIndex.emplace_back();
+    m_tipIndex.emplace_back(MultiTrajectoryTraits::kInvalid);
 
     m_params.emplace_back();
     m_cov.emplace_back();
