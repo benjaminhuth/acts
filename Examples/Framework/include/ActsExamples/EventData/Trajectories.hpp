@@ -56,7 +56,7 @@ struct Trajectories final {
 
   /// Access the underlying multi trajectory.
   const MultiTrajectory& multiTrajectory() const {
-    throw_assert(m_multiTrajectory != nullptr, "MultiTrajectory is null");
+    assert(m_multiTrajectory != nullptr && "MultiTrajectory is null");
     return *m_multiTrajectory;
   }
 
