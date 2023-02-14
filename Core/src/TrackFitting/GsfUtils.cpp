@@ -37,5 +37,31 @@ ActsScalar calculateDeterminant(
         .determinant();
   });
 }
+
+ActsScalar calculateFactor(const double* fullMeas, const double* fullMeasCov,
+                           TrackStateTraits::Parameters predicted,
+                           TrackStateTraits::Covariance predictedCov,
+                           TrackStateTraits::Projector projector,
+                           unsigned int calibratedSize) {
+  return visit_measurement(calibratedSize, [&](auto N) {
+    constexpr size_t K = decltype(N)::value;
+
+    typename Acts::TrackStateTraits<K, true>::Measurement meas{fullMeas};
+    typename Acts::TrackStateTraits<K, true>::MeasurementCovariance measCov{
+        fullMeasCov};
+
+    auto H = projector.template topLeftCorner<K, eBoundSize>().eval();
+
+    const auto pdf = MultivariateNormalPDF<K>(
+        H * predicted, measCov + H * predictedCov * H.transpose());
+
+    // std::cout << "measCov + predictedCov = " << measCov + H * predictedCov * H.transpose() << "\n";
+    //
+    // std::cout << "factor Core: " << pdf(meas) << " - pred " << predicted.transpose() << "\n";
+
+    return pdf(meas);
+  });
+}
+
 }  // namespace detail
 }  // namespace Acts

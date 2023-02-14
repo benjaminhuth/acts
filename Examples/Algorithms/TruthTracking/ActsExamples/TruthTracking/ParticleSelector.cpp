@@ -10,6 +10,7 @@
 
 #include "Acts/Definitions/Units.hpp"
 #include "Acts/Utilities/Helpers.hpp"
+#include "ActsExamples/EventData/SimHit.hpp"
 #include "ActsExamples/EventData/SimParticle.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
 
@@ -25,6 +26,9 @@ ActsExamples::ParticleSelector::ParticleSelector(const Config& config,
   }
   if (m_cfg.outputParticles.empty()) {
     throw std::invalid_argument("Missing output particles collection");
+  }
+  if (m_cfg.removeEarlyEnergyLoss and m_cfg.inputSimHits.empty()) {
+    throw std::invalid_argument("Missing input hits collection");
   }
   ACTS_DEBUG("selection particle rho [" << m_cfg.rhoMin << "," << m_cfg.rhoMax
                                         << ")");
@@ -42,6 +46,10 @@ ActsExamples::ParticleSelector::ParticleSelector(const Config& config,
                                        << ")");
   ACTS_DEBUG("remove charged particles " << m_cfg.removeCharged);
   ACTS_DEBUG("remove neutral particles " << m_cfg.removeNeutral);
+  ACTS_DEBUG("remove particles with early energy loss "
+             << m_cfg.removeEarlyEnergyLoss << " (threshold: "
+             << m_cfg.removeEarlyEnergyLossThreshold / Acts::UnitConstants::MeV
+             << " MeV)");
 }
 
 ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
@@ -72,13 +80,40 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
   // prepare input/ output types
   const auto& inputParticles =
       ctx.eventStore.get<SimParticleContainer>(m_cfg.inputParticles);
+
+  // If we want to filter out particles with early energy loss, make a flat_set
+  // of particle ids of these particles
+  namespace bc = boost::container;
+  const auto energyLossParticleIds =
+      [&]() -> bc::flat_set<ActsFatras::Barcode> {
+    if (not m_cfg.removeEarlyEnergyLoss) {
+      return {};
+    }
+    const auto& inputHits =
+        ctx.eventStore.get<SimHitContainer>(m_cfg.inputSimHits);
+
+    std::vector<ActsFatras::Barcode> toFilter;
+    for (const auto& hit : inputHits) {
+      if (hit.index() == 0 and
+          hit.depositedEnergy() > m_cfg.removeEarlyEnergyLossThreshold) {
+        toFilter.push_back(hit.particleId());
+      }
+    }
+
+    ACTS_DEBUG("Remove " << toFilter.size()
+                         << " particles with early energy loss");
+
+    std::sort(toFilter.begin(), toFilter.end());
+    return {bc::ordered_unique_range, toFilter.begin(), toFilter.end()};
+  }();
+
   SimParticleContainer outputParticles;
   outputParticles.reserve(inputParticles.size());
 
   // copy selected particles
   for (const auto& inputParticle : inputParticles) {
-    if (isValidParticle(inputParticle)) {
-      // the input parameters should already be
+    if (isValidParticle(inputParticle) and
+        not energyLossParticleIds.contains(inputParticle.particleId())) {
       outputParticles.insert(outputParticles.end(), inputParticle);
     }
   }

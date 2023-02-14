@@ -12,6 +12,7 @@
 #include "Acts/Geometry/GeometryContext.hpp"
 #include "Acts/MagneticField/MagneticFieldContext.hpp"
 #include "Acts/Propagator/Propagator.hpp"
+#include "Acts/Propagator/MultiEigenStepperLoop.hpp"
 #include "Acts/TrackFitting/detail/VoidKalmanComponents.hpp"
 #include "Acts/Utilities/CalibrationContext.hpp"
 #include "Acts/Utilities/Delegate.hpp"
@@ -73,6 +74,8 @@ struct GsfOptions {
   bool abortOnError = true;
 
   bool disableAllMaterialHandling = false;
+  
+  FinalReductionMethod reductionMethod = FinalReductionMethod::eMaxWeight;
 
   GsfOptions() = delete;
 };

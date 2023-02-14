@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include "Acts/Definitions/Units.hpp"
 #include "ActsExamples/Framework/BareAlgorithm.hpp"
 
 #include <limits>
@@ -26,6 +27,8 @@ class ParticleSelector final : public BareAlgorithm {
     std::string inputParticles;
     /// The output particles collection.
     std::string outputParticles;
+    /// The simulated hits (optional, only necessary for removeEarlyEnergyLoss)
+    std::string inputSimHits;
     // Minimum/maximum distance from the origin in the tranverse plane.
     double rhoMin = 0;
     double rhoMax = std::numeric_limits<double>::infinity();
@@ -49,6 +52,10 @@ class ParticleSelector final : public BareAlgorithm {
     bool removeCharged = false;
     /// Remove neutral particles.
     bool removeNeutral = false;
+    /// Remove particles with energy loss at first hit
+    bool removeEarlyEnergyLoss = false;
+    /// With what energy loss the removeEarlyEnergyLoss should be applied
+    double removeEarlyEnergyLossThreshold = 100 / Acts::UnitConstants::MeV;
   };
 
   ParticleSelector(const Config& config, Acts::Logging::Level level);
