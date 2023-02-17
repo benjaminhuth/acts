@@ -316,13 +316,13 @@ struct MultiTrajectoryProjector {
     switch (type) {
       case StatesType::ePredicted:
         return std::make_tuple(weights.at(idx), proxy.predicted(),
-                               std::optional{proxy.predictedCovariance()});
+                               proxy.predictedCovariance());
       case StatesType::eFiltered:
         return std::make_tuple(weights.at(idx), proxy.filtered(),
-                               std::optional{proxy.filteredCovariance()});
+                               proxy.filteredCovariance());
       case StatesType::eSmoothed:
         return std::make_tuple(weights.at(idx), proxy.smoothed(),
-                               std::optional{proxy.smoothedCovariance()});
+                               proxy.smoothedCovariance());
     }
   }
 };
