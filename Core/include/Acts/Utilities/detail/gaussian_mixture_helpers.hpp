@@ -95,7 +95,7 @@ auto gaussianMixtureCovariance(const components_t components,
 
   for (const auto &cmp : components) {
     const auto &[weight_l, pars_l, cov_l] = projector(cmp);
-    
+
     sumOfWeights += weight_l;
 
     cov += weight_l * cov_l;
@@ -134,38 +134,7 @@ auto gaussianMixtureMean(const components_t components, projector_t &&projector,
   // Extract the first component
   const auto &[beginWeight, beginPars, beginCov] =
       projector(components.front());
-
-<<<<<<< HEAD
-=======
-  // Assert type properties
-  using ParsType = std::decay_t<decltype(beginPars)>;
-  using CovType = std::decay_t<decltype(beginCov)>;
-  using WeightType = std::decay_t<decltype(beginWeight)>;
-
-  constexpr int D = ParsType::RowsAtCompileTime;
-  EIGEN_STATIC_ASSERT_VECTOR_ONLY(ParsType);
-  EIGEN_STATIC_ASSERT_MATRIX_SPECIFIC_SIZE(CovType, D, D);
-  static_assert(std::is_floating_point_v<WeightType>);
-
-  // gcc 8 does not like this statement somehow. We must handle clang here since
-  // it defines __GNUC__ as 4.
-#if defined(__GNUC__) && __GNUC__ < 9 && !defined(__clang__)
-  // No check
-#else
-  std::apply(
-      [&](auto... d) { static_assert((std::less<int>{}(d.idx, D) && ...)); },
-      angleDesc);
-#endif
-
-  // Define the return type
-  using RetType = std::tuple<ActsVector<D>, ActsSymMatrix<D>>;
-
-  // Early return in case of range with length 1
-  if (components.size() == 1) {
-    return RetType{beginPars / beginWeight, beginCov / beginWeight};
-  }
-
->>>>>>> main
+      
   // Zero initialized values for aggregation
   ActsVector<D> mean = ActsVector<D>::Zero();
   double sumOfWeights{0.0};
@@ -201,7 +170,6 @@ auto gaussianMixtureMean(const components_t components, projector_t &&projector,
 
   std::apply([&](auto... dsc) { (wrap(dsc), ...); }, angleDesc);
 
-<<<<<<< HEAD
   return mean;
 }
 
@@ -238,14 +206,6 @@ auto combineGaussianMixture(const components_t components,
   EIGEN_STATIC_ASSERT_MATRIX_SPECIFIC_SIZE(CovType, D, D);
   static_assert(std::is_floating_point_v<WeightType>);
 
-  // Define the return type
-  using RetType = std::tuple<ActsVector<D>, ActsSymMatrix<D>>;
-
-  // Early return in case of range with length 1
-  if (components.size() == 1) {
-    return RetType{beginPars / beginWeight, beginCov / beginWeight};
-  }
-
   // gcc 8 does not like this statement somehow. We must handle clang here since
   // it defines __GNUC__ as 4.
 #if defined(__GNUC__) && __GNUC__ < 9 && !defined(__clang__)
@@ -256,15 +216,18 @@ auto combineGaussianMixture(const components_t components,
       angleDesc);
 #endif
 
+  // Define the return type
+  using RetType = std::tuple<ActsVector<D>, ActsSymMatrix<D>>;
+
+  // Early return in case of range with length 1
+  if (components.size() == 1) {
+    return RetType{beginPars / beginWeight, beginCov / beginWeight};
+  }
+
   const auto mean = gaussianMixtureMean<D>(components, projector, angleDesc);
   const auto cov =
       gaussianMixtureCovariance<D>(components, mean, projector, angleDesc);
 
-=======
-  const auto cov =
-      combineCov(components, mean, sumOfWeights, projector, angleDesc);
-
->>>>>>> main
   return RetType{mean, cov};
 }
 

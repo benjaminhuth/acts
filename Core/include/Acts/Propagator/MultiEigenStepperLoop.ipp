@@ -49,19 +49,18 @@ auto MultiEigenStepperLoop<E, R, A>::boundState(
         return detail::combineGaussianMixture(states, Acts::Identity{}, desc);
       });
 
-  const auto finalParams = [&]() {
-    switch (m_finalReductionMethod) {
-      case FinalReductionMethod::eMaxWeight: {
-        return std::get<BoundVector>(*std::max_element(
-            states.begin(), states.end(), [](const auto& a, const auto& b) {
-              return std::get<double>(a) < std::get<double>(b);
-            }));
-      }
-      case FinalReductionMethod::eMean: {
-        return mean;
-      }
+  BoundVector finalParams;
+  switch (m_finalReductionMethod) {
+    case FinalReductionMethod::eMaxWeight: {
+      finalParams = std::get<BoundVector>(*std::max_element(
+          states.begin(), states.end(), [](const auto& a, const auto& b) {
+            return std::get<double>(a) < std::get<double>(b);
+          }));
+    } break;
+    case FinalReductionMethod::eMean: {
+      finalParams = mean;
     }
-  }();
+  }
 
   std::optional<BoundSymMatrix> finalCov = std::nullopt;
   if (cov != BoundSymMatrix::Zero()) {
