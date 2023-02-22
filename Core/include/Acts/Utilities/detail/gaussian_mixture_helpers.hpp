@@ -74,15 +74,29 @@ auto angleDescriptionSwitch(const Surface &surface, Callable &&callable) {
   }
 }
 
+/// Compute the covariance of a Gaussian Mixture. Uses some approximations
+/// for cyclic coordinates (no circular mean).
+///
+/// @param components A range of components
+/// @param mean The mean of the Gaussian Mixture
+/// @param projector A projector, which maps the component to a
+/// std::tuple< weight, mean, cov >
+/// @param angleDesc A angle description object which defines the cyclic
+/// angles in the bound parameters
 template <int D, typename components_t, typename projector_t,
           typename angle_desc_t>
-auto combineCov(const components_t components, const ActsVector<D> &mean,
-                double sumOfWeights, projector_t &&projector,
-                const angle_desc_t &angleDesc) {
+auto gaussianMixtureCovariance(const components_t components,
+                               const ActsVector<D> &mean,
+                               projector_t &&projector,
+                               const angle_desc_t &angleDesc) {
+  // Zero initialized values for aggregation
   ActsSymMatrix<D> cov = ActsSymMatrix<D>::Zero();
+  double sumOfWeights{0.0};
 
   for (const auto &cmp : components) {
     const auto &[weight_l, pars_l, cov_l] = projector(cmp);
+
+    sumOfWeights += weight_l;
 
     cov += weight_l * cov_l;
 
@@ -105,12 +119,63 @@ auto combineCov(const components_t components, const ActsVector<D> &mean,
   return cov;
 }
 
+/// Compute the mean of a Gaussian Mixture. Uses some approximations for
+/// cyclic coordinates (no circular mean).
+///
+/// @param components A range of components
+/// @param projector A projector, which maps the component to a
+/// std::tuple< weight, mean, cov >
+/// @param angleDesc A angle description object which defines the cyclic
+/// angles in the bound parameters
+template <int D, typename components_t, typename projector_t,
+          typename angle_desc_t>
+auto gaussianMixtureMean(const components_t components, projector_t &&projector,
+                         const angle_desc_t &angleDesc) {
+  // Extract the first component
+  const auto &[beginWeight, beginPars, beginCov] =
+      projector(components.front());
+      
+  // Zero initialized values for aggregation
+  ActsVector<D> mean = ActsVector<D>::Zero();
+  double sumOfWeights{0.0};
+
+  for (const auto &cmp : components) {
+    const auto &[weight_l, pars_l, cov_l] = projector(cmp);
+
+    sumOfWeights += weight_l;
+    mean += weight_l * pars_l;
+
+    // Apply corrections for cyclic coordinates
+    auto handleCyclicMean = [&ref = beginPars, &pars = pars_l,
+                             &weight = weight_l, &mean = mean](auto desc) {
+      const auto delta = (ref[desc.idx] - pars[desc.idx]) / desc.constant;
+
+      if (delta > M_PI) {
+        mean[desc.idx] += (2 * M_PI) * weight * desc.constant;
+      } else if (delta < -M_PI) {
+        mean[desc.idx] -= (2 * M_PI) * weight * desc.constant;
+      }
+    };
+
+    std::apply([&](auto... dsc) { (handleCyclicMean(dsc), ...); }, angleDesc);
+  }
+
+  mean /= sumOfWeights;
+
+  auto wrap = [&](auto desc) {
+    mean[desc.idx] =
+        wrap_periodic(mean[desc.idx] / desc.constant, -M_PI, 2 * M_PI) *
+        desc.constant;
+  };
+
+  std::apply([&](auto... dsc) { (wrap(dsc), ...); }, angleDesc);
+
+  return mean;
+}
+
 /// @brief Combine multiple components into one representative track state
 /// object. The function takes iterators to allow for arbitrary ranges to be
 /// combined. The dimension of the vectors is infeared from the inputs.
-///
-/// @note If one component does not contain a covariance, no covariance is
-/// computed.
 ///
 /// @note The correct mean and variances for cyclic coordnates or spherical
 /// coordinates (theta, phi) must generally be computed using a special circular
@@ -119,7 +184,7 @@ auto combineCov(const components_t components, const ActsVector<D> &mean,
 ///
 /// @tparam components_t A range of components
 /// @tparam projector_t A projector, which maps the component to a
-/// std::tuple< weight, mean, std::optional< cov > >
+/// std::tuple< weight, mean, cov >
 /// @tparam angle_desc_t A angle description object which defines the cyclic
 /// angles in the bound parameters
 template <typename components_t, typename projector_t = Identity,
@@ -159,43 +224,9 @@ auto combineGaussianMixture(const components_t components,
     return RetType{beginPars / beginWeight, beginCov / beginWeight};
   }
 
-  // Zero initialized values for aggregation
-  ActsVector<D> mean = ActsVector<D>::Zero();
-  WeightType sumOfWeights{0.0};
-
-  for (const auto &cmp : components) {
-    const auto &[weight_l, pars_l, cov_l] = projector(cmp);
-
-    sumOfWeights += weight_l;
-    mean += weight_l * pars_l;
-
-    // Apply corrections for cyclic coordinates
-    auto handleCyclicMean = [&ref = beginPars, &pars = pars_l,
-                             &weight = weight_l, &mean = mean](auto desc) {
-      const auto delta = (ref[desc.idx] - pars[desc.idx]) / desc.constant;
-
-      if (delta > M_PI) {
-        mean[desc.idx] += (2 * M_PI) * weight * desc.constant;
-      } else if (delta < -M_PI) {
-        mean[desc.idx] -= (2 * M_PI) * weight * desc.constant;
-      }
-    };
-
-    std::apply([&](auto... dsc) { (handleCyclicMean(dsc), ...); }, angleDesc);
-  }
-
-  mean /= sumOfWeights;
-
-  auto wrap = [&](auto desc) {
-    mean[desc.idx] =
-        wrap_periodic(mean[desc.idx] / desc.constant, -M_PI, 2 * M_PI) *
-        desc.constant;
-  };
-
-  std::apply([&](auto... dsc) { (wrap(dsc), ...); }, angleDesc);
-
+  const auto mean = gaussianMixtureMean<D>(components, projector, angleDesc);
   const auto cov =
-      combineCov(components, mean, sumOfWeights, projector, angleDesc);
+      gaussianMixtureCovariance<D>(components, mean, projector, angleDesc);
 
   return RetType{mean, cov};
 }
