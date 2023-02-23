@@ -355,6 +355,7 @@ struct GsfActor {
     }
   }
 
+#if 1
   template <typename propagator_state_t>
   void applyBetheHeitler(const propagator_state_t& state,
                          const BoundTrackParameters& old_bound,
@@ -442,6 +443,91 @@ struct GsfActor {
           {ParameterCache{new_weight, new_pars, new_cov}, metaCache});
     }
   }
+#else
+  template <typename propagator_state_t>
+  void applyBetheHeitler(const propagator_state_t& state,
+                         const BoundTrackParameters& old_bound,
+                         const double old_weight, const MetaCache& metaCache,
+                         std::vector<ComponentCache>& componentCaches) const {
+    const auto& surface = *state.navigation.currentSurface;
+
+    // Evaluate material slab
+    auto slab = surface.surfaceMaterial()->materialSlab(
+        old_bound.position(state.stepping.geoContext), state.stepping.navDir,
+        MaterialUpdateStage::FullUpdate);
+
+    auto pathCorrection =
+        surface.pathCorrection(state.stepping.geoContext,
+                               old_bound.position(state.stepping.geoContext),
+                               old_bound.unitDirection());
+    slab.scaleThickness(pathCorrection);
+
+    // Emit a warning if the approximation is not valid for this x/x0
+    if (not m_cfg.bethe_heitler_approx->validXOverX0(slab.thicknessInX0())) {
+      ACTS_WARNING(
+          "Bethe-Heitler approximation encountered invalid value for x/x0="
+          << slab.thicknessInX0() << " at surface " << surface.geometryId());
+    }
+
+    // Get the mixture
+    const auto mixture =
+        m_cfg.bethe_heitler_approx->mixture(slab.thicknessInX0());
+
+    // Get the current qop values
+    const auto qop_prev = old_bound.parameters()[eBoundQOverP];
+    const auto var_qop_prev =
+        old_bound.covariance().value()(eBoundQOverP, eBoundQOverP);
+
+    // Create all possible new components
+    for (const auto& z : mixture) {
+      // Here we combine the new child weight with the parent weight.
+      const auto new_weight = z.weight * old_weight;
+
+      if (new_weight < m_cfg.weightCutoff) {
+        ACTS_VERBOSE("Skip component with weight " << new_weight);
+        continue;
+      }
+
+      if (z.mean < 1.e-8) {
+        ACTS_WARNING("Skip component with mu=" << z.mean << ", var=" << z.var);
+        continue;
+      }
+
+      // Compute new mean
+      auto new_pars = old_bound.parameters();
+
+      new_pars[eBoundQOverP] =
+          state.stepping.navDir == NavigationDirection::Forward
+              ? qop_prev / z.mean
+              : qop_prev * z.mean;
+
+      assert(std::isfinite(new_pars[eBoundQOverP]));
+      assert(std::abs(1. / new_pars[eBoundQOverP]) > 0);
+
+      // Compute new variance
+      // var_f = mean_f^2 + [ var_i / mean_i^2 + var_z / mean_z^2 ]
+      auto new_cov = old_bound.covariance().value();
+
+      new_cov(eBoundQOverP, eBoundQOverP) =
+          new_pars[eBoundQOverP] * new_pars[eBoundQOverP] *
+          (z.var / (z.mean * z.mean) + var_qop_prev / (qop_prev * qop_prev));
+
+      if( new_cov(eBoundQOverP, eBoundQOverP) <= 0.0) {
+        // std::cout << "prev " << qop_prev << " " << var_qop_prev << "\n";
+        // std::cout << "z " << z.mean << " " << z.var << "\n";
+        // std::cout << new_cov(eBoundQOverP, eBoundQOverP) << "\n";
+        new_cov(eBoundQOverP, eBoundQOverP) = std::abs(new_cov(eBoundQOverP, eBoundQOverP));
+      }
+          
+      // assert(std::isfinite(new_cov(eBoundQOverP, eBoundQOverP)));
+      // assert(new_cov(eBoundQOverP, eBoundQOverP) > 0.0);
+
+      // Set the remaining things and push to vector
+      componentCaches.push_back(
+          {ParameterCache{new_weight, new_pars, new_cov}, metaCache});
+    }
+  }
+#endif
 
   template <typename stepper_t>
   void reduceComponents(const stepper_t& stepper, const Surface& surface,
@@ -764,3 +850,7 @@ struct GsfActor {
 
 }  // namespace detail
 }  // namespace Acts
+
+
+
+
