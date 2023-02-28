@@ -596,7 +596,7 @@ struct GsfActor {
       ++result.measurementStates;
     }
 
-    addCombinedState(result, tmpStates, surface);
+    fillResult(result, tmpStates, surface);
     result.lastMeasurementTip = result.currentTip;
 
     using FiltProjector =
@@ -668,7 +668,7 @@ struct GsfActor {
 
     ++result.processedStates;
 
-    addCombinedState(result, tmpStates, surface);
+    fillResult(result, tmpStates, surface);
 
     return Result<void>::success();
   }
@@ -711,25 +711,32 @@ struct GsfActor {
     }
   }
 
-  void addCombinedState(result_type& result, const TemporaryStates& tmpStates,
-                        const Surface& surface) const {
-    using PredProjector =
+  void fillResult(result_type& result, const TemporaryStates& tmpStates,
+                  const Surface& surface) const {
+    using PrtProjector =
         MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
-    using FiltProjector =
+    using FltProjector =
         MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
 
     // We do not need smoothed and jacobian for now
     const auto mask = TrackStatePropMask::Calibrated |
                       TrackStatePropMask::Predicted |
-                      TrackStatePropMask::Filtered;
+                      TrackStatePropMask::Filtered |
+                      TrackStatePropMask::Smoothed;
 
     if (not m_cfg.inReversePass) {
+      auto prtProj = PrtProjector{tmpStates.traj, tmpStates.weights};
+      auto fltProj = FltProjector{tmpStates.traj, tmpStates.weights};
+      
       // The predicted state is the forward pass
-      const auto [filtMean, filtCov] =
+      const auto [prtMean, prtCov] =
           angleDescriptionSwitch(surface, [&](const auto& desc) {
-            return combineGaussianMixture(
-                tmpStates.tips,
-                FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
+            return combineGaussianMixture(tmpStates.tips, prtProj, desc);
+          });
+
+      const auto [fltMean, fltCov] =
+          angleDescriptionSwitch(surface, [&](const auto& desc) {
+            return combineGaussianMixture(tmpStates.tips, fltProj, desc);
           });
 
       result.currentTip =
@@ -740,32 +747,43 @@ struct GsfActor {
       proxy.setReferenceSurface(surface.getSharedPtr());
       proxy.copyFrom(firstCmpProxy, mask);
 
-      // We set predicted & filtered the same so that the fields are not
-      // uninitialized when not finding this state in the reverse pass.
-      proxy.predicted() = filtMean;
-      proxy.predictedCovariance() = filtCov;
-      proxy.filtered() = filtMean;
-      proxy.filteredCovariance() = filtCov;
+      proxy.predicted() = prtMean;
+      proxy.predictedCovariance() = prtCov;
+      proxy.filtered() = fltMean;
+      proxy.filteredCovariance() = fltCov;
     } else {
       assert((result.currentTip != MultiTrajectoryTraits::kInvalid &&
               "tip not valid"));
+      std::optional<typename MultiTrajectory<traj_t>::TrackStateProxy> fwdState;
       result.fittedStates->applyBackwards(
           result.currentTip, [&](auto trackState) {
-            auto fSurface = &trackState.referenceSurface();
-            if (fSurface == &surface) {
-              const auto [filtMean, filtCov] =
-                  angleDescriptionSwitch(surface, [&](const auto& desc) {
-                    return combineGaussianMixture(
-                        tmpStates.tips,
-                        FiltProjector{tmpStates.traj, tmpStates.weights}, desc);
-                  });
-
-              trackState.filtered() = filtMean;
-              trackState.filteredCovariance() = filtCov;
+            if (&trackState.referenceSurface() == &surface) {
+              fwdState = trackState;
               return false;
             }
             return true;
           });
+
+      if (fwdState) {
+        const auto [fltBwdMean, fltBwdCov] =
+            angleDescriptionSwitch(surface, [&](const auto& desc) {
+              return combineGaussianMixture(
+                  tmpStates.tips,
+                  FltProjector{tmpStates.traj, tmpStates.weights}, desc);
+            });
+
+        // Weighted Mean smoothing as shown in R. Fruewirth, "Track fitting with
+        // non-Gaussian noise", 1996
+        const BoundSymMatrix prtFwdCovInv =
+            fwdState->predictedCovariance().inverse();
+        const BoundSymMatrix fltBwdCovInv = fltBwdCov.inverse();
+        const BoundSymMatrix smtCovInv = prtFwdCovInv + fltBwdCovInv;
+
+        fwdState->smoothed() =
+            smtCovInv *
+            (prtFwdCovInv * fwdState->predicted() + fltBwdCovInv * fltBwdMean);
+        fwdState->smoothedCovariance() = smtCovInv.inverse();
+      }
     }
   }
 
