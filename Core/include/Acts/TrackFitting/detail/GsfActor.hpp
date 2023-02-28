@@ -719,15 +719,14 @@ struct GsfActor {
         MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
 
     // We do not need smoothed and jacobian for now
-    const auto mask = TrackStatePropMask::Calibrated |
-                      TrackStatePropMask::Predicted |
-                      TrackStatePropMask::Filtered |
-                      TrackStatePropMask::Smoothed;
+    const auto mask =
+        TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
+        TrackStatePropMask::Filtered | TrackStatePropMask::Smoothed;
 
     if (not m_cfg.inReversePass) {
       auto prtProj = PrtProjector{tmpStates.traj, tmpStates.weights};
       auto fltProj = FltProjector{tmpStates.traj, tmpStates.weights};
-      
+
       // The predicted state is the forward pass
       const auto [prtMean, prtCov] =
           angleDescriptionSwitch(surface, [&](const auto& desc) {
