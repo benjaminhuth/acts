@@ -1253,7 +1253,7 @@ class MultiTrajectory {
   /// @note This takes a string argument rather than a hashed string to maintain
   ///       compatibility with backends.
   template <typename T, bool RO = ReadOnly, typename = std::enable_if_t<!RO>>
-  constexpr void addColumn(const std::string& key) {
+  constexpr void addColumn(const std::string_view& key) {
     self().template addColumn_impl<T>(key);
   }
 

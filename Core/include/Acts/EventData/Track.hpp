@@ -590,7 +590,7 @@ class TrackContainer {
   /// Add a dymanic column to the track container
   /// @param key the name of the column to be added
   template <typename T, bool RO = ReadOnly, typename = std::enable_if_t<!RO>>
-  constexpr void addColumn(const std::string& key) {
+  constexpr void addColumn(const std::string_view& key) {
     m_container->template addColumn_impl<T>(key);
   }
 

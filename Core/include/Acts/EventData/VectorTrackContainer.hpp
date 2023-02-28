@@ -166,7 +166,7 @@ class VectorTrackContainer final : public detail_vtc::VectorTrackContainerBase {
   void removeTrack_impl(IndexType itrack);
 
   template <typename T>
-  constexpr void addColumn_impl(const std::string& key) {
+  constexpr void addColumn_impl(const std::string_view& key) {
     m_dynamic.insert(
         {hashString(key), std::make_unique<detail::DynamicColumn<T>>()});
   }

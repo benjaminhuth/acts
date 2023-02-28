@@ -193,6 +193,12 @@ class RootTrajectoryStatesWriter final : public WriterT<TrajectoriesContainer> {
       m_pT;  ///< predicted/filtered/smoothed parameter pT
 
   std::vector<float> m_chi2;  ///< chisq from filtering
+  
+  // GSF specific things
+  std::vector<int> m_gsf_fwd_flt_n_components;
+  std::vector<std::vector<double>> m_gsf_fwd_flt_weights;
+  std::vector<std::vector<double>> m_gsf_fwd_flt_means;
+  std::vector<std::vector<double>> m_gsf_fwd_flt_vars;
 };
 
 }  // namespace ActsExamples

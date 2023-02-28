@@ -209,6 +209,23 @@ struct GaussianSumFitter {
       return error;
     };
 
+    // Add columns if configured
+    if (options.exportComponents) {
+      using namespace Acts::HashedStringLiteral;
+      using namespace Acts::Experimental::GsfExtraColumns;
+      
+      auto& mtj = trackContainer.trackStateContainer();
+      if (not mtj.hasColumn(hashString(kFwdFltWeights))) {
+        mtj.template addColumn<WeightsType>(kFwdFltWeights);
+      }
+      if (not mtj.hasColumn(hashString(kFwdFltMeans))) {
+        mtj.template addColumn<MeanVarType>(kFwdFltMeans);
+      }
+      if (not mtj.hasColumn(hashString(kFwdFltVars))) {
+        mtj.template addColumn<MeanVarType>(kFwdFltVars);
+      }
+    }
+
     // Define directions based on input propagation direction. This way we can
     // refer to 'forward' and 'backward' regardless of the actual direction.
     const auto gsfForward = options.propagatorPlainOptions.direction;

@@ -19,6 +19,14 @@
 
 namespace Acts {
 namespace Experimental {
+  
+namespace GsfExtraColumns {
+  using WeightsType = Eigen::VectorXf;
+  using MeanVarType = Eigen::Matrix<float, Eigen::Dynamic, eBoundSize>;
+  constexpr static std::string_view kFwdFltWeights = "gsfFwdFltWeights";
+  constexpr static std::string_view kFwdFltMeans = "gsfFwdFltMeans";
+  constexpr static std::string_view kFwdFltVars = "gsfFwdFltVars";
+}
 
 /// The extensions needed for the GSF
 template <typename traj_t>
@@ -73,6 +81,8 @@ struct GsfOptions {
   bool abortOnError = true;
 
   bool disableAllMaterialHandling = false;
+  
+  bool exportComponents = true;
 
   GsfOptions() = delete;
 };

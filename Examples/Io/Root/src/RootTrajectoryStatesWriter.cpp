@@ -12,6 +12,7 @@
 #include "Acts/EventData/MultiTrajectoryHelpers.hpp"
 #include "Acts/EventData/TrackParameters.hpp"
 #include "Acts/EventData/detail/TransformationBoundToFree.hpp"
+#include "Acts/TrackFitting/GsfOptions.hpp"
 #include "Acts/Utilities/Helpers.hpp"
 #include "Acts/Utilities/detail/periodic.hpp"
 #include "ActsExamples/EventData/AverageSimHits.hpp"
@@ -216,6 +217,11 @@ ActsExamples::RootTrajectoryStatesWriter::RootTrajectoryStatesWriter(
     m_outputTree->Branch("pT_smt", &m_pT[2]);
 
     m_outputTree->Branch("chi2", &m_chi2);
+
+    m_outputTree->Branch("gsf_flt_n_components", &m_gsf_fwd_flt_n_components);
+    m_outputTree->Branch("gsf_flt_weights", &m_gsf_fwd_flt_weights);
+    m_outputTree->Branch("gsf_flt_means", &m_gsf_fwd_flt_means);
+    m_outputTree->Branch("gsf_flt_vars", &m_gsf_fwd_flt_vars);
   }
 }
 
@@ -578,6 +584,26 @@ ActsExamples::ProcessCode ActsExamples::RootTrajectoryStatesWriter::writeT(
         // fill the chi2
         m_chi2.push_back(state.chi2());
 
+        // Gsf specific data
+        using namespace Acts::Experimental::GsfExtraColumns;
+        if (mj.hasColumn(Acts::hashString(kFwdFltWeights)) &&
+            mj.hasColumn(Acts::hashString(kFwdFltMeans)) &&
+            mj.hasColumn(Acts::hashString(kFwdFltVars))) {
+          const auto &weights =
+              state.template component<WeightsType>(kFwdFltWeights);
+          const auto& means =
+              state.template component<MeanVarType>(kFwdFltMeans);
+          const auto& vars = state.template component<MeanVarType>(kFwdFltVars);
+          
+          m_gsf_fwd_flt_n_components.push_back(weights.size());
+          m_gsf_fwd_flt_weights.emplace_back(weights.data(),
+                                             weights.data() + weights.size());
+          m_gsf_fwd_flt_means.emplace_back(means.data(),
+                                           means.data() + means.size());
+          m_gsf_fwd_flt_vars.emplace_back(vars.data(),
+                                          vars.data() + vars.size());
+        }
+
         return true;
       });  // all states
 
@@ -653,6 +679,11 @@ ActsExamples::ProcessCode ActsExamples::RootTrajectoryStatesWriter::writeT(
       }
 
       m_chi2.clear();
+      
+      m_gsf_fwd_flt_n_components.clear();
+      m_gsf_fwd_flt_weights.clear();
+      m_gsf_fwd_flt_means.clear();
+      m_gsf_fwd_flt_vars.clear();
     }  // all subtrajectories
   }    // all trajectories
 
