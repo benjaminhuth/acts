@@ -195,10 +195,21 @@ class RootTrajectoryStatesWriter final : public WriterT<TrajectoriesContainer> {
   std::vector<float> m_chi2;  ///< chisq from filtering
   
   // GSF specific things
-  std::vector<int> m_gsf_fwd_flt_n_components;
-  std::vector<std::vector<double>> m_gsf_fwd_flt_weights;
-  std::vector<std::vector<double>> m_gsf_fwd_flt_means;
-  std::vector<std::vector<double>> m_gsf_fwd_flt_vars;
+  std::vector<std::vector<double>> m_gsf_cmps_weights_flt;
+  
+  std::vector<std::vector<double>> m_gsf_cmps_eLOC0_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_eLOC1_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_ePHI_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_eTHETA_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_eQOP_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_eT_flt;
+  
+  std::vector<std::vector<double>> m_gsf_cmps_err_eLOC0_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_err_eLOC1_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_err_ePHI_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_err_eTHETA_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_err_eQOP_flt;
+  std::vector<std::vector<double>> m_gsf_cmps_err_eT_flt;
 };
 
 }  // namespace ActsExamples

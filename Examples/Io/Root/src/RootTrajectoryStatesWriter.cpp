@@ -218,10 +218,22 @@ ActsExamples::RootTrajectoryStatesWriter::RootTrajectoryStatesWriter(
 
     m_outputTree->Branch("chi2", &m_chi2);
 
-    m_outputTree->Branch("gsf_flt_n_components", &m_gsf_fwd_flt_n_components);
-    m_outputTree->Branch("gsf_flt_weights", &m_gsf_fwd_flt_weights);
-    m_outputTree->Branch("gsf_flt_means", &m_gsf_fwd_flt_means);
-    m_outputTree->Branch("gsf_flt_vars", &m_gsf_fwd_flt_vars);
+    // GSF
+    m_outputTree->Branch("gsf_cmps_weights_flt", &m_gsf_cmps_weights_flt);
+
+    m_outputTree->Branch("gsf_cmps_eLOC0_flt", &m_gsf_cmps_eLOC0_flt);
+    m_outputTree->Branch("gsf_cmps_eLOC1_flt", &m_gsf_cmps_eLOC1_flt);
+    m_outputTree->Branch("gsf_cmps_ePHI_flt", &m_gsf_cmps_ePHI_flt);
+    m_outputTree->Branch("gsf_cmps_eTHETA_flt", &m_gsf_cmps_eTHETA_flt);
+    m_outputTree->Branch("gsf_cmps_eQOP_flt", &m_gsf_cmps_eQOP_flt);
+    m_outputTree->Branch("gsf_cmps_eT_flt", &m_gsf_cmps_eT_flt);
+
+    m_outputTree->Branch("gsf_cmps_err_eLOC0_flt", &m_gsf_cmps_err_eLOC0_flt);
+    m_outputTree->Branch("gsf_cmps_err_eLOC1_flt", &m_gsf_cmps_err_eLOC1_flt);
+    m_outputTree->Branch("gsf_cmps_err_ePHI_flt", &m_gsf_cmps_err_ePHI_flt);
+    m_outputTree->Branch("gsf_cmps_err_eTHETA_flt", &m_gsf_cmps_err_eTHETA_flt);
+    m_outputTree->Branch("gsf_cmps_err_eQOP_flt", &m_gsf_cmps_err_eQOP_flt);
+    m_outputTree->Branch("gsf_cmps_err_eT_flt", &m_gsf_cmps_err_eT_flt);
   }
 }
 
@@ -589,19 +601,51 @@ ActsExamples::ProcessCode ActsExamples::RootTrajectoryStatesWriter::writeT(
         if (mj.hasColumn(Acts::hashString(kFwdFltWeights)) &&
             mj.hasColumn(Acts::hashString(kFwdFltMeans)) &&
             mj.hasColumn(Acts::hashString(kFwdFltVars))) {
-          const auto &weights =
+          const auto& weights =
               state.template component<WeightsType>(kFwdFltWeights);
           const auto& means =
               state.template component<MeanVarType>(kFwdFltMeans);
           const auto& vars = state.template component<MeanVarType>(kFwdFltVars);
-          
-          m_gsf_fwd_flt_n_components.push_back(weights.size());
-          m_gsf_fwd_flt_weights.emplace_back(weights.data(),
-                                             weights.data() + weights.size());
-          m_gsf_fwd_flt_means.emplace_back(means.data(),
-                                           means.data() + means.size());
-          m_gsf_fwd_flt_vars.emplace_back(vars.data(),
-                                          vars.data() + vars.size());
+
+          m_gsf_cmps_weights_flt.emplace_back();
+
+          m_gsf_cmps_eLOC0_flt.emplace_back();
+          m_gsf_cmps_eLOC1_flt.emplace_back();
+          m_gsf_cmps_ePHI_flt.emplace_back();
+          m_gsf_cmps_eTHETA_flt.emplace_back();
+          m_gsf_cmps_eQOP_flt.emplace_back();
+          m_gsf_cmps_eT_flt.emplace_back();
+
+          m_gsf_cmps_err_eLOC0_flt.emplace_back();
+          m_gsf_cmps_err_eLOC1_flt.emplace_back();
+          m_gsf_cmps_err_ePHI_flt.emplace_back();
+          m_gsf_cmps_err_eTHETA_flt.emplace_back();
+          m_gsf_cmps_err_eQOP_flt.emplace_back();
+          m_gsf_cmps_err_eT_flt.emplace_back();
+
+          for (int i = 0; i < weights.size(); ++i) {
+            m_gsf_cmps_weights_flt.back().push_back(weights[i]);
+
+            m_gsf_cmps_eLOC0_flt.back().push_back(means(i, Acts::eBoundLoc0));
+            m_gsf_cmps_eLOC1_flt.back().push_back(means(i, Acts::eBoundLoc1));
+            m_gsf_cmps_ePHI_flt.back().push_back(means(i, Acts::eBoundPhi));
+            m_gsf_cmps_eTHETA_flt.back().push_back(means(i, Acts::eBoundTheta));
+            m_gsf_cmps_eQOP_flt.back().push_back(means(i, Acts::eBoundQOverP));
+            m_gsf_cmps_eT_flt.back().push_back(means(i, Acts::eBoundTime));
+
+            m_gsf_cmps_err_eLOC0_flt.back().push_back(
+                std::sqrt(vars(i, Acts::eBoundLoc0)));
+            m_gsf_cmps_err_eLOC1_flt.back().push_back(
+                std::sqrt(vars(i, Acts::eBoundLoc1)));
+            m_gsf_cmps_err_ePHI_flt.back().push_back(
+                std::sqrt(vars(i, Acts::eBoundPhi)));
+            m_gsf_cmps_err_eTHETA_flt.back().push_back(
+                std::sqrt(vars(i, Acts::eBoundTheta)));
+            m_gsf_cmps_err_eQOP_flt.back().push_back(
+                std::sqrt(vars(i, Acts::eBoundQOverP)));
+            m_gsf_cmps_err_eT_flt.back().push_back(
+                std::sqrt(vars(i, Acts::eBoundTime)));
+          }
         }
 
         return true;
@@ -679,11 +723,23 @@ ActsExamples::ProcessCode ActsExamples::RootTrajectoryStatesWriter::writeT(
       }
 
       m_chi2.clear();
-      
-      m_gsf_fwd_flt_n_components.clear();
-      m_gsf_fwd_flt_weights.clear();
-      m_gsf_fwd_flt_means.clear();
-      m_gsf_fwd_flt_vars.clear();
+
+      // GSF
+      m_gsf_cmps_weights_flt.clear();
+
+      m_gsf_cmps_eLOC0_flt.clear();
+      m_gsf_cmps_eLOC1_flt.clear();
+      m_gsf_cmps_ePHI_flt.clear();
+      m_gsf_cmps_eTHETA_flt.clear();
+      m_gsf_cmps_eQOP_flt.clear();
+      m_gsf_cmps_eT_flt.clear();
+
+      m_gsf_cmps_err_eLOC0_flt.clear();
+      m_gsf_cmps_err_eLOC1_flt.clear();
+      m_gsf_cmps_err_ePHI_flt.clear();
+      m_gsf_cmps_err_eTHETA_flt.clear();
+      m_gsf_cmps_err_eQOP_flt.clear();
+      m_gsf_cmps_err_eT_flt.clear();
     }  // all subtrajectories
   }    // all trajectories
 
