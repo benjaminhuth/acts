@@ -409,6 +409,7 @@ struct GaussianSumFitter {
     }
 
     auto track = trackContainer.getTrack(trackContainer.addTrack());
+    track.tipIndex() = fwdGsfResult.lastMeasurementTip;
 
     // Go through the states and assign outliers / unset smoothed if surface not
     // passed in backward pass
@@ -423,8 +424,6 @@ struct GaussianSumFitter {
         state.typeFlags().reset(TrackStateFlag::MeasurementFlag);
       }
     }
-
-    track.tipIndex() = fwdGsfResult.lastMeasurementTip;
 
     if (options.referenceSurface) {
       const auto& params = *bwdResult->endParameters;
