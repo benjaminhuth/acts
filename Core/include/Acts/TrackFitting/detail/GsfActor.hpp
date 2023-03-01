@@ -771,17 +771,9 @@ struct GsfActor {
                   FltProjector{tmpStates.traj, tmpStates.weights}, desc);
             });
 
-        // Weighted Mean smoothing as shown in R. Fruewirth, "Track fitting with
-        // non-Gaussian noise", 1996
-        const BoundSymMatrix prtFwdCovInv =
-            fwdState->predictedCovariance().inverse();
-        const BoundSymMatrix fltBwdCovInv = fltBwdCov.inverse();
-        const BoundSymMatrix smtCovInv = prtFwdCovInv + fltBwdCovInv;
-
-        fwdState->smoothed() =
-            smtCovInv *
-            (prtFwdCovInv * fwdState->predicted() + fltBwdCovInv * fltBwdMean);
-        fwdState->smoothedCovariance() = smtCovInv.inverse();
+        // For now, assign the backward filtered as smoothed.
+        fwdState->smoothed() = fltBwdMean;
+        fwdState->smoothedCovariance() = fltBwdCov;
       }
     }
   }
