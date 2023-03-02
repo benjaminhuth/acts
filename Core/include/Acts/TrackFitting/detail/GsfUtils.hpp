@@ -18,6 +18,15 @@
 
 namespace Acts {
 
+/// A object that contains MultiTrajectory states and weights of a
+/// multi-component-state
+template <typename traj_t>
+struct GsfTemporaryStates {
+  traj_t traj;
+  std::vector<MultiTrajectoryTraits::IndexType> tips;
+  std::map<MultiTrajectoryTraits::IndexType, double> weights;
+};
+
 /// The tolerated difference to 1 to accept weights as normalized
 constexpr static double s_normalizationTolerance = 1.e-4;
 
@@ -160,12 +169,11 @@ ActsScalar calculateDeterminant(
 /// with non-Gaussian noise"`. See also the implementation in Athena at
 /// PosteriorWeightsCalculator.cxx
 /// @note The weights are not renormalized!
-template <typename D>
-void computePosteriorWeights(
-    const MultiTrajectory<D> &mt,
-    const std::vector<MultiTrajectoryTraits::IndexType> &tips,
-    std::map<MultiTrajectoryTraits::IndexType, double> &weights) {
-  // Helper Function to compute detR
+template <typename traj_t>
+void computePosteriorWeights(GsfTemporaryStates<traj_t> &states) {
+  auto &tips = states.tips;
+  auto &mt = states.traj;
+  auto &weights = states.weights;
 
   // Find minChi2, this can be used to factor some things later in the
   // exponentiation

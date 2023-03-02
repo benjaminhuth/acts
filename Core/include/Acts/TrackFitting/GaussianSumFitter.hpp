@@ -370,7 +370,26 @@ struct GaussianSumFitter {
       r.measurementStates++;
       r.processedStates++;
 
-      const auto& params = *fwdGsfResult.lastMeasurementState;
+      // Make the start parameters
+      std::vector<std::tuple<double, BoundVector, BoundMatrix>> components;
+
+      const auto& states = *fwdGsfResult.lastMeasurementStates;
+      for (const auto& idx : states.tips) {
+        const auto cmpProxy = states.traj.getTrackState(idx);
+        // TODO Check why can zero weights can occur
+        if (states.weights.at(idx) > 0.0) {
+          components.push_back({states.weights.at(idx), cmpProxy.filtered(),
+                                cmpProxy.filteredCovariance()});
+        }
+      }
+
+      detail::normalizeWeights(
+          components, [](auto& c) -> double& { return std::get<double>(c); });
+
+      const auto& surface =
+          states.traj.getTrackState(states.tips.front()).referenceSurface();
+      const auto params = MultiComponentBoundTrackParameters<SinglyCharged>(
+          surface.getSharedPtr(), std::move(components));
 
       return m_propagator.template propagate<std::decay_t<decltype(params)>,
                                              decltype(bwdPropOptions),
@@ -412,15 +431,19 @@ struct GaussianSumFitter {
 
     // Go through the states and assign outliers / unset smoothed if surface not
     // passed in backward pass
-    const auto& bwdSurfaces = bwdGsfResult.visitedSurfaces;
+    const auto& foundBwd = bwdGsfResult.surfacesVisitedBwdAgain;
 
     for (auto state : track.trackStates()) {
-      auto found = std::find(bwdSurfaces.begin(), bwdSurfaces.end(),
-                             &state.referenceSurface());
-      if (found == bwdSurfaces.end()) {
-        state.unset(TrackStatePropMask::Smoothed);
+      const bool found = std::find(foundBwd.begin(), foundBwd.end(),
+                                   &state.referenceSurface()) != foundBwd.end();
+      if (not found) {
         state.typeFlags().set(TrackStateFlag::OutlierFlag);
         state.typeFlags().reset(TrackStateFlag::MeasurementFlag);
+      }
+
+      // No smoothed if we have now measurement
+      if (not state.typeFlags().test(TrackStateFlag::MeasurementFlag)) {
+        state.unset(TrackStatePropMask::Smoothed);
       }
     }
 

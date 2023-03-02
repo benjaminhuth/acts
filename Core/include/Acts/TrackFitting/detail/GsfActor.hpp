@@ -45,8 +45,8 @@ struct GsfResult {
 
   /// The last multi-component measurement state. Used to initialize the
   /// backward pass.
-  std::optional<MultiComponentBoundTrackParameters<SinglyCharged>>
-      lastMeasurementState;
+  /// @note Needs to be shared_ptr, since result type must be copy constructible
+  std::shared_ptr<GsfTemporaryStates<traj_t>> lastMeasurementStates;
 
   /// Some counting
   std::size_t measurementStates = 0;
@@ -54,7 +54,7 @@ struct GsfResult {
   std::size_t processedStates = 0;
 
   std::vector<const Acts::Surface*> visitedSurfaces;
-  std::vector<const Acts::Surface*> missedActiveSurfaces;
+  std::vector<const Acts::Surface*> surfacesVisitedBwdAgain;
 
   // Propagate potential errors to the outside
   Result<void> result{Result<void>::success()};
@@ -136,14 +136,19 @@ struct GsfActor {
     BoundSymMatrix boundCov;
   };
 
-  struct TemporaryStates {
-    traj_t traj;
-    std::vector<MultiTrajectoryTraits::IndexType> tips;
-    std::map<MultiTrajectoryTraits::IndexType, double> weights;
-  };
-
   /// Broadcast Cache Type
   using ComponentCache = std::tuple<ParameterCache, MetaCache>;
+
+  /// Projector type to project a track state to a std::tuple of weight,
+  /// predicted, predictedCov
+  using PrtProjector = MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
+
+  /// Projector type to project a track state to a std::tuple of weight,
+  /// filtered, filteredCov
+  using FltProjector = MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
+
+  /// The temporary states object
+  using TemporaryStates = GsfTemporaryStates<traj_t>;
 
   /// @brief GSF actor operation
   ///
@@ -163,15 +168,6 @@ struct GsfActor {
       ACTS_WARNING("result.result not ok, return!")
       return;
     }
-
-    // Set error or abort utility
-    auto setErrorOrAbort = [&](auto error) {
-      if (m_cfg.abortOnError) {
-        std::abort();
-      } else {
-        result.result = error;
-      }
-    };
 
     // Count the states of the components, this is necessary to evaluate if
     // really all components are on a surface TODO Not sure why this is not
@@ -252,8 +248,8 @@ struct GsfActor {
       if (not haveMaterial && not haveMeasurement) {
         // No hole before first measurement
         if (result.processedStates > 0 && surface.associatedDetectorElement()) {
-          TemporaryStates tmpStates;
-          noMeasurementUpdate(state, stepper, result, tmpStates, true);
+          auto tmpStates = noMeasurementUpdate(state, stepper, true);
+          fillResult(result, std::move(tmpStates), surface);
         }
         return;
       }
@@ -278,45 +274,29 @@ struct GsfActor {
       // state with the filtered components.
       // NOTE because of early return before we know that we have a measurement
       if (not haveMaterial) {
-        TemporaryStates tmpStates;
+        auto tmpStates =
+            kalmanUpdate(state, stepper, found_source_link->second);
 
-        auto res = kalmanUpdate(state, stepper, result, tmpStates,
-                                found_source_link->second);
-
-        if (not res.ok()) {
-          setErrorOrAbort(res.error());
-          return;
-        }
-
-        updateStepper(state, stepper, tmpStates);
+        updateStepper(state, stepper, *tmpStates);
+        fillResult(result, std::move(tmpStates), surface);
       }
       // We have material, we thus need a component cache since we will
       // convolute the components and later reduce them again before updating
       // the stepper
       else {
-        TemporaryStates tmpStates;
-        Result<void> res;
+        auto tmpStates =
+            haveMeasurement
+                ? kalmanUpdate(state, stepper, found_source_link->second)
+                : noMeasurementUpdate(state, stepper, false);
 
-        if (haveMeasurement) {
-          res = kalmanUpdate(state, stepper, result, tmpStates,
-                             found_source_link->second);
-        } else {
-          res = noMeasurementUpdate(state, stepper, result, tmpStates, false);
-        }
-
-        if (not res.ok()) {
-          setErrorOrAbort(res.error());
-          return;
-        }
-
-        std::vector<ComponentCache> componentCache;
-        convoluteComponents(state, stepper, tmpStates, componentCache);
+        auto componentCache = convoluteComponents(state, stepper, *tmpStates);
 
         reduceComponents(stepper, surface, componentCache);
 
         removeLowWeightComponents(componentCache);
 
         updateStepper(state, stepper, componentCache);
+        fillResult(result, std::move(tmpStates), surface);
       }
 
       // If we only done preUpdate before, now do postUpdate
@@ -334,9 +314,10 @@ struct GsfActor {
   }
 
   template <typename propagator_state_t, typename stepper_t>
-  void convoluteComponents(propagator_state_t& state, const stepper_t& stepper,
-                           const TemporaryStates& tmpStates,
-                           std::vector<ComponentCache>& componentCache) const {
+  std::vector<ComponentCache> convoluteComponents(
+      propagator_state_t& state, const stepper_t& stepper,
+      const TemporaryStates& tmpStates) const {
+    std::vector<ComponentCache> componentCache;
     auto cmps = stepper.componentIterable(state.stepping);
     for (auto [idx, cmp] : zip(tmpStates.tips, cmps)) {
       auto proxy = tmpStates.traj.getTrackState(idx);
@@ -355,6 +336,8 @@ struct GsfActor {
       applyBetheHeitler(state, bound, tmpStates.weights.at(idx), mcache,
                         componentCache);
     }
+
+    return componentCache;
   }
 
   template <typename propagator_state_t>
@@ -527,7 +510,7 @@ struct GsfActor {
       auto res = stepper.addComponent(state.stepping, std::move(bound), weight);
 
       if (!res.ok()) {
-        ACTS_ERROR("Error adding component to MultiStepper");
+        ACTS_WARNING("Error adding component to MultiStepper, skip");
         continue;
       }
 
@@ -545,132 +528,96 @@ struct GsfActor {
   /// This function performs the kalman update, computes the new posterior
   /// weights, renormalizes all components, and does some statistics.
   template <typename propagator_state_t, typename stepper_t>
-  Result<void> kalmanUpdate(propagator_state_t& state, const stepper_t& stepper,
-                            result_type& result, TemporaryStates& tmpStates,
-                            const SourceLink& source_link) const {
+  std::unique_ptr<TemporaryStates> kalmanUpdate(
+      propagator_state_t& state, const stepper_t& stepper,
+      const SourceLink& source_link) const {
     const auto& surface = *state.navigation.currentSurface;
 
-    // Boolean flag, to distinguish measurement and outlier states. This flag
-    // is only modified by the valid-measurement-branch, so only if there
-    // isn't any valid measuerement state, the flag stays false and the state
-    // is thus counted as an outlier
-    bool is_valid_measurement = false;
+    auto tmpStates = std::make_unique<TemporaryStates>();
+    std::vector<MultiTrajectoryTraits::IndexType> measuerementTips;
+    std::vector<MultiTrajectoryTraits::IndexType> outlierTips;
 
-    auto cmps = stepper.componentIterable(state.stepping);
-    for (auto cmp : cmps) {
+    for (auto cmp : stepper.componentIterable(state.stepping)) {
       auto singleState = cmp.singleState(state);
       const auto& singleStepper = cmp.singleStepper(stepper);
 
       auto trackStateProxyRes = detail::kalmanHandleMeasurement(
           singleState, singleStepper, m_cfg.extensions, surface, source_link,
-          tmpStates.traj, MultiTrajectoryTraits::kInvalid, false, logger());
+          tmpStates->traj, MultiTrajectoryTraits::kInvalid, false, logger());
 
       if (!trackStateProxyRes.ok()) {
-        return trackStateProxyRes.error();
+        ACTS_WARNING("Error during component update, skip");
+        continue;
       }
 
       const auto& trackStateProxy = *trackStateProxyRes;
 
-      // If at least one component is no outlier, we consider the whole thing
-      // as a measuerementState
-      if (trackStateProxy.typeFlags().test(
-              Acts::TrackStateFlag::MeasurementFlag)) {
-        is_valid_measurement = true;
+      if (trackStateProxy.typeFlags().test(TrackStateFlag::MeasurementFlag)) {
+        measuerementTips.push_back(trackStateProxy.index());
+      } else {
+        outlierTips.push_back(trackStateProxy.index());
       }
 
-      tmpStates.tips.push_back(trackStateProxy.index());
-      tmpStates.weights[tmpStates.tips.back()] = cmp.weight();
+      tmpStates->weights[trackStateProxy.index()] = cmp.weight();
     }
 
-    computePosteriorWeights(tmpStates.traj, tmpStates.tips, tmpStates.weights);
+    if (!measuerementTips.empty() && !outlierTips.empty()) {
+      ACTS_DEBUG("Have measurement and outlier components: "
+                 << measuerementTips.size() << " " << outlierTips.size());
+    }
 
-    detail::normalizeWeights(tmpStates.tips, [&](auto idx) -> double& {
-      return tmpStates.weights.at(idx);
+    // We only return outlier components if we have no measurement components.
+    // If we have at least one measurement component, we through all outliers
+    // away. However, it should not happen too often that some components are
+    // outliers and some are measuerements
+    if (measuerementTips.empty()) {
+      detail::normalizeWeights(outlierTips, [&](auto idx) -> double& {
+        return tmpStates->weights.at(idx);
+      });
+
+      tmpStates->tips = std::move(outlierTips);
+      return tmpStates;
+    }
+
+    tmpStates->tips = std::move(measuerementTips);
+    computePosteriorWeights(*tmpStates);
+
+    detail::normalizeWeights(tmpStates->tips, [&](auto idx) -> double& {
+      return tmpStates->weights.at(idx);
     });
 
-    // Do the statistics
-    ++result.processedStates;
-
-    // TODO should outlier states also be counted here?
-    if (is_valid_measurement) {
-      ++result.measurementStates;
-    }
-
-    fillResult(result, tmpStates, surface);
-    result.lastMeasurementTip = result.currentTip;
-
-    using FiltProjector =
-        MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
-    FiltProjector proj{tmpStates.traj, tmpStates.weights};
-
-    std::vector<std::tuple<double, BoundVector, BoundMatrix>> v;
-
-    // TODO Check why can zero weights can occur
-    for (const auto& idx : tmpStates.tips) {
-      const auto [w, p, c] = proj(idx);
-      if (w > 0.0) {
-        v.push_back({w, p, c});
-      }
-    }
-
-    normalizeWeights(v, [](auto& c) -> double& { return std::get<double>(c); });
-
-    result.lastMeasurementState =
-        MultiComponentBoundTrackParameters<SinglyCharged>(
-            surface.getSharedPtr(), std::move(v));
-
-    // Return sucess
-    return Acts::Result<void>::success();
+    return tmpStates;
   }
 
   template <typename propagator_state_t, typename stepper_t>
-  Result<void> noMeasurementUpdate(propagator_state_t& state,
-                                   const stepper_t& stepper,
-                                   result_type& result,
-                                   TemporaryStates& tmpStates,
-                                   bool doCovTransport) const {
+  std::unique_ptr<TemporaryStates> noMeasurementUpdate(
+      propagator_state_t& state, const stepper_t& stepper,
+      bool doCovTransport) const {
     const auto& surface = *state.navigation.currentSurface;
+    auto tmpStates = std::make_unique<TemporaryStates>();
 
-    // Initialize as true, so that any component can flip it. However, all
-    // components should behave the same
-    bool is_hole = true;
-
-    auto cmps = stepper.componentIterable(state.stepping);
-    for (auto cmp : cmps) {
+    for (auto cmp : stepper.componentIterable(state.stepping)) {
       auto singleState = cmp.singleState(state);
       const auto& singleStepper = cmp.singleStepper(stepper);
 
       // There is some redundant checking inside this function, but do this for
       // now until we measure this is significant
       auto trackStateProxyRes = detail::kalmanHandleNoMeasurement(
-          singleState, singleStepper, surface, tmpStates.traj,
+          singleState, singleStepper, surface, tmpStates->traj,
           MultiTrajectoryTraits::kInvalid, doCovTransport, logger());
 
       if (!trackStateProxyRes.ok()) {
-        return trackStateProxyRes.error();
+        ACTS_WARNING("Error during component update, skip");
+        continue;
       }
 
       const auto& trackStateProxy = *trackStateProxyRes;
 
-      if (not trackStateProxy.typeFlags().test(TrackStateFlag::HoleFlag)) {
-        is_hole = false;
-      }
-
-      tmpStates.tips.push_back(trackStateProxy.index());
-      tmpStates.weights[tmpStates.tips.back()] = cmp.weight();
+      tmpStates->tips.push_back(trackStateProxy.index());
+      tmpStates->weights[tmpStates->tips.back()] = cmp.weight();
     }
 
-    // These things should only be done once for all components
-    if (is_hole) {
-      result.missedActiveSurfaces.push_back(&surface);
-      ++result.measurementHoles;
-    }
-
-    ++result.processedStates;
-
-    fillResult(result, tmpStates, surface);
-
-    return Result<void>::success();
+    return tmpStates;
   }
 
   /// Apply the multipe scattering to the state
@@ -711,70 +658,106 @@ struct GsfActor {
     }
   }
 
-  void fillResult(result_type& result, const TemporaryStates& tmpStates,
+  void fillResult(result_type& result,
+                  std::unique_ptr<TemporaryStates>&& tmpStates,
                   const Surface& surface) const {
-    using PrtProjector =
-        MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
-    using FltProjector =
-        MultiTrajectoryProjector<StatesType::eFiltered, traj_t>;
+    const auto& typeFlags =
+        tmpStates->traj.getTrackState(tmpStates->tips.front()).typeFlags();
 
-    // We do not need smoothed and jacobian for now
-    const auto mask =
-        TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
-        TrackStatePropMask::Filtered | TrackStatePropMask::Smoothed;
+    assert(not(typeFlags.test(MeasurementFlag) && typeFlags.test(HoleFlag)));
+    assert(not(typeFlags.test(MeasurementFlag) && typeFlags.test(OutlierFlag)));
+    assert(not(typeFlags.test(HoleFlag) && typeFlags.test(OutlierFlag)));
+
+    result.processedStates++;
+    result.measurementStates += typeFlags.test(MeasurementFlag);
+    result.measurementHoles += typeFlags.test(HoleFlag);
 
     if (not m_cfg.inReversePass) {
-      auto prtProj = PrtProjector{tmpStates.traj, tmpStates.weights};
-      auto fltProj = FltProjector{tmpStates.traj, tmpStates.weights};
+      fillResultForward(result, std::move(tmpStates), surface);
+    } else {
+      fillResultBackward(result, *tmpStates, surface);
+    }
+  }
 
-      // The predicted state is the forward pass
-      const auto [prtMean, prtCov] =
-          angleDescriptionSwitch(surface, [&](const auto& desc) {
-            return combineGaussianMixture(tmpStates.tips, prtProj, desc);
-          });
+  void fillResultForward(result_type& result,
+                         std::unique_ptr<TemporaryStates>&& tmpStates,
+                         const Surface& surface) const {
+    auto prtProj = PrtProjector{tmpStates->traj, tmpStates->weights};
+    auto fltProj = FltProjector{tmpStates->traj, tmpStates->weights};
 
-      const auto [fltMean, fltCov] =
+    auto firstCmpProxy = tmpStates->traj.getTrackState(tmpStates->tips.front());
+    const auto& typeFlags = firstCmpProxy.typeFlags();
+
+    const auto mask =
+        typeFlags.test(MeasurementFlag)
+            ? (TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
+               TrackStatePropMask::Filtered | TrackStatePropMask::Smoothed)
+            : (TrackStatePropMask::Calibrated | TrackStatePropMask::Predicted |
+               TrackStatePropMask::Filtered);
+
+    result.currentTip =
+        result.fittedStates->addTrackState(mask, result.currentTip);
+    auto proxy = result.fittedStates->getTrackState(result.currentTip);
+
+    proxy.setReferenceSurface(surface.getSharedPtr());
+    proxy.copyFrom(firstCmpProxy, mask);
+
+    const auto [prtMean, prtCov] =
+        angleDescriptionSwitch(surface, [&](const auto& desc) {
+          return combineGaussianMixture(tmpStates->tips, prtProj, desc);
+        });
+
+    proxy.predicted() = prtMean;
+    proxy.predictedCovariance() = prtCov;
+
+    if (not typeFlags.test(MeasurementFlag)) {
+      proxy.shareFrom(proxy, TrackStatePropMask::Predicted,
+                      TrackStatePropMask::Filtered);
+      return;
+    }
+
+    const auto [fltMean, fltCov] =
+        angleDescriptionSwitch(surface, [&](const auto& desc) {
+          return combineGaussianMixture(tmpStates->tips, fltProj, desc);
+        });
+
+    proxy.filtered() = fltMean;
+    proxy.filteredCovariance() = fltCov;
+
+    // Don't let this go in uninitialized, rather mark it
+    proxy.smoothed() = BoundVector::Constant(-99.);
+    proxy.smoothedCovariance() = -99. * BoundSymMatrix::Constant(-99.);
+
+    // Finally, move to result
+    result.lastMeasurementStates = std::move(tmpStates);
+    result.lastMeasurementTip = result.currentTip;
+  }
+
+  void fillResultBackward(result_type& result, const TemporaryStates& tmpStates,
+                          const Surface& surface) const {
+    auto fltProj = FltProjector{tmpStates.traj, tmpStates.weights};
+
+    assert((result.currentTip != MultiTrajectoryTraits::kInvalid &&
+            "tip not valid"));
+    std::optional<typename MultiTrajectory<traj_t>::TrackStateProxy> fwdState;
+    result.fittedStates->applyBackwards(
+        result.currentTip, [&](auto trackState) {
+          if (&trackState.referenceSurface() == &surface) {
+            fwdState = trackState;
+            return false;
+          }
+          return true;
+        });
+
+    if (fwdState && fwdState->hasSmoothed()) {
+      const auto [fltBwdMean, fltBwdCov] =
           angleDescriptionSwitch(surface, [&](const auto& desc) {
             return combineGaussianMixture(tmpStates.tips, fltProj, desc);
           });
 
-      result.currentTip =
-          result.fittedStates->addTrackState(mask, result.currentTip);
-      auto proxy = result.fittedStates->getTrackState(result.currentTip);
-      auto firstCmpProxy = tmpStates.traj.getTrackState(tmpStates.tips.front());
-
-      proxy.setReferenceSurface(surface.getSharedPtr());
-      proxy.copyFrom(firstCmpProxy, mask);
-
-      proxy.predicted() = prtMean;
-      proxy.predictedCovariance() = prtCov;
-      proxy.filtered() = fltMean;
-      proxy.filteredCovariance() = fltCov;
-    } else {
-      assert((result.currentTip != MultiTrajectoryTraits::kInvalid &&
-              "tip not valid"));
-      std::optional<typename MultiTrajectory<traj_t>::TrackStateProxy> fwdState;
-      result.fittedStates->applyBackwards(
-          result.currentTip, [&](auto trackState) {
-            if (&trackState.referenceSurface() == &surface) {
-              fwdState = trackState;
-              return false;
-            }
-            return true;
-          });
-
-      if (fwdState) {
-        const auto [fltBwdMean, fltBwdCov] =
-            angleDescriptionSwitch(surface, [&](const auto& desc) {
-              return combineGaussianMixture(
-                  tmpStates.tips,
-                  FltProjector{tmpStates.traj, tmpStates.weights}, desc);
-            });
-
-        // For now, assign the backward filtered as smoothed.
-        fwdState->smoothed() = fltBwdMean;
-        fwdState->smoothedCovariance() = fltBwdCov;
-      }
+      fwdState->smoothed() = fltBwdMean;
+      fwdState->smoothedCovariance() = fltBwdCov;
+      result.surfacesVisitedBwdAgain.push_back(&surface);
     }
   }
 
