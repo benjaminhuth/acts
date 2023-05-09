@@ -20,7 +20,7 @@ struct MultiStepperSurfaceReached {
   /// If this is set, we are also happy if the mean of the components is on the
   /// surface. How the averaging is performed depends on the stepper
   /// implementation
-  bool averageOnSurface = true;
+  bool averageOnSurface = false;
 
   /// A configurable tolerance within which distance to the intersection we
   /// consider the surface as reached. Has no effect if averageOnSurface is
