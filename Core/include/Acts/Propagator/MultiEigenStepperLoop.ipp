@@ -51,21 +51,24 @@ auto MultiEigenStepperLoop<E, R, A>::boundState(
     freeMean += w * Acts::detail::transformBoundToFreeParameters(
                         surface, state.geoContext, p);
   }
-  
-  std::cout << "mean before intersect: " << freeMean.transpose() << std::endl;
+
+  freeMean.segment<3>(eFreeDir0) /= freeMean.segment<3>(eFreeDir0).norm();
+
+  // std::cout << "mean before intersect: " << freeMean.transpose() <<
+  // std::endl;
 
   freeMean.segment<3>(eFreePos0) =
       surface
           .intersect(state.geoContext, freeMean.segment<3>(eFreePos0),
                      freeMean.segment<3>(eFreeDir0), false)
           .template intersection.position;
-          
-  std::cout << "mean after intersect: " << freeMean.transpose() << std::endl;
+
+  // std::cout << "mean after intersect: " << freeMean.transpose() << std::endl;
 
   // TODO Needed to reduce tolerance here in order to avoid free-to-bound-errors
   auto boundMeanRes = Acts::detail::transformFreeToBoundParameters(
       freeMean, surface, state.geoContext);
-  if(not boundMeanRes.ok()) {
+  if (not boundMeanRes.ok()) {
     std::cout << boundMeanRes.error().message() << std::endl;
   }
   assert(boundMeanRes.ok());
@@ -73,7 +76,8 @@ auto MultiEigenStepperLoop<E, R, A>::boundState(
   // TODO Not sure if this is entirely correct, visit again later
   const auto cov =
       detail::angleDescriptionSwitch(surface, [&](const auto& desc) {
-        return detail::combineCov(states, *boundMeanRes, 1.0, Acts::Identity{}, desc);
+        return detail::combineCov(states, *boundMeanRes, 1.0, Acts::Identity{},
+                                  desc);
       });
 
   const auto finalPars =
