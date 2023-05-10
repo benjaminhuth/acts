@@ -25,6 +25,8 @@
 #include "Acts/Utilities/Result.hpp"
 
 #include <memory>
+#include <ostream>
+#include <string>
 
 namespace Acts {
 
@@ -66,6 +68,9 @@ class Surface : public virtual GeometryObject,
     Curvilinear = 6,
     Other = 7
   };
+
+  /// Helper strings for screen output
+  static std::array<std::string, SurfaceType::Other> s_surfaceTypeNames;
 
  protected:
   /// Constructor with Transform3 as a shared object
@@ -239,6 +244,11 @@ class Surface : public virtual GeometryObject,
   const std::shared_ptr<const ISurfaceMaterial>& surfaceMaterialSharedPtr()
       const;
 
+  /// Assign a detector element
+  ///
+  /// @param detelement Detector element which is represented by this surface
+  void assignDetectorElement(const DetectorElementBase& detelement);
+
   /// Assign the surface material description
   ///
   /// The material is usually derived in a complicated way and loaded from
@@ -401,6 +411,11 @@ class Surface : public virtual GeometryObject,
   /// @param sl is the ostream to be dumped into
   virtual std::ostream& toStream(const GeometryContext& gctx,
                                  std::ostream& sl) const;
+
+  /// Output into a std::string
+  ///
+  /// @param gctx The current geometry context object, e.g. alignment
+  std::string toString(const GeometryContext& gctx) const;
 
   /// Return properly formatted class name
   virtual std::string name() const = 0;

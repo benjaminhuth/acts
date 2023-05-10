@@ -17,14 +17,14 @@
 #include "Acts/Utilities/Ray.hpp"
 #include "Acts/Visualization/PlyVisualization3D.hpp"
 
+#include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <random>
 #include <set>
-
-#include <boost/filesystem.hpp>
 
 namespace Acts {
 namespace Test {
@@ -39,10 +39,9 @@ using Vector2F = Eigen::Matrix<BoundingBoxScalar, 2, 1>;
 using Vector3F = Eigen::Matrix<BoundingBoxScalar, 3, 1>;
 using AngleAxis3F = Eigen::AngleAxis<BoundingBoxScalar>;
 
-boost::filesystem::path tmp_path = []() {
-  auto p = boost::filesystem::temp_directory_path() /
-           boost::filesystem::unique_path();
-  boost::filesystem::create_directory(p);
+std::filesystem::path tmp_path = []() {
+  auto p = std::filesystem::temp_directory_path() / "acts_unit_tests";
+  std::filesystem::create_directory(p);
   std::cout << "Writing test output to: " << p << std::endl;
   return p;
 }();
@@ -455,7 +454,7 @@ BOOST_AUTO_TEST_CASE(ray_obb_intersect) {
 
 BOOST_AUTO_TEST_CASE(frustum_intersect) {
   BOOST_TEST_CONTEXT("2D") {
-    auto make_svg = [](std::string fname, size_t w, size_t h) {
+    auto make_svg = [](const std::string& fname, size_t w, size_t h) {
       auto os = tmp(fname);
       os << "<?xml version=\"1.0\" standalone=\"no\"?>\n";
       os << "<svg width=\"" << w << "\" height=\"" << h
@@ -467,7 +466,7 @@ BOOST_AUTO_TEST_CASE(frustum_intersect) {
 
     std::ofstream os;
 
-    BoundingBoxScalar w = 1000;
+    size_t w = 1000;
     size_t n = 10;
 
     // BEGIN VISUAL PARAMETER TEST

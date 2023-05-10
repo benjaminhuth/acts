@@ -75,7 +75,7 @@ class EigenStepper {
     explicit State(const GeometryContext& gctx,
                    MagneticFieldProvider::Cache fieldCacheIn,
                    const SingleBoundTrackParameters<charge_t>& par,
-                   NavigationDirection ndir = NavigationDirection::Forward,
+                   Direction ndir = Direction::Forward,
                    double ssize = std::numeric_limits<double>::max(),
                    double stolerance = s_onSurfaceTolerance)
         : q(par.charge()),
@@ -112,7 +112,7 @@ class EigenStepper {
     Covariance cov = Covariance::Zero();
 
     /// Navigation direction, this is needed for searching
-    NavigationDirection navDir;
+    Direction navDir;
 
     /// The full jacobian of the transport entire transport
     Jacobian jacobian = Jacobian::Identity();
@@ -159,18 +159,19 @@ class EigenStepper {
       /// k_i of the RKN4 algorithm
       Vector3 k1, k2, k3, k4;
       /// k_i elements of the momenta
-      std::array<double, 4> kQoP;
+      std::array<double, 4> kQoP{};
     } stepData;
   };
 
   /// Constructor requires knowledge of the detector's magnetic field
-  EigenStepper(std::shared_ptr<const MagneticFieldProvider> bField);
+  EigenStepper(std::shared_ptr<const MagneticFieldProvider> bField,
+               double overstepLimit = 100 * UnitConstants::um);
 
   template <typename charge_t>
   State makeState(std::reference_wrapper<const GeometryContext> gctx,
                   std::reference_wrapper<const MagneticFieldContext> mctx,
                   const SingleBoundTrackParameters<charge_t>& par,
-                  NavigationDirection ndir = NavigationDirection::Forward,
+                  Direction navDir = Direction::Forward,
                   double ssize = std::numeric_limits<double>::max(),
                   double stolerance = s_onSurfaceTolerance) const;
 
@@ -184,8 +185,7 @@ class EigenStepper {
   /// @param [in] stepSize Step size
   void resetState(
       State& state, const BoundVector& boundParams, const BoundSymMatrix& cov,
-      const Surface& surface,
-      const NavigationDirection navDir = NavigationDirection::Forward,
+      const Surface& surface, const Direction navDir = Direction::Forward,
       const double stepSize = std::numeric_limits<double>::max()) const;
 
   /// Get the field for the stepping, it checks first if the access is still
@@ -238,10 +238,10 @@ class EigenStepper {
   /// @param [in,out] state The stepping state (thread-local cache)
   /// @param [in] surface The surface provided
   /// @param [in] bcheck The boundary check for this status update
-  /// @param [in] logger A @c LoggerWrapper instance
+  /// @param [in] logger A @c Logger instance
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& surface, const BoundaryCheck& bcheck,
-      LoggerWrapper logger = getDummyLogger()) const {
+      const Logger& logger = getDummyLogger()) const {
     return detail::updateSingleSurfaceStatus<EigenStepper>(
         *this, state, surface, bcheck, logger);
   }
@@ -384,13 +384,15 @@ class EigenStepper {
 
   /// Perform a Runge-Kutta track parameter propagation step
   ///
-  /// @param [in,out] state is the propagation
+  /// @param [in,out] state the propagation state
+  /// @param [in] navigator the navigator of the propagation
   /// @note The state contains the desired step size.  It can be negative during
   ///       backwards track propagation, and since we're using an adaptive
   ///       algorithm, it can be modified by the stepper class during
   ///       propagation.
-  template <typename propagator_state_t>
-  Result<double> step(propagator_state_t& state) const;
+  template <typename propagator_state_t, typename navigator_t>
+  Result<double> step(propagator_state_t& state,
+                      const navigator_t& navigator) const;
 
   /// Method that reset the Jacobian to the Identity for when no bound state are
   /// available
@@ -402,8 +404,8 @@ class EigenStepper {
   /// Magnetic field inside of the detector
   std::shared_ptr<const MagneticFieldProvider> m_bField;
 
-  /// Overstep limit: could/should be dynamic
-  double m_overstepLimit = 100 * UnitConstants::um;
+  /// Overstep limit
+  double m_overstepLimit;
 };
 }  // namespace Acts
 

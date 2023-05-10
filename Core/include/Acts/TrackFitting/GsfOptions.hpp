@@ -19,6 +19,15 @@
 
 namespace Acts {
 
+namespace Experimental {
+
+namespace GsfConstants {
+constexpr std::string_view kFinalMultiComponentStateColumn =
+    "gsf-final-multi-component-state";
+using FinalMultiComponentState =
+    std::optional<Acts::MultiComponentBoundTrackParameters<SinglyCharged>>;
+}  // namespace GsfConstants
+
 /// The extensions needed for the GSF
 template <typename traj_t>
 struct GsfExtensions {
@@ -29,7 +38,7 @@ struct GsfExtensions {
   using Calibrator = Delegate<void(const GeometryContext&, TrackStateProxy)>;
 
   using Updater = Delegate<Result<void>(const GeometryContext&, TrackStateProxy,
-                                        NavigationDirection, LoggerWrapper)>;
+                                        Direction, const Logger&)>;
 
   using OutlierFinder = Delegate<bool(ConstTrackStateProxy)>;
 
@@ -61,17 +70,24 @@ struct GsfOptions {
 
   GsfExtensions<traj_t> extensions;
 
-  LoggerWrapper logger;
-
   PropagatorPlainOptions propagatorPlainOptions;
 
   const Surface* referenceSurface = nullptr;
 
   std::size_t maxComponents = 4;
 
-  bool abortOnError = true;
+  double weightCutoff = 1.e-4;
+
+  bool abortOnError = false;
 
   bool disableAllMaterialHandling = false;
+
+  std::string_view finalMultiComponentStateColumn = "";
+
+#if __cplusplus < 202002L
+  GsfOptions() = delete;
+#endif
 };
 
+}  // namespace Experimental
 }  // namespace Acts
