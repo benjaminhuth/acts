@@ -6,15 +6,14 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#include "MultiStepperTests.hpp"
 #include "Acts/Propagator/MultiEigenStepperSIMD.hpp"
 
+#include "MultiStepperTests.hpp"
 
 using SimdExtension = Acts::detail::GenericDefaultExtension<Acts::SimdType<4>>;
 
 using MultiStepper =
     MultiEigenStepperSIMD<4, StepperExtensionList<SimdExtension>>;
-
 
 //////////////////////////////////////////////////////
 /// Test the construction of the MultiStepper::State
@@ -69,7 +68,7 @@ BOOST_AUTO_TEST_CASE(multi_eigen_vs_single_eigen) {
 // BOOST_AUTO_TEST_CASE(test_component_wise_bound_state) {
 //   test_component_bound_state<MultiStepper>();
 // }
-// 
+//
 // BOOST_AUTO_TEST_CASE(test_combined_bound_state) {
 //   test_combined_bound_state_function<MultiStepper>();
 // }

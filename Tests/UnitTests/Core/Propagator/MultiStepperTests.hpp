@@ -63,7 +63,6 @@ struct DummyPropState {
 template <typename T>
 using components_t = typename T::components;
 
-
 // Makes random bound parameters and covariance and a plane surface at {0,0,0}
 // with normal {1,0,0}. Optionally some external fixed bound parameters can be
 // supplied
@@ -90,8 +89,6 @@ auto makeDefaultBoundPars(bool cov = true, std::size_t n = 4,
 
   return MultiComponentBoundTrackParameters<charge_t>(surface, cmps);
 }
-
-
 
 template <typename multi_stepper_t, typename charge_t, bool Cov>
 void test_multi_stepper_state() {
@@ -228,7 +225,6 @@ void test_multi_stepper_vs_eigen_stepper() {
     }
   }
 }
-
 
 template <typename multi_stepper_t>
 void test_components_modifying_accessors() {
