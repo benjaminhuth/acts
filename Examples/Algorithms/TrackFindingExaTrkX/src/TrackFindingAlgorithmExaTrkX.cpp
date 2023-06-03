@@ -14,6 +14,8 @@
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
 
+#include <boost/multi_array.hpp>
+
 #include <random>
 
 ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
@@ -50,12 +52,13 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
 
   m_inputSpacePoints.initialize(m_cfg.inputSpacePoints);
   m_outputProtoTracks.initialize(m_cfg.outputProtoTracks);
+  m_inputClusters.initialize(m_cfg.outputProtoTracks);
 }
 
 std::vector<std::vector<int>>
 ActsExamples::TrackFindingAlgorithmExaTrkX::runPipeline(
-    std::vector<float>& inputValues, std::vector<int>& spacepointIDs) const {
-  auto [nodes, edges] = (*m_cfg.graphConstructor)(inputValues, logger());
+    boost::multi_array<float, 2>& inputFeatures, std::vector<int>& spacepointIDs) const {
+  auto [nodes, edges] = (*m_cfg.graphConstructor)(inputFeatures, logger());
   std::any edge_weights;
 
   for (auto edgeClassifier : m_cfg.edgeClassifiers) {
@@ -70,39 +73,55 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::runPipeline(
                                logger());
 }
 
+
 ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
     const ActsExamples::AlgorithmContext& ctx) const {
+  // To clarify notation of array access
+  enum NodeFeatures : std::size_t {
+    eR, ePhi, eZ, eCellCount, eCellVal, eClusterX, eClusterY
+  };
+  
   // Read input data
   const auto& spacepoints = m_inputSpacePoints(ctx);
+  std::optional<ClusterContainer> clusters;
+  if( m_inputClusters.isInitialized() ) {
+    clusters = m_inputClusters(ctx);
+  }
 
-  // Convert Input data to a list of size [num_measurements x
-  // measurement_features]
-  size_t num_spacepoints = spacepoints.size();
-  ACTS_INFO("Received " << num_spacepoints << " spacepoints");
+  ACTS_INFO("Received " << spacepoints.size() << " spacepoints");
 
-  std::vector<float> inputValues;
+  const std::array<std::size_t, 2> shape = {spacepoints.size(), m_inputClusters.isInitialized() ? 7ul : 3ul};
+  boost::multi_array<float, 2> inputFeatures(shape);
+  
   std::vector<int> spacepointIDs;
-  inputValues.reserve(spacepoints.size() * 3);
   spacepointIDs.reserve(spacepoints.size());
-  for (const auto& sp : spacepoints) {
-    float x = sp.x();
-    float y = sp.y();
-    float z = sp.z();
-    float r = sp.r();
-    float phi = std::atan2(y, x);
-
-    inputValues.push_back(r / m_cfg.rScale);
-    inputValues.push_back(phi / m_cfg.phiScale);
-    inputValues.push_back(z / m_cfg.zScale);
-
+  for (auto i=0ul; i<spacepoints.size(); ++i) {
+    const auto &sp = spacepoints[i];
+    
+    // Extract ID
     // For now just take the first index since does require one single index per
     // spacepoint
-    const auto& islink = sp.sourceLinks()[0].template get<IndexSourceLink>();
-    spacepointIDs.push_back(islink.index());
+    const auto& sl = sp.sourceLinks()[0].template get<IndexSourceLink>();
+    spacepointIDs.push_back(sl.index());
+    
+    // Extract features
+    inputFeatures[i][eR] = sp.r() / m_cfg.rScale;
+    inputFeatures[i][ePhi] = std::atan2(sp.y(), sp.x()) / m_cfg.rScale;
+    inputFeatures[i][eZ] = sp.z() / m_cfg.rScale;
+
+    if( m_inputClusters.isInitialized() ) {
+      const auto &cluster = clusters->operator[](sl.index());
+      const auto &cells = cluster.channels;
+      
+      inputFeatures[i][eCellCount] = cells.size();
+      inputFeatures[i][eCellVal] = std::accumulate(cells.begin(), cells.end(), 0.0, [](double s, const auto &c){ return s + c.activation; });
+      inputFeatures[i][eClusterX] = cluster.sizeLoc0;
+      inputFeatures[i][eClusterY] = cluster.sizeLoc1;      
+    }
   }
 
   // Run the pipeline
-  const auto trackCandidates = runPipeline(inputValues, spacepointIDs);
+  const auto trackCandidates = runPipeline(inputFeatures, spacepointIDs);
 
   // Make the prototracks
   std::vector<ProtoTrack> protoTracks;

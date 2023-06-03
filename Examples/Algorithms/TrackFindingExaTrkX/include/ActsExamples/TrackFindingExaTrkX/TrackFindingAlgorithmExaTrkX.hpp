@@ -13,6 +13,7 @@
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/DataHandle.hpp"
 #include "ActsExamples/Framework/IAlgorithm.hpp"
+#include "ActsExamples/EventData/Cluster.hpp"
 
 #include <string>
 #include <vector>
@@ -24,6 +25,14 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
   struct Config {
     /// Input spacepoints collection.
     std::string inputSpacePoints;
+    
+    /// Input spacepoints collection (optional)
+    /// If this is given, the following 4 cluster information are added to the features in the following order:
+    /// * cell count
+    /// * aggregated cell value
+    /// * cluster size in local x
+    /// * cluster size in local y
+    std::string inputClusters;
 
     /// Output protoTracks collection.
     std::string outputProtoTracks;
@@ -64,8 +73,8 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
   // configuration
   Config m_cfg;
 
-  ReadDataHandle<SimSpacePointContainer> m_inputSpacePoints{this,
-                                                            "InputSpacePoints"};
+  ReadDataHandle<SimSpacePointContainer> m_inputSpacePoints{this, "InputSpacePoints"};
+  ReadDataHandle<ClusterContainer> m_inputClusters{this, "InputClusters"};
 
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,
                                                            "OutputProtoTracks"};

@@ -10,6 +10,8 @@
 
 #include "Acts/Utilities/Logger.hpp"
 
+#include <boost/multi_array.hpp>
+
 #include <any>
 #include <vector>
 
@@ -29,7 +31,7 @@ class GraphConstructionBase {
   ///
   /// @return (node_tensor, edge_tensore)
   virtual std::tuple<std::any, std::any> operator()(
-      std::vector<float> &inputValues, const Logger &logger) = 0;
+      boost::multi_array<float, 2> &inputValues, const Logger &logger) = 0;
 };
 
 class EdgeClassificationBase {

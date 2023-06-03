@@ -32,8 +32,6 @@ torch::Tensor buildEdgesFRNN(at::Tensor &embedFeatures, int64_t numSpacepoints,
                              bool flipDirections) {
   using namespace torch::indexing;
 
-  torch::Device device(torch::kCUDA);
-
   const int grid_params_size = 8;
   const int grid_delta_idx = 3;
   const int grid_total_idx = 7;
@@ -52,12 +50,16 @@ torch::Tensor buildEdgesFRNN(at::Tensor &embedFeatures, int64_t numSpacepoints,
   torch::Tensor grid_min;
   torch::Tensor grid_max;
   torch::Tensor grid_size;
+  
+  const auto intOpts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
+  const auto floatOpts = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA);
+  
 
   torch::Tensor embedTensor = embedFeatures.reshape({1, numSpacepoints, dim});
   torch::Tensor gridParamsCuda =
-      torch::zeros({batch_size, grid_params_size}, device).to(torch::kFloat32);
-  torch::Tensor r_tensor = torch::full({batch_size}, rVal, device);
-  torch::Tensor lengths = torch::full({batch_size}, numSpacepoints, device);
+      torch::zeros({batch_size, grid_params_size}, floatOpts);
+  torch::Tensor r_tensor = torch::full({batch_size}, rVal, floatOpts);
+  torch::Tensor lengths = torch::full({batch_size}, numSpacepoints, intOpts);
 
   // build the grid
   for (int i = 0; i < batch_size; i++) {
@@ -92,29 +94,25 @@ torch::Tensor buildEdgesFRNN(at::Tensor &embedFeatures, int64_t numSpacepoints,
     }
   }
 
-  torch::Tensor pc_grid_cnt =
-      torch::zeros({batch_size, G}, device).to(torch::kInt32);
-  torch::Tensor pc_grid_cell =
-      torch::full({batch_size, numSpacepoints}, -1, device).to(torch::kInt32);
-  torch::Tensor pc_grid_idx =
-      torch::full({batch_size, numSpacepoints}, -1, device).to(torch::kInt32);
+  torch::Tensor pc_grid_cnt = torch::zeros({batch_size, G}, intOpts);
+  torch::Tensor pc_grid_cell = torch::full({batch_size, numSpacepoints}, -1, intOpts);
+  torch::Tensor pc_grid_idx = torch::full({batch_size, numSpacepoints}, -1, intOpts);
 
   // put spacepoints into the grid
   InsertPointsCUDA(embedTensor, lengths.to(torch::kInt64), gridParamsCuda,
                    pc_grid_cnt, pc_grid_cell, pc_grid_idx, G);
 
   torch::Tensor pc_grid_off =
-      torch::full({batch_size, G}, 0, device).to(torch::kInt32);
+      torch::full({batch_size, G}, 0, intOpts);
   torch::Tensor grid_params = gridParamsCuda.to(torch::kCPU);
 
   // for loop seems not to be necessary anymore
   pc_grid_off = PrefixSumCUDA(pc_grid_cnt, grid_params);
 
   torch::Tensor sorted_points =
-      torch::zeros({batch_size, numSpacepoints, dim}, device)
-          .to(torch::kFloat32);
+      torch::zeros({batch_size, numSpacepoints, dim}, floatOpts);
   torch::Tensor sorted_points_idxs =
-      torch::full({batch_size, numSpacepoints}, -1, device).to(torch::kInt32);
+      torch::full({batch_size, numSpacepoints}, -1, intOpts);
 
   CountingSortCUDA(embedTensor, lengths.to(torch::kInt64), pc_grid_cell,
                    pc_grid_idx, pc_grid_off, sorted_points, sorted_points_idxs);
