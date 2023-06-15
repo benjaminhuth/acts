@@ -53,9 +53,10 @@ inline std::tuple<Acts::Vector2, Acts::Vector4, Acts::Vector3> averageSimHits(
     // check their validity again.
     const auto& simHit = *simHits.nth(simHitIdx);
 
-    // We use the thickness of the detector element as tolerance, because Geant4
-    // treats the Surfaces as volumes and thus it is not ensured, that each hit
-    // lies exactely on the Acts::Surface
+    // We intersect the hit with the surface, to get a position that lies
+    // garantueed on the surface. This is necessary, since Geant4 might produce
+    // hits not exactely on the middle-plane of the surface. If the intersection
+    // fails or the pathlength is to large, we return an error.
     const auto intersection =
         surface.intersect(gCtx, simHit.position(), simHit.unitDirection());
     assert(intersection.intersection and

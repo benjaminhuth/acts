@@ -64,10 +64,11 @@ struct BoundParametersSmearer {
   Result operator()(generator_t& rng, const Hit& hit,
                     const Acts::Surface& surface,
                     const Acts::GeometryContext& geoCtx) const {
-    // We use the thickness of the detector element as tolerance, because Geant4
-    // treats the Surfaces as volumes and thus it is not ensured, that each hit
-    // lies exactely on the Acts::Surface
     using namespace Acts::UnitLiterals;
+    // We intersect the hit with the surface, to get a position that lies
+    // garantueed on the surface. This is necessary, since Geant4 might produce
+    // hits not exactely on the middle-plane of the surface. If the intersection
+    // fails or the pathlength is to large, we return an error.
     const auto intersection =
         surface.intersect(geoCtx, hit.position(), hit.unitDirection());
 
