@@ -91,6 +91,10 @@ struct BoundParametersSmearer {
       return boundParamsRes.error();
     }
 
+    if ( not surface.bounds().inside(boundParamsRes->segment<2>(Acts::eBoundLoc0), true) ){
+      std::cout << "WARNING: not inside bounds" << std::endl;
+    }
+
     const auto& boundParams = *boundParamsRes;
 
     ParametersVector par = ParametersVector::Zero();
