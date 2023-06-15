@@ -53,11 +53,20 @@ inline std::tuple<Acts::Vector2, Acts::Vector4, Acts::Vector3> averageSimHits(
     // check their validity again.
     const auto& simHit = *simHits.nth(simHitIdx);
 
+    // We use the thickness of the detector element as tolerance, because Geant4
+    // treats the Surfaces as volumes and thus it is not ensured, that each hit
+    // lies exactely on the Acts::Surface
+    const auto intersection =
+        surface.intersect(gCtx, simHit.position(), simHit.unitDirection());
+    assert(intersection.intersection and
+           intersection.intersection.pathLength < 1_mm);
+
     // transforming first to local positions and average that ensures that the
     // averaged position is still on the surface. the averaged global position
     // might not be on the surface anymore.
-    auto result = surface.globalToLocal(gCtx, simHit.position(),
-                                        simHit.unitDirection(), 0.5_um);
+    auto result =
+        surface.globalToLocal(gCtx, intersection.intersection.position,
+                              simHit.unitDirection(), 0.5_um);
     if (result.ok()) {
       avgLocal += result.value();
     } else {

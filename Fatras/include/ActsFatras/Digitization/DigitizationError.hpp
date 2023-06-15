@@ -18,6 +18,8 @@ enum class DigitizationError {
   SmearingError,
   UndefinedSurface,
   MaskingError,
+  IntersectionFailed,
+  IntersectionPathToLarge,
 };
 
 std::error_code make_error_code(DigitizationError e);

@@ -22,13 +22,17 @@ class DigitizationErrorCategory : public std::error_category {
 
     switch (static_cast<DigitizationError>(c)) {
       case DigitizationError::SmearingOutOfRange:
-        return "Smeared out of surface bounds.";
+        return "smeared out of surface bounds";
       case DigitizationError::SmearingError:
-        return "Smearing error occured.";
+        return "smearing error occured";
       case DigitizationError::UndefinedSurface:
-        return "Surface undefined for this operation.";
+        return "surface undefined for this operation";
       case DigitizationError::MaskingError:
-        return "Surface mask could not be applied.";
+        return "surface mask could not be applied";
+      case DigitizationError::IntersectionFailed:
+        return "intersection of hit with surface failed";
+      case DigitizationError::IntersectionPathToLarge:
+        return "intersection pathlength of hit to large";
       default:
         return "unknown";
     }
