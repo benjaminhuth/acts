@@ -206,7 +206,7 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
               auto res =
                   digitizer.smearing(rng, simHit, *surfacePtr, ctx.geoContext);
               if (not res.ok()) {
-                ACTS_WARNING("Problem in hit smearing, skip hit ("
+                ACTS_WARNING("Hit smearing error, skip hit ("
                              << res.error().message() << ")");
                 continue;
               }

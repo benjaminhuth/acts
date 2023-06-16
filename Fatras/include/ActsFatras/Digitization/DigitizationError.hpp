@@ -20,6 +20,8 @@ enum class DigitizationError {
   MaskingError,
   IntersectionFailed,
   IntersectionPathToLarge,
+  LocalPositionOutOfBounds,
+  LargeZDistanceFromSurface,
 };
 
 std::error_code make_error_code(DigitizationError e);

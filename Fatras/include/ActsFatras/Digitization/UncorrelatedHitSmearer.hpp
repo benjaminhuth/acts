@@ -76,8 +76,24 @@ struct BoundParametersSmearer {
       return DigitizationError::IntersectionFailed;
     }
 
-    if (intersection.intersection.pathLength > 1_mm) {
-      return DigitizationError::IntersectionPathToLarge;
+    // Here we check if the hit is inside the surface volume defined by the
+    // thickness of the detector element. Since the Acts::Surface is attached at
+    // one facing of the surface volume, we need to check for the whole
+    // thickness
+    // TODO We do not check here the direction, so this check would miss
+    // hits on the opposite side of the surface for now...
+    const auto intersectionNormal = surface.intersect(
+        geoCtx, hit.position(),
+        surface.normal(geoCtx, Acts::Vector3(hit.position())));
+
+    auto hitOutsideVolume = [&]() {
+      const auto pl = intersectionNormal.intersection.pathLength;
+      const auto th = surface.associatedDetectorElement()->thickness();
+      return pl - th > Acts::s_onSurfaceTolerance;
+    };
+
+    if (not intersectionNormal.intersection or hitOutsideVolume()) {
+      return DigitizationError::LargeZDistanceFromSurface;
     }
 
     // construct full bound parameters. they are probably not all needed, but it
@@ -91,11 +107,22 @@ struct BoundParametersSmearer {
       return boundParamsRes.error();
     }
 
-    if ( not surface.bounds().inside(boundParamsRes->segment<2>(Acts::eBoundLoc0), true) ){
-      std::cout << "WARNING: not inside bounds" << std::endl;
-    }
-
     const auto& boundParams = *boundParamsRes;
+
+    // TODO This does not handle edge-cases correctly, in which the intersection
+    // point is out of bounds, because the track only crosses the edge of the
+    // surface
+    //                    _____________
+    //                    |/
+    //                    /
+    //    intersection   /|      Geant4 surface volume
+    //      point       / |
+    //        ---------x-------------- Surface middle plane
+    //                    |
+    if (not surface.bounds().inside(boundParams.segment<2>(Acts::eBoundLoc0),
+                                    true)) {
+      return DigitizationError::LocalPositionOutOfBounds;
+    }
 
     ParametersVector par = ParametersVector::Zero();
     CovarianceMatrix cov = CovarianceMatrix::Zero();

@@ -33,6 +33,10 @@ class DigitizationErrorCategory : public std::error_category {
         return "intersection of hit with surface failed";
       case DigitizationError::IntersectionPathToLarge:
         return "intersection pathlength of hit to large";
+      case DigitizationError::LocalPositionOutOfBounds:
+        return "local position not within surface bounds";
+      case DigitizationError::LargeZDistanceFromSurface:
+        return "z-distance of hit to surface is larger then thickness";
       default:
         return "unknown";
     }
