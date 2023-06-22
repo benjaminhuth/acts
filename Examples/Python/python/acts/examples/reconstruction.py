@@ -1156,34 +1156,18 @@ def addTrackSelection(
     return trackSelector
 
 
-ExaTrkXBackend = Enum("ExaTrkXBackend", "Torch Onnx")
-
-
 def addExaTrkX(
     s: acts.examples.Sequencer,
     trackingGeometry: acts.TrackingGeometry,
     geometrySelection: Union[Path, str],
-    modelDir: Union[Path, str],
+    metricLearningModule,
+    filterModule,
+    gnnModule,
+    trackBuilderModule,
     outputDirRoot: Optional[Union[Path, str]] = None,
-    backend: Optional[ExaTrkXBackend] = ExaTrkXBackend.Torch,
     logLevel: Optional[acts.logging.Level] = None,
 ) -> None:
     customLogLevel = acts.examples.defaultLogging(s, logLevel)
-
-    # Run the particle selection
-    # The pre-selection will select truth particles satisfying provided criteria
-    # from all particles read in by particle reader for further processing. It
-    # has no impact on the truth hits themselves
-    s.addAlgorithm(
-        acts.examples.TruthSeedSelector(
-            level=customLogLevel(),
-            ptMin=500 * u.MeV,
-            nHitsMin=9,
-            inputParticles="particles_initial",
-            inputMeasurementParticlesMap="measurement_particles_map",
-            outputParticles="particles_seed_selected",
-        )
-    )
 
     # Create space points
     s.addAlgorithm(
@@ -1191,7 +1175,7 @@ def addExaTrkX(
             level=customLogLevel(),
             inputSourceLinks="sourcelinks",
             inputMeasurements="measurements",
-            outputSpacePoints="spacepoints",
+            outputSpacePoints="exatrkx_spacepoints",
             trackingGeometry=trackingGeometry,
             geometrySelection=acts.examples.readJsonGeometryList(
                 str(geometrySelection)
@@ -1199,57 +1183,15 @@ def addExaTrkX(
         )
     )
 
-    metricLearningConfig = {
-        "level": customLogLevel(),
-        "spacepointFeatures": 3,
-        "embeddingDim": 8,
-        "rVal": 1.6,
-        "knnVal": 500,
-    }
-
-    filterConfig = {
-        "level": customLogLevel(),
-        "cut": 0.21,
-    }
-
-    gnnConfig = {
-        "level": customLogLevel(),
-        "cut": 0.5,
-    }
-
-    if backend == ExaTrkXBackend.Torch:
-        metricLearningConfig["modelPath"] = str(modelDir / "embed.pt")
-        filterConfig["modelPath"] = str(modelDir / "filter.pt")
-        filterConfig["nChunks"] = 10
-        gnnConfig["modelPath"] = str(modelDir / "gnn.pt")
-        gnnConfig["undirected"] = True
-
-        graphConstructor = acts.examples.TorchMetricLearning(**metricLearningConfig)
-        edgeClassifiers = [
-            acts.examples.TorchEdgeClassifier(**filterConfig),
-            acts.examples.TorchEdgeClassifier(**gnnConfig),
-        ]
-        trackBuilder = acts.examples.BoostTrackBuilding(customLogLevel())
-    elif backend == ExaTrkXBackend.Onnx:
-        metricLearningConfig["modelPath"] = str(modelDir / "embedding.onnx")
-        filterConfig["modelPath"] = str(modelDir / "filtering.onnx")
-        gnnConfig["modelPath"] = str(modelDir / "gnn.onnx")
-
-        graphConstructor = acts.examples.OnnxMetricLearning(**metricLearningConfig)
-        edgeClassifiers = [
-            acts.examples.OnnxEdgeClassifier(**filterConfig),
-            acts.examples.OnnxEdgeClassifier(**gnnConfig),
-        ]
-        trackBuilder = acts.examples.CugraphTrackBuilding(customLogLevel())
 
     s.addAlgorithm(
         acts.examples.TrackFindingAlgorithmExaTrkX(
             level=customLogLevel(),
             inputSpacePoints="spacepoints",
             outputProtoTracks="protoTracks",
-            graphConstructor=graphConstructor,
-            edgeClassifiers=edgeClassifiers,
-            trackBuilder=trackBuilder,
+            graphConstructor=metricLearningModule,
+            edgeClassifiers=[filterModule, gnnModule],
+            trackBuilder=trackBuilderModule,
         )
     )
 

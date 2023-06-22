@@ -11,16 +11,68 @@ if "__main__" == __name__:
     import os
     import sys
     from digitization import runDigitization
-    from acts.examples.reconstruction import addExaTrkX, ExaTrkXBackend
+    from acts.examples.reconstruction import addExaTrkX
+    
+    s = acts.examples.Sequencer(events=2, numThreads=1, logLevel=acts.logging.INFO)
+    
+    metricLearningConfig = {
+        "level": s.config.logLevel,
+        "spacepointFeatures": 3,
+        "embeddingDim": 8,
+        "rVal": 1.6,
+        "knnVal": 500,
+    }
 
-    backend = ExaTrkXBackend.Torch
+    filterConfig = {
+        "level": s.config.logLevel,
+        "cut": 0.21,
+    }
 
-    if "onnx" in sys.argv:
-        backend = ExaTrkXBackend.Onnx
+    gnnConfig = {
+        "level": s.config.logLevel,
+        "cut": 0.5,
+    }
+    
     if "torch" in sys.argv:
-        backend = ExaTrkXBackend.Torch
+        modelDir = Path.cwd() / "torchscript_models"
+        
+        metricLearningConfig["modelPath"] = str(modelDir / "embed.pt")
+        assert Path(metricLearningConfig["modelPath"]).exists()
+        
+        filterConfig["modelPath"] = str(modelDir / "filter.pt")
+        assert Path(filterConfig["modelPath"]).exists()
+        filterConfig["nChunks"] = 10
+        
+        gnnConfig["modelPath"] = str(modelDir / "gnn.pt")
+        assert Path(gnnConfig["modelPath"]).exists()
+        gnnConfig["undirected"] = True
 
-    srcdir = Path(__file__).resolve().parent.parent.parent.parent
+        embModule = acts.examples.TorchMetricLearning(**metricLearningConfig)
+        fltModule = acts.examples.TorchEdgeClassifier(**filterConfig)
+        gnnModule = acts.examples.TorchEdgeClassifier(**gnnConfig)
+        trkModule = acts.examples.BoostTrackBuilding(logLevel)
+    elif "onnx" in sys.argv:
+        modelDir = Path.cwd() / "onnx_models"
+        assert (modelDir / "embedding.onnx").exists()
+        assert (modelDir / "filtering.onnx").exists()
+        assert (modelDir / "gnn.onnx").exists()
+        
+        metricLearningConfig["modelPath"] = str(modelDir / "embedding.onnx")
+        assert Path(metricLearningConfig["modelPath"]).exists()
+        
+        filterConfig["modelPath"] = str(modelDir / "filtering.onnx")
+        assert Path(filterConfig["modelPath"]).exists()
+        
+        gnnConfig["modelPath"] = str(modelDir / "gnn.onnx")
+        assert Path(gnnConfig["modelPath"]).exists()
+
+        embModule = acts.examples.OnnxMetricLearning(**metricLearningConfig)
+        fltModule = acts.examples.OnnxEdgeClassifier(**filterConfig)
+        gnnModule = acts.examples.OnnxEdgeClassifier(**gnnConfig)
+        trkModule = acts.examples.CugraphGraphBuilding(**metricLearningConfig)
+    else:
+        print(f"Usage {sys.argv[0]} <torch|onnx>")
+        sys.exit(1)
 
     detector, trackingGeometry, decorators = acts.examples.GenericDetector.create()
 
@@ -30,33 +82,13 @@ if "__main__" == __name__:
     if not inputParticlePath.exists():
         inputParticlePath = None
 
-    srcdir = Path(__file__).resolve().parent.parent.parent.parent
+    algdir = Path(__file__).resolve().parent.parent.parent.parent / "Examples/Algorithms"
 
-    geometrySelection = (
-        srcdir
-        / "Examples/Algorithms/TrackFinding/share/geoSelection-genericDetector.json"
-    )
+    geometrySelection = algdir / "TrackFinding/share/geoSelection-genericDetector.json"
     assert geometrySelection.exists()
 
-    digiConfigFile = (
-        srcdir
-        / "Examples/Algorithms/Digitization/share/default-smearing-config-generic.json"
-    )
+    digiConfigFile = algdir / "Digitization/share/default-smearing-config-generic.json"
     assert digiConfigFile.exists()
-
-    if backend == ExaTrkXBackend.Torch:
-        modelDir = Path.cwd() / "torchscript_models"
-        assert (modelDir / "embed.pt").exists()
-        assert (modelDir / "filter.pt").exists()
-        assert (modelDir / "gnn.pt").exists()
-    else:
-        modelDir = Path.cwd() / "onnx_models"
-        assert (modelDir / "embedding.onnx").exists()
-        assert (modelDir / "filtering.onnx").exists()
-        assert (modelDir / "gnn.onnx").exists()
-
-    s = acts.examples.Sequencer(events=2, numThreads=1)
-    s.config.logLevel = acts.logging.INFO
 
     rnd = acts.examples.RandomNumbers()
     outputDir = Path(os.getcwd())
@@ -78,7 +110,10 @@ if "__main__" == __name__:
         geometrySelection,
         modelDir,
         outputDir,
-        backend=backend,
+        metricLearningModule=embModule,
+        filterModule=fltModule,
+        gnnModule=gnnModule,
+        trackBuilderModule=trkModule,
     )
 
     s.run()
