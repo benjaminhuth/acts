@@ -1164,6 +1164,7 @@ def addExaTrkX(
     filterModule,
     gnnModule,
     trackBuilderModule,
+    particles: str = "particles_initial",
     outputDirRoot: Optional[Union[Path, str]] = None,
     logLevel: Optional[acts.logging.Level] = None,
 ) -> None:
@@ -1183,12 +1184,11 @@ def addExaTrkX(
         )
     )
 
-
     s.addAlgorithm(
         acts.examples.TrackFindingAlgorithmExaTrkX(
             level=customLogLevel(),
-            inputSpacePoints="spacepoints",
-            outputProtoTracks="protoTracks",
+            inputSpacePoints="exatrkx_spacepoints",
+            outputProtoTracks="exatrkx_prototracks",
             graphConstructor=metricLearningModule,
             edgeClassifiers=[filterModule, gnnModule],
             trackBuilder=trackBuilderModule,
@@ -1200,8 +1200,8 @@ def addExaTrkX(
         s.addWriter(
             acts.examples.TrackFinderPerformanceWriter(
                 level=customLogLevel(),
-                inputProtoTracks="protoTracks",
-                inputParticles="particles_initial",  # the original selected particles after digitization
+                inputProtoTracks="exatrkx_prototracks",
+                inputParticles=particles,
                 inputMeasurementParticlesMap="measurement_particles_map",
                 filePath=str(Path(outputDirRoot) / "performance_track_finding.root"),
             )

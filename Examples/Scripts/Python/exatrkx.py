@@ -12,9 +12,9 @@ if "__main__" == __name__:
     import sys
     from digitization import runDigitization
     from acts.examples.reconstruction import addExaTrkX
-    
+
     s = acts.examples.Sequencer(events=2, numThreads=1, logLevel=acts.logging.INFO)
-    
+
     metricLearningConfig = {
         "level": s.config.logLevel,
         "spacepointFeatures": 3,
@@ -32,17 +32,17 @@ if "__main__" == __name__:
         "level": s.config.logLevel,
         "cut": 0.5,
     }
-    
+
     if "torch" in sys.argv:
         modelDir = Path.cwd() / "torchscript_models"
-        
+
         metricLearningConfig["modelPath"] = str(modelDir / "embed.pt")
         assert Path(metricLearningConfig["modelPath"]).exists()
-        
+
         filterConfig["modelPath"] = str(modelDir / "filter.pt")
         assert Path(filterConfig["modelPath"]).exists()
         filterConfig["nChunks"] = 10
-        
+
         gnnConfig["modelPath"] = str(modelDir / "gnn.pt")
         assert Path(gnnConfig["modelPath"]).exists()
         gnnConfig["undirected"] = True
@@ -56,13 +56,13 @@ if "__main__" == __name__:
         assert (modelDir / "embedding.onnx").exists()
         assert (modelDir / "filtering.onnx").exists()
         assert (modelDir / "gnn.onnx").exists()
-        
+
         metricLearningConfig["modelPath"] = str(modelDir / "embedding.onnx")
         assert Path(metricLearningConfig["modelPath"]).exists()
-        
+
         filterConfig["modelPath"] = str(modelDir / "filtering.onnx")
         assert Path(filterConfig["modelPath"]).exists()
-        
+
         gnnConfig["modelPath"] = str(modelDir / "gnn.onnx")
         assert Path(gnnConfig["modelPath"]).exists()
 
@@ -82,7 +82,8 @@ if "__main__" == __name__:
     if not inputParticlePath.exists():
         inputParticlePath = None
 
-    algdir = Path(__file__).resolve().parent.parent.parent.parent / "Examples/Algorithms"
+    srcdir = Path(__file__).resolve().parent.parent.parent.parent
+    algdir = srcdir / "Examples/Algorithms"
 
     geometrySelection = algdir / "TrackFinding/share/geoSelection-genericDetector.json"
     assert geometrySelection.exists()
