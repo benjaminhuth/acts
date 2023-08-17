@@ -64,7 +64,7 @@ std::tuple<std::any, std::any> TorchMetricLearning::operator()(
   printCudaMemInfo(logger());
 
   auto inputTensor =
-      detail::vectorToTensor2D(inputValues, m_cfg.spacepointFeatures);
+      detail::vectorToTensor2D(inputValues, numAllFeatures);
 
   // If we are on CPU, clone to get ownership (is this necessary?), else bring
   // to device.
@@ -78,7 +78,9 @@ std::tuple<std::any, std::any> TorchMetricLearning::operator()(
   // Embedding
   // **********
 
-  std::vector<torch::jit::IValue> inputTensors;
+  if (m_cfg.numFeatures > numAllFeatures) {
+    throw std::runtime_error("requested more features then available");
+  }
 
   // Clone models (solve memory leak? members can be const...)
   auto model = m_model->clone();
@@ -103,8 +105,8 @@ std::tuple<std::any, std::any> TorchMetricLearning::operator()(
   // ****************
   // Building Edges
   // ****************
-
-  auto edgeList = detail::buildEdges(output, m_cfg.rVal, m_cfg.knnVal);
+  auto edgeList = detail::buildEdges(output, m_cfg.rVal, m_cfg.knnVal,
+                                     m_cfg.shuffleDirections);
 
   ACTS_VERBOSE("Shape of built edges: (" << edgeList.size(0) << ", "
                                          << edgeList.size(1));
