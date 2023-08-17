@@ -50,13 +50,11 @@ BOOST_AUTO_TEST_CASE(CsvMeasurmentRoundTrip) {
     Acts::Vector2 p = Acts::Vector2::Random();
     Acts::SymMatrix2 c = Acts::SymMatrix2::Random();
 
+    // NOTE this fails:
+    // auto m = Acts::makeMeasurement(sl, p, c, eBoundLoc0, eBoundTime)
+    // because we dont support non-consecutive parameters here for now
     auto m = Acts::makeMeasurement(Acts::SourceLink{sl}, p, c, Acts::eBoundLoc0,
                                    Acts::eBoundLoc1);
-
-    // TODO this fails!
-    // auto m = Acts::makeMeasurement(Acts::SourceLink{sl}, p, c,
-    // Acts::eBoundLoc0,
-    //                                Acts::eBoundTime);
 
     measOriginal.push_back(m);
 
@@ -152,13 +150,17 @@ BOOST_AUTO_TEST_CASE(CsvMeasurmentRoundTrip) {
   static_assert(std::is_same_v<std::decay_t<decltype(clusterRead)>,
                                decltype(clusterOriginal)>);
   BOOST_REQUIRE(clusterRead.size() == clusterOriginal.size());
-  for (const auto &[a, b] : Acts::zip(clusterRead, clusterOriginal)) {
+  for (auto [a, b] : Acts::zip(clusterRead, clusterOriginal)) {
     BOOST_REQUIRE(a.sizeLoc0 == b.sizeLoc0);
     BOOST_REQUIRE(a.sizeLoc1 == b.sizeLoc1);
-    for (const auto &[ca, cb] : Acts::zip(a.channels, b.channels)) {
-      BOOST_REQUIRE(ca.bin[0] == cb.bin[0]);
-      BOOST_REQUIRE(ca.bin[1] == cb.bin[1]);
-      CHECK_CLOSE_REL(ca.activation, cb.activation, 1.e-4);
+
+    for (const auto &ca : a.channels) {
+      auto match = [&](const auto &cb) {
+        return ca.bin == cb.bin &&
+               std::abs(ca.activation - cb.activation) < 1.e-4;
+      };
+
+      BOOST_CHECK(std::any_of(b.channels.begin(), b.channels.end(), match));
     }
   }
 
