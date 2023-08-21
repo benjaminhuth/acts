@@ -102,8 +102,8 @@ if(ACTS_EXATRKX_ENABLE_TORCH)
 endif()
 
 
-add_executable(EdgeClassifierShiftChecker EdgeClassifierShiftChecker.cpp)
-target_link_libraries(EdgeClassifierShiftChecker PUBLIC ActsPluginExaTrkX)
+add_executable(EdgeClassifierShiftChecker src/EdgeClassifierShiftChecker.cpp)
+target_link_libraries(EdgeClassifierShiftChecker PUBLIC ActsPluginExaTrkX ${TORCH_LIBRARIES})
 
 install(
   TARGETS ActsPluginExaTrkX
