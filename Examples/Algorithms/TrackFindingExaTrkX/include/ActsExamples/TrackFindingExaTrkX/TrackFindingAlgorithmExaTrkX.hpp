@@ -12,7 +12,7 @@
 #include "Acts/Plugins/ExaTrkX/Stages.hpp"
 #include "ActsExamples/EventData/Cluster.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
-#include "ActsExamples/EventData/SimHit.hpp"
+#include "ActsExamples/EventData/SimParticle.hpp"
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/DataHandle.hpp"
 #include "ActsExamples/Framework/IAlgorithm.hpp"
@@ -40,13 +40,14 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
     /// * cluster size in local y
     std::string inputClusters;
 
-    /// Input simhits (Optional). If given together with measurementSimhitMap,
-    /// the truth graph is computed and metrics can be printed.
-    std::string inputSimhits;
+    /// Input particles (Optional). If given together with
+    /// measurementParticlesMap, the truth graph is computed and metrics can be
+    /// printed.
+    std::string inputParticles;
 
     /// Input measurement simhit map (Optional). If given together with simhits,
     /// the truth graph is computed and metrics can be printed.
-    std::string inputMeasurementSimhitMap;
+    std::string inputMeasurementParticlesMap;
 
     /// Output protoTracks collection.
     std::string outputProtoTracks;
@@ -94,8 +95,8 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
                                                             "InputSpacePoints"};
   ReadDataHandle<ClusterContainer> m_inputClusters{this, "InputClusters"};
 
-  ReadDataHandle<SimHitContainer> m_inputSimHits{this, "InputSimHits"};
-  ReadDataHandle<IndexMultimap<Index>> m_inputMeasurementMap{
+  ReadDataHandle<SimParticleContainer> m_inputParticles{this, "InputParticles"};
+  ReadDataHandle<IndexMultimap<ActsFatras::Barcode>> m_inputMeasurementMap{
       this, "InputMeasurementMap"};
 
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,

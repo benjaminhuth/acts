@@ -35,12 +35,12 @@ class ExamplesEdmHook : public Acts::PipelineHook {
 
  public:
   ExamplesEdmHook(const SimSpacePointContainer& spacepoints,
-                  const IndexMultimap<Index>& measHitMap,
-                  const SimHitContainer& truthHits, const Acts::Logger& logger)
-      : m_logger(logger.clone()) {
+                  const IndexMultimap<ActsFatras::Barcode>& measHitMap,
+                  const SimParticleContainer& particles,
+                  const Acts::Logger& logger)
+      : m_logger(logger.clone("MetricsHook")) {
     // Associate tracks to graph, collect momentum
-    std::unordered_map<SimBarcode, std::pair<double, std::vector<std::size_t>>>
-        tracks;
+    std::unordered_map<ActsFatras::Barcode, std::vector<std::size_t>> tracks;
 
     for (auto i = 0ul; i < spacepoints.size(); ++i) {
       const auto measId = spacepoints[i]
@@ -50,14 +50,16 @@ class ExamplesEdmHook : public Acts::PipelineHook {
 
       auto [a, b] = measHitMap.equal_range(measId);
       for (auto it = a; it != b; ++it) {
-        const auto& hit = *truthHits.nth(it->second);
-        const auto pid = hit.particleId();
-        const auto pT =
-            std::hypot(hit.momentum4Before()[0], hit.momentum4Before()[1]);
+        auto found = particles.find(it->second);
 
-        // The maximum hit momentum should be close to the particle momentum
-        tracks[pid].first = std::max(tracks[pid].first, pT);
-        tracks[pid].second.push_back(i);
+        if (found == particles.end()) {
+          ACTS_ERROR("could not find particle with id " << it->second);
+          continue;
+        }
+
+        // We use the spacepoint index here, since thats how edges are
+        // represented within the Exa.TrkX algorithm
+        tracks[found->particleId()].push_back(i);
       }
     }
 
@@ -65,15 +67,15 @@ class ExamplesEdmHook : public Acts::PipelineHook {
     std::vector<int64_t> truthGraph;
     std::vector<int64_t> targetGraph;
 
-    for (auto& [_, v] : tracks) {
-      auto& [mom, track] = v;
+    for (auto& [pid, track] : tracks) {
       std::sort(track.begin(), track.end());
+      const auto pT = particles.find(pid)->transverseMomentum();
 
       for (auto i = 0ul; i < track.size() - 1; ++i) {
         truthGraph.push_back(track[i]);
         truthGraph.push_back(track[i + 1]);
 
-        if (mom > m_targetPT && track.size() >= m_targetSize) {
+        if (pT > m_targetPT && track.size() >= m_targetSize) {
           targetGraph.push_back(track[i]);
           targetGraph.push_back(track[i + 1]);
         }
@@ -93,7 +95,7 @@ class ExamplesEdmHook : public Acts::PipelineHook {
     (*m_truthGraphHook)(nodes, edges);
     ACTS_INFO("Metrics for target graph (pT > "
               << m_targetPT / Acts::UnitConstants::GeV
-              << ", #hits >= " << m_targetSize << "):");
+              << " GeV, nHits >= " << m_targetSize << "):");
     (*m_truthGraphHook)(nodes, edges);
   }
 };
@@ -135,8 +137,8 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   m_inputClusters.maybeInitialize(m_cfg.inputClusters);
   m_outputProtoTracks.initialize(m_cfg.outputProtoTracks);
 
-  m_inputSimHits.maybeInitialize(m_cfg.inputSimhits);
-  m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementSimhitMap);
+  m_inputParticles.maybeInitialize(m_cfg.inputParticles);
+  m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementParticlesMap);
 }
 
 enum feat : std::size_t {
@@ -164,9 +166,11 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   }
 
   auto hook = std::make_unique<Acts::PipelineHook>();
-  if (m_inputSimHits.isInitialized() && m_inputMeasurementMap.isInitialized()) {
-    hook = std::make_unique<ExamplesEdmHook>(
-        spacepoints, m_inputMeasurementMap(ctx), m_inputSimHits(ctx), logger());
+  if (m_inputParticles.isInitialized() &&
+      m_inputMeasurementMap.isInitialized()) {
+    hook = std::make_unique<ExamplesEdmHook>(spacepoints,
+                                             m_inputMeasurementMap(ctx),
+                                             m_inputParticles(ctx), logger());
   }
 
   // Convert Input data to a list of size [num_measurements x

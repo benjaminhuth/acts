@@ -172,7 +172,7 @@ void addExaTrkXTrackFinding(Context &ctx) {
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::TrackFindingAlgorithmExaTrkX, mex,
       "TrackFindingAlgorithmExaTrkX", inputSpacePoints, inputClusters,
-      inputSimhits, inputMeasurementSimhitMap, outputProtoTracks,
+      inputParticles, inputMeasurementParticlesMap, outputProtoTracks,
       graphConstructor, edgeClassifiers, trackBuilder, rScale, phiScale, zScale,
       cellCountScale, cellSumScale, clusterXScale, clusterYScale);
 
