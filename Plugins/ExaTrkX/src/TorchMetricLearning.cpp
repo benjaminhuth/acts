@@ -63,8 +63,7 @@ std::tuple<std::any, std::any> TorchMetricLearning::operator()(
   }());
   printCudaMemInfo(logger());
 
-  auto inputTensor =
-      detail::vectorToTensor2D(inputValues, numAllFeatures);
+  auto inputTensor = detail::vectorToTensor2D(inputValues, numAllFeatures);
 
   // If we are on CPU, clone to get ownership (is this necessary?), else bring
   // to device.
