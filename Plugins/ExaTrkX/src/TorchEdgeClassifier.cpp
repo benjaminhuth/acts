@@ -55,9 +55,9 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
     throw std::runtime_error("requested more features then available");
   }
 
-
-  auto edgeListTmp =
-      m_cfg.undirected ? torch::cat({edgeList, edgeList.flip(0)}, 1) : edgeList.clone();
+  auto edgeListTmp = m_cfg.undirected
+                         ? torch::cat({edgeList, edgeList.flip(0)}, 1)
+                         : edgeList.clone();
 
   std::vector<torch::jit::IValue> inputTensors(2);
   inputTensors[0] = m_cfg.numFeatures < nodes.size(1)
@@ -66,11 +66,12 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
 
   torch::Tensor output;
 
-  if( m_cfg.nChunks > 1 ) {
+  if (m_cfg.nChunks > 1) {
     std::vector<at::Tensor> results;
     results.reserve(m_cfg.nChunks);
 
-    const auto chunks = at::chunk(at::arange(edgeListTmp.size(1)), m_cfg.nChunks);
+    const auto chunks =
+        at::chunk(at::arange(edgeListTmp.size(1)), m_cfg.nChunks);
     for (const auto& chunk : chunks) {
       ACTS_VERBOSE("Process chunk");
       inputTensors[1] = edgeListTmp.index({Slice(), chunk});
@@ -96,9 +97,11 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
   ACTS_VERBOSE("Slice of classified output:");
   {
     auto idxs = torch::argsort(output).to(torch::kInt64);
-    for(int i : {0, 1, static_cast<int>(idxs.numel()/2), -2, -1}) {
+    for (int i : {0, 1, static_cast<int>(idxs.numel() / 2), -2, -1}) {
       auto ii = idxs[i].item<int64_t>();
-      ACTS_VERBOSE(edgeList[0][ii].item<int64_t>() << ", " << edgeList[1][ii].item<int64_t>() << " -> " << output[ii].item<float>());
+      ACTS_VERBOSE(edgeList[0][ii].item<int64_t>()
+                   << ", " << edgeList[1][ii].item<int64_t>() << " -> "
+                   << output[ii].item<float>());
     }
   }
   printCudaMemInfo(logger());

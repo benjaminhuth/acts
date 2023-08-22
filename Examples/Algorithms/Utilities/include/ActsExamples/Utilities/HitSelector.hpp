@@ -11,8 +11,8 @@
 #include "Acts/TrackFinding/TrackSelector.hpp"
 #include "Acts/Utilities/Logger.hpp"
 #include "ActsExamples/EventData/SimHit.hpp"
-#include "ActsExamples/Framework/IAlgorithm.hpp"
 #include "ActsExamples/Framework/DataHandle.hpp"
+#include "ActsExamples/Framework/IAlgorithm.hpp"
 
 #include <cstddef>
 #include <limits>

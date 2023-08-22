@@ -8,20 +8,20 @@
 
 #pragma once
 
-#include <cstdint>
 #include <cmath>
+#include <cstdint>
 
 namespace Acts::detail {
 
 /// Class that encapsulates a cantor pair, which represents an edge of a graph
-/// By default ensures all edges are ordered, so the represented graph is 
+/// By default ensures all edges are ordered, so the represented graph is
 /// undirected: (a,b) and (b,a) are the same edge.
 template <typename T>
 class CantorEdge {
   T m_value;
 
  public:
-  CantorEdge(T x, T y, bool sort=true) {
+  CantorEdge(T x, T y, bool sort = true) {
     if ((x > y) and sort) {
       std::swap(x, y);
     }
@@ -53,4 +53,4 @@ bool operator<(const CantorEdge<T> &a, const CantorEdge<T> &b) {
   return a.value() < b.value();
 }
 
-}
+}  // namespace Acts::detail

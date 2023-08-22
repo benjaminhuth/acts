@@ -8,27 +8,26 @@
 
 #include "ActsExamples/Utilities/HitSelector.hpp"
 
-ActsExamples::HitSelector::HitSelector(
-    const Config& config, Acts::Logging::Level level)
-    : IAlgorithm("HitSelector", level),
-      m_cfg(config) {
-
+ActsExamples::HitSelector::HitSelector(const Config& config,
+                                       Acts::Logging::Level level)
+    : IAlgorithm("HitSelector", level), m_cfg(config) {
   m_inputHits.initialize(m_cfg.inputHits);
   m_outputHits.initialize(m_cfg.outputHits);
 }
 
 ActsExamples::ProcessCode ActsExamples::HitSelector::execute(
     const ActsExamples::AlgorithmContext& ctx) const {
-    const auto &hits = m_inputHits(ctx);
-    SimHitContainer selectedHits;
+  const auto& hits = m_inputHits(ctx);
+  SimHitContainer selectedHits;
 
-    std::copy_if(hits.begin(), hits.end(), std::inserter(selectedHits, selectedHits.begin()), [&](const auto &hit) {
-      return hit.time() < m_cfg.maxTime;
-    });
+  std::copy_if(hits.begin(), hits.end(),
+               std::inserter(selectedHits, selectedHits.begin()),
+               [&](const auto& hit) { return hit.time() < m_cfg.maxTime; });
 
-    ACTS_DEBUG("selected " << selectedHits.size() << " from " << hits.size() << " hits");
+  ACTS_DEBUG("selected " << selectedHits.size() << " from " << hits.size()
+                         << " hits");
 
-    m_outputHits(ctx, std::move(selectedHits));
+  m_outputHits(ctx, std::move(selectedHits));
 
-    return {};
+  return {};
 }

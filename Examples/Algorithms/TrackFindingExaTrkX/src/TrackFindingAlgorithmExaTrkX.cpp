@@ -225,9 +225,11 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
 
   {
     std::stringstream ss;
-    std::copy(features.begin(), features.begin()+numFeatures, std::ostream_iterator<float>(ss, " "));
+    std::copy(features.begin(), features.begin() + numFeatures,
+              std::ostream_iterator<float>(ss, " "));
     ss << "\n";
-    std::copy(features.end()-numFeatures, features.end(), std::ostream_iterator<float>(ss, "  "));
+    std::copy(features.end() - numFeatures, features.end(),
+              std::ostream_iterator<float>(ss, "  "));
     ss << "\n";
     ACTS_DEBUG("First & last row:\n" << ss.str());
   }
@@ -235,7 +237,8 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   // Run the pipeline
   const auto trackCandidates = m_pipeline.run(features, spacepointIDs, *hook);
 
-  ACTS_DEBUG("Done with pipeline, received " << trackCandidates.size() << " candidates");
+  ACTS_DEBUG("Done with pipeline, received " << trackCandidates.size()
+                                             << " candidates");
 
   // Make the prototracks
   std::vector<ProtoTrack> protoTracks;

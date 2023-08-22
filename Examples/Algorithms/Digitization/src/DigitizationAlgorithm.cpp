@@ -271,7 +271,7 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
         *digitizerItr);
   }
 
-  if( hitSmearingErrors > 0 ) {
+  if (hitSmearingErrors > 0) {
     ACTS_WARNING("Encountered " << hitSmearingErrors << " hit smearing errors");
   }
 

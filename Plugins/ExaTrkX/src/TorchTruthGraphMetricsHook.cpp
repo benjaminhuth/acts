@@ -7,6 +7,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
+
 #include "Acts/Plugins/ExaTrkX/detail/TensorVectorConversion.hpp"
 
 #include <torch/torch.h>
@@ -57,10 +58,9 @@ void Acts::TorchTruthGraphMetricsHook::operator()(const std::any&,
   intersection.reserve(
       std::max(predGraphCantor.size(), m_truthGraphCantor.size()));
 
-  std::set_intersection(
-      predGraphCantor.begin(), predGraphCantor.end(),
-      m_truthGraphCantor.begin(), m_truthGraphCantor.end(),
-      std::back_inserter(intersection));
+  std::set_intersection(predGraphCantor.begin(), predGraphCantor.end(),
+                        m_truthGraphCantor.begin(), m_truthGraphCantor.end(),
+                        std::back_inserter(intersection));
 
   ACTS_DEBUG("Intersection size " << intersection.size());
   const float intersectionSizeFloat = intersection.size();
