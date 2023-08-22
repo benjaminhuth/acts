@@ -7,33 +7,30 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
-
 #include "Acts/Plugins/ExaTrkX/detail/TensorVectorConversion.hpp"
 
 #include <torch/torch.h>
 
 namespace {
 
-template <typename T>
-auto cantor(T a, T b) {
-  return a + (a + b) * (a + b + 1) / 2;
-}
-
-auto cantorize(std::vector<int64_t> edgeIndex) {
-  // Sort the edges, so we get predictable cantor pairs
-  for (auto it = edgeIndex.begin(); it != edgeIndex.end(); it += 2) {
-    std::sort(it, it + 2);
-  }
-
+auto cantorize(std::vector<int64_t> edgeIndex, const Acts::Logger& logger) {
   // Use cantor pairing to store truth graph, so we can easily use set
   // operations to compute efficiency and purity
-  std::vector<int64_t> cantorEdgeIndex;
+  std::vector<Acts::detail::CantorEdge<int64_t>> cantorEdgeIndex;
   cantorEdgeIndex.reserve(edgeIndex.size() / 2);
   for (auto it = edgeIndex.begin(); it != edgeIndex.end(); it += 2) {
-    cantorEdgeIndex.push_back(cantor(*it, *std::next(it)));
+    cantorEdgeIndex.emplace_back(*it, *std::next(it));
   }
 
   std::sort(cantorEdgeIndex.begin(), cantorEdgeIndex.end());
+
+  auto new_end = std::unique(cantorEdgeIndex.begin(), cantorEdgeIndex.end());
+  if (new_end != cantorEdgeIndex.end()) {
+    ACTS_WARNING("Graph not unique ("
+                 << std::distance(new_end, cantorEdgeIndex.end())
+                 << " duplicates)");
+    cantorEdgeIndex.erase(new_end, cantorEdgeIndex.end());
+  }
 
   return cantorEdgeIndex;
 }
@@ -44,18 +41,7 @@ Acts::TorchTruthGraphMetricsHook::TorchTruthGraphMetricsHook(
     const std::vector<int64_t>& truthGraph,
     std::unique_ptr<const Acts::Logger> l)
     : m_logger(std::move(l)) {
-  // Compute truth cantor graph
-  m_truthGraphCantor = cantorize(truthGraph);
-
-  // Check if unique (should be!)
-  auto new_end =
-      std::unique(m_truthGraphCantor.begin(), m_truthGraphCantor.end());
-  if (new_end != m_truthGraphCantor.end()) {
-    ACTS_WARNING("Truth graph not unique ("
-                 << std::distance(new_end, m_truthGraphCantor.end())
-                 << " duplicates)");
-    m_truthGraphCantor.erase(new_end, m_truthGraphCantor.end());
-  }
+  m_truthGraphCantor = cantorize(truthGraph, logger());
 }
 
 void Acts::TorchTruthGraphMetricsHook::operator()(const std::any&,
@@ -64,31 +50,22 @@ void Acts::TorchTruthGraphMetricsHook::operator()(const std::any&,
   const auto edgeIndex = Acts::detail::tensor2DToVector<int64_t>(
       std::any_cast<torch::Tensor>(edges).t());
 
-  auto predGraphCantor = cantorize(edgeIndex);
-
-  // Check if unique (should be!)
-  auto new_end = std::unique(predGraphCantor.begin(), predGraphCantor.end());
-  if (new_end != predGraphCantor.end()) {
-    ACTS_WARNING("Input edges not unique ("
-                 << std::distance(new_end, predGraphCantor.end())
-                 << " duplicates)");
-    predGraphCantor.erase(new_end, predGraphCantor.end());
-  }
+  auto predGraphCantor = cantorize(edgeIndex, logger());
 
   // Calculate intersection
-  std::vector<int64_t> intersection(
+  std::vector<Acts::detail::CantorEdge<int64_t>> intersection;
+  intersection.reserve(
       std::max(predGraphCantor.size(), m_truthGraphCantor.size()));
 
-  auto intersection_end =
-      std::set_intersection(predGraphCantor.begin(), predGraphCantor.end(),
-                            m_truthGraphCantor.begin(),
-                            m_truthGraphCantor.end(), intersection.begin());
+  std::set_intersection(
+      predGraphCantor.begin(), predGraphCantor.end(),
+      m_truthGraphCantor.begin(), m_truthGraphCantor.end(),
+      std::back_inserter(intersection));
 
-  float intersected = std::distance(intersection.begin(), intersection_end);
-
-  ACTS_DEBUG("Intersection size " << intersected);
-  float eff = intersected / m_truthGraphCantor.size();
-  float pur = intersected / predGraphCantor.size();
+  ACTS_DEBUG("Intersection size " << intersection.size());
+  const float intersectionSizeFloat = intersection.size();
+  const float eff = intersectionSizeFloat / m_truthGraphCantor.size();
+  const float pur = intersectionSizeFloat / predGraphCantor.size();
 
   ACTS_INFO("Efficiency=" << eff << ", purity=" << pur);
 }

@@ -9,13 +9,14 @@
 #pragma once
 
 #include "Acts/Plugins/ExaTrkX/Pipeline.hpp"
+#include "Acts/Plugins/ExaTrkX/detail/CantorEdge.hpp"
 #include "Acts/Utilities/Logger.hpp"
 
 namespace Acts {
 
 class TorchTruthGraphMetricsHook : public PipelineHook {
   std::unique_ptr<const Logger> m_logger;
-  std::vector<int64_t> m_truthGraphCantor;
+  std::vector<detail::CantorEdge<int64_t>> m_truthGraphCantor;
 
   const Logger &logger() const { return *m_logger; }
 
