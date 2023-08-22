@@ -62,6 +62,10 @@ ProcessCode TruthTrackFinder::execute(const AlgorithmContext& ctx) const {
     const auto& hits =
         makeRange(particleHitsMap.equal_range(particle.particleId()));
     ACTS_VERBOSE(" - Prototrack from " << hits.size() << " hits");
+    if( hits.size() < m_cfg.minHits ) {
+      ACTS_VERBOSE(" --> skip");
+      continue;
+    }
     // fill hit indices to create the proto track
     ProtoTrack track;
     track.reserve(hits.size());

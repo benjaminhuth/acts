@@ -42,7 +42,7 @@ void addTruthTracking(Context& ctx) {
 
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::TruthTrackFinder, mex, "TruthTrackFinder", inputParticles,
-      inputMeasurementParticlesMap, outputProtoTracks);
+      inputMeasurementParticlesMap, outputProtoTracks, minHits);
 
   {
     using Alg = ActsExamples::TruthSeedSelector;
