@@ -187,10 +187,6 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   double sumCells = 0.0;
   double sumActivation = 0.0;
 
-  ACTS_INFO("First spacepoint x,y,z=" << spacepoints[0].x() << ", "
-                                      << spacepoints[0].y() << ", "
-                                      << spacepoints[0].z());
-
   for (auto i = 0ul; i < numSpacepoints; ++i) {
     const auto& sp = spacepoints[i];
 
@@ -227,10 +223,19 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   ACTS_DEBUG("Avg cell count: " << sumCells / spacepoints.size());
   ACTS_DEBUG("Avg activation: " << sumActivation / sumCells);
 
+  {
+    std::stringstream ss;
+    std::copy(features.begin(), features.begin()+numFeatures, std::ostream_iterator<float>(ss, " "));
+    ss << "\n";
+    std::copy(features.end()-numFeatures, features.end(), std::ostream_iterator<float>(ss, "  "));
+    ss << "\n";
+    ACTS_DEBUG("First & last row:\n" << ss.str());
+  }
+
   // Run the pipeline
   const auto trackCandidates = m_pipeline.run(features, spacepointIDs, *hook);
 
-  ACTS_DEBUG("Done with pipeline");
+  ACTS_DEBUG("Done with pipeline, received " << trackCandidates.size() << " candidates");
 
   // Make the prototracks
   std::vector<ProtoTrack> protoTracks;
@@ -239,13 +244,15 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   int nShortTracks = 0;
 
   for (auto& x : trackCandidates) {
-    ProtoTrack onetrack;
-    std::copy(x.begin(), x.end(), std::back_inserter(onetrack));
-
-    if (onetrack.size() < 3) {
+    if (x.size() < 3) {
       nShortTracks++;
       continue;
     }
+
+    ProtoTrack onetrack;
+    onetrack.reserve(x.size());
+
+    std::copy(x.begin(), x.end(), std::back_inserter(onetrack));
     protoTracks.push_back(std::move(onetrack));
   }
 

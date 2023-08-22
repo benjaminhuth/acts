@@ -8,6 +8,8 @@
 #include <torch/script.h>
 #include <torch/torch.h>
 
+const auto device = torch::cuda::is_available() ? torch::kCUDA : torch::kCPU;
+
 struct DummyGraphConstruction : Acts::GraphConstructionBase {
   torch::Tensor features;
   torch::Tensor edges;
@@ -34,11 +36,35 @@ struct DummyTrackBuilder : Acts::TrackBuildingBase {
   }
 };
 
-void checkModelShiftInvariance(const std::string &path) {
-  auto model = torch::jit::load(path);
 
-  auto features = torch::rand({100, 3}).to(torch::kFloat32);
-  auto edges = torch::randint(0, 100, {2, 20});
+std::tuple<at::Tensor, at::Tensor> getTensors(int nNodes=100, int nEdges=20) {
+    return {
+      torch::rand({nNodes,3}).to(torch::kFloat32).to(device),
+      torch::randint(0, nNodes, {2,nEdges}).to(device)
+    };
+}
+
+std::tuple<at::Tensor, at::Tensor> modifyTensors(const torch::Tensor &features, const torch::Tensor &edges) {
+    return {
+      torch::roll(features, 1, 0).clone(),
+      ((edges + 1) % features.size(0)).clone()
+    };
+}
+
+void printDiff(const at::Tensor &out1, const at::Tensor &out2) {
+  auto diff = torch::abs(out1 - out2).to(torch::kCPU);
+
+  std::cout << "diff: ";
+  std::copy(diff.data_ptr<float>(), diff.data_ptr<float>()+diff.numel(),
+            std::ostream_iterator<float>(std::cout, " "));
+  std::cout << std::endl;
+}
+
+void checkModelShiftInvariance(const std::string &path) {
+    auto model = torch::jit::load(path);
+    model.to(device);
+
+    auto [features, edges] = getTensors();
 
   std::vector<torch::IValue> input;
   input.push_back(features);
@@ -47,8 +73,7 @@ void checkModelShiftInvariance(const std::string &path) {
   auto output = model.forward(input).toTensor();
   output = std::get<0>(torch::sort(output));
 
-  auto features2 = torch::roll(features, 1, 0);
-  auto edges2 = (edges + 1) % 100;
+    auto [features2, edges2] = modifyTensors(features, edges);
 
   input.clear();
   input.push_back(features2);
@@ -57,12 +82,7 @@ void checkModelShiftInvariance(const std::string &path) {
   auto output2 = model.forward(input).toTensor();
   output2 = std::get<0>(torch::sort(output2));
 
-  auto diff = torch::abs(output2 - output);
-
-  std::cout << "diff: ";
-  std::copy(diff.data_ptr<float>(), diff.data_ptr<float>() + diff.numel(),
-            std::ostream_iterator<float>(std::cout, " "));
-  std::cout << std::endl;
+  printDiff(output, output2);
 }
 
 void checkClassifierStage(const std::string &path) {
@@ -76,25 +96,16 @@ void checkClassifierStage(const std::string &path) {
   auto logger = Acts::getDefaultLogger("test", Acts::Logging::INFO);
   Acts::TorchEdgeClassifier clf(cfg, std::move(logger));
 
-  auto features = torch::rand({100, 3}).to(torch::kFloat32);
-  auto edges = torch::randint(0, 100, {2, 20});
+    auto [features, edges] = getTensors();
+    auto [nodes_out, features_out, output] = clf(features, edges);
 
-  auto [nodes_out, features_out, output] = clf(features, edges);
-
-  auto features2 = torch::roll(features, 1, 0);
-  auto edges2 = (edges + 1) % 100;
-
-  auto [nodes_out2, features_out2, output2] = clf(features, edges);
+    auto [features2, edges2] = modifyTensors(features, edges);
+    auto [nodes_out2, features_out2, output2] = clf(features, edges);
 
   auto output_tensor = std::any_cast<torch::Tensor>(output);
   auto output_tensor2 = std::any_cast<torch::Tensor>(output2);
 
-  auto diff = torch::abs(output_tensor - output_tensor2);
-
-  std::cout << "diff: ";
-  std::copy(diff.data_ptr<float>(), diff.data_ptr<float>() + diff.numel(),
-            std::ostream_iterator<float>(std::cout, " "));
-  std::cout << std::endl;
+    printDiff(output_tensor, output_tensor2);
 }
 
 void checkPipeline(const std::string &path) {
@@ -110,29 +121,20 @@ void checkPipeline(const std::string &path) {
       cfg, Acts::getDefaultLogger("test", Acts::Logging::INFO));
   auto trk = std::make_shared<DummyTrackBuilder>();
 
-  gc->features = torch::rand({100, 3}).to(torch::kFloat32);
-  gc->edges = torch::randint(0, 100, {2, 20});
+    Acts::Pipeline pipeline(gc, {cls}, trk, Acts::getDefaultLogger("test", Acts::Logging::INFO));
 
-  Acts::Pipeline pipeline(gc, {cls}, trk,
-                          Acts::getDefaultLogger("test", Acts::Logging::INFO));
+    std::vector<float> dummyData;
+    std::vector<int> dummyIds;
 
-  std::vector<float> dummyData;
-  std::vector<int> dummyIds;
-  pipeline.run(dummyData, dummyIds);
-  auto output = std::get<0>(torch::sort(trk->out_weights.clone()));
+    std::tie(gc->features, gc->edges) = getTensors();
+    pipeline.run(dummyData, dummyIds);
+    auto output = std::get<0>(torch::sort(trk->out_weights.clone()));
 
-  gc->features = torch::roll(gc->features, 1, 0);
-  gc->edges = (gc->edges + 1) % 100;
+    std::tie(gc->features, gc->edges) = modifyTensors(gc->features, gc->edges);
+    pipeline.run(dummyData, dummyIds);
+    auto output2 = std::get<0>(torch::sort(trk->out_weights.clone()));
 
-  pipeline.run(dummyData, dummyIds);
-  auto output2 = std::get<0>(torch::sort(trk->out_weights.clone()));
-
-  auto diff = torch::abs(output2 - output);
-
-  std::cout << "diff: ";
-  std::copy(diff.data_ptr<float>(), diff.data_ptr<float>() + diff.numel(),
-            std::ostream_iterator<float>(std::cout, " "));
-  std::cout << std::endl;
+    printDiff(output, output2);
 }
 
 int main(int argc, char **argv) {

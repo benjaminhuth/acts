@@ -149,6 +149,7 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
 
   // Setup random number generator
   auto rng = m_cfg.randomNumbers->spawnGenerator(ctx);
+  std::size_t hitSmearingErrors = 0;
 
   ACTS_DEBUG("Starting loop over modules ...");
   for (const auto& simHitsGroup : groupByModule(simHits)) {
@@ -217,7 +218,8 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
               auto res =
                   digitizer.smearing(rng, simHit, *surfacePtr, ctx.geoContext);
               if (not res.ok()) {
-                ACTS_WARNING("Problem in hit smearing, skip hit ("
+                hitSmearingErrors++;
+                ACTS_VERBOSE("Problem in hit smearing, skip hit ("
                              << res.error().message() << ")");
                 continue;
               }
@@ -267,6 +269,10 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
           }
         },
         *digitizerItr);
+  }
+
+  if( hitSmearingErrors > 0 ) {
+    ACTS_WARNING("Encountered " << hitSmearingErrors << " hit smearing errors");
   }
 
   m_sourceLinkWriteHandle(ctx, std::move(sourceLinks));
