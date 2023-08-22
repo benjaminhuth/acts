@@ -96,7 +96,7 @@ class ExamplesEdmHook : public Acts::PipelineHook {
     ACTS_INFO("Metrics for target graph (pT > "
               << m_targetPT / Acts::UnitConstants::GeV
               << " GeV, nHits >= " << m_targetSize << "):");
-    (*m_truthGraphHook)(nodes, edges);
+    (*m_targetGraphHook)(nodes, edges);
   }
 };
 
