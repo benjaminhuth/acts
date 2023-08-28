@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -68,6 +69,8 @@ ActsExamples::CKFPerformanceWriter::CKFPerformanceWriter(
   m_fakeRatePlotTool.book(m_fakeRatePlotCache);
   m_duplicationPlotTool.book(m_duplicationPlotCache);
   m_trackSummaryPlotTool.book(m_trackSummaryPlotCache);
+
+  m_particlesMatchedStream << "event,particle_id,matched\n";
 }
 
 ActsExamples::CKFPerformanceWriter::~CKFPerformanceWriter() {
@@ -130,6 +133,12 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::finalize() {
     write_float(duplicationRate_particle, "duplicaterate_particles");
     ACTS_INFO("Wrote performance plots to '" << m_outputFile->GetPath() << "'");
   }
+
+  std::ofstream outputFileParticlesMatched(
+      std::filesystem::path(m_cfg.filePath).parent_path() /
+      "ckf_perf_particle_match_map.csv");
+  outputFileParticlesMatched << m_particlesMatchedStream.str();
+
   return ProcessCode::SUCCESS;
 }
 
@@ -300,6 +309,15 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
                             nFakeTracks);
     m_nTotalParticles += 1;
   }  // end all truth particles
+
+  for (const auto& [pid, recoInfo] : matched) {
+    m_particlesMatchedStream << ctx.eventNumber << "," << pid << "," << 1
+                             << "\n";
+  }
+  for (const auto& [pid, size] : unmatched) {
+    m_particlesMatchedStream << ctx.eventNumber << "," << pid << "," << 0
+                             << "\n";
+  }
 
   return ProcessCode::SUCCESS;
 }

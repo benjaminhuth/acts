@@ -117,6 +117,8 @@ class CKFPerformanceWriter final : public WriterT<TrajectoriesContainer> {
   ReadDataHandle<SimParticleContainer> m_inputParticles{this, "InputParticles"};
   ReadDataHandle<HitParticlesMap> m_inputMeasurementParticlesMap{
       this, "InputMeasurementParticlesMap"};
+
+  std::stringstream m_particlesMatchedStream;
 };
 
 }  // namespace ActsExamples
