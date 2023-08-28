@@ -124,6 +124,8 @@ void addTruthTracking(Context& ctx) {
     ACTS_PYTHON_MEMBER(mMax);
     ACTS_PYTHON_MEMBER(ptMin);
     ACTS_PYTHON_MEMBER(ptMax);
+    ACTS_PYTHON_MEMBER(measurementsMin);
+    ACTS_PYTHON_MEMBER(measurementsMax);
     ACTS_PYTHON_MEMBER(removeCharged);
     ACTS_PYTHON_MEMBER(removeNeutral);
     ACTS_PYTHON_MEMBER(removeSecondaries);
@@ -137,6 +139,7 @@ void addTruthTracking(Context& ctx) {
     pythonRangeProperty(c, "absEta", &Config::absEtaMin, &Config::absEtaMax);
     pythonRangeProperty(c, "m", &Config::mMin, &Config::mMax);
     pythonRangeProperty(c, "pt", &Config::ptMin, &Config::ptMax);
+    pythonRangeProperty(c, "measurements", &Config::measurementsMin, &Config::measurementsMax);
   }
 
   {

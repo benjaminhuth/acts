@@ -50,12 +50,23 @@ ActsExamples::ParticleSelector::ParticleSelector(const Config& config,
   ACTS_DEBUG("remove charged particles " << m_cfg.removeCharged);
   ACTS_DEBUG("remove neutral particles " << m_cfg.removeNeutral);
   ACTS_DEBUG("remove secondary particles " << m_cfg.removeSecondaries);
+
+  // We only initialize this if we actually select on this
+  if (m_cfg.measurementsMin > 0 or
+      m_cfg.measurementsMax < std::numeric_limits<std::size_t>::max()) {
+    m_inputMap.initialize(m_cfg.inputMeasurementParticlesMap);
+    ACTS_DEBUG("selection particle measurments ["
+               << m_cfg.measurementsMin << "," << m_cfg.measurementsMax << ")");
+  }
 }
 
 ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
     const AlgorithmContext& ctx) const {
+  // Define this up here so we can access it inside the lambdas
+  std::optional<boost::container::flat_multimap<ActsFatras::Barcode, Index>>
+      particlesMeasMap;
   // helper functions to select tracks
-  auto within = [](double x, double min, double max) {
+  auto within = [](auto x, auto min, auto max) {
     return (min <= x) and (x < max);
   };
   auto isValidParticle = [&](const ActsFatras::Particle& p) {
@@ -67,7 +78,16 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
     const bool validCharged = (p.charge() != 0) and not m_cfg.removeCharged;
     const bool validCharge = validNeutral or validCharged;
     const bool validSecondary = not m_cfg.removeSecondaries or !p.isSecondary();
-    return validCharge and validSecondary and
+    // default valid measurment count to true and only change if we have loaded
+    // the measurement particles map
+    bool validMeasurementCount = true;
+    if (particlesMeasMap) {
+      validMeasurementCount =
+          within(particlesMeasMap->count(p.particleId()), m_cfg.measurementsMin,
+                 m_cfg.measurementsMax);
+    }
+
+    return validCharge and validSecondary and validMeasurementCount and
            within(p.transverseMomentum(), m_cfg.ptMin, m_cfg.ptMax) and
            within(std::abs(eta), m_cfg.absEtaMin, m_cfg.absEtaMax) and
            within(eta, m_cfg.etaMin, m_cfg.etaMax) and
@@ -81,6 +101,10 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
 
   // prepare input/ output types
   const auto& inputParticles = m_inputParticles(ctx);
+
+  if (m_inputMap.isInitialized()) {
+    particlesMeasMap = invertIndexMultimap(m_inputMap(ctx));
+  }
 
   SimParticleContainer outputParticles;
   outputParticles.reserve(inputParticles.size());
