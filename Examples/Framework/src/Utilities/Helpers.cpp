@@ -96,7 +96,7 @@ void fillEff(TEfficiency* efficiency, float xValue, float yValue, bool status) {
 TProfile* bookProf(const char* profName, const char* profTitle,
                    const Binning& varXBinning, const Binning& varYBinning) {
   TProfile* prof =
-      new TProfile(profName, profTitle, varXBinning.nBins(), varYBinning.data(),
+      new TProfile(profName, profTitle, varXBinning.nBins(), varXBinning.data(),
                    varYBinning.low(), varYBinning.high());
   prof->GetXaxis()->SetTitle(varXBinning.title().c_str());
   prof->GetYaxis()->SetTitle(varYBinning.title().c_str());
