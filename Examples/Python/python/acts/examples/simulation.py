@@ -40,11 +40,12 @@ ParticleSelectorConfig = namedtuple(
         "absEta",  # (min,max)
         "pt",  # (min,max)
         "m",  # (min,max)
+        "measurements",  # (min,max) [Only available if measurement_particles_map is provided]
         "removeCharged",  # bool
         "removeNeutral",  # bool
         "removeSecondaries",  # bool
     ],
-    defaults=[(None, None)] * 8 + [None] * 3,
+    defaults=[(None, None)] * 9 + [None] * 3,
 )
 
 
