@@ -65,14 +65,9 @@ class MeasurementMapSelectorAlgorithm final : public IAlgorithm {
 
     for (const auto geoId : m_cfg.geometrySelection) {
       auto range = selectLowestNonZeroGeometryObject(inputSourceLinks, geoId);
-      auto groupedByModule = makeGroupBy(range, detail::GeometryIdGetter());
-
-      for (const auto [moduleGeoId, moduleSourceLinks] : groupedByModule) {
-        for (const auto& sourceLink : moduleSourceLinks) {
-          const auto [begin, end] = inputMap.equal_range(sourceLink.index());
-
-          outputMap.insert(begin, end);
-        }
+      for (const auto &sl : range) {
+        const auto [begin, end] = inputMap.equal_range(sl.index());
+        outputMap.insert(begin, end);
       }
     }
 
