@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <ActsExamples/EventData/Index.hpp>
+
 #include <cstdint>
 
 #include <dfe/dfe_namedtuple.hpp>
@@ -306,9 +308,10 @@ struct TrackParameterData {
 
 struct ProtoTrackData {
   std::size_t trackId;
+  Index measurementId;
   double x, y, z;
 
-  DFE_NAMEDTUPLE(ProtoTrackData, trackId, x, y, z);
+  DFE_NAMEDTUPLE(ProtoTrackData, trackId, measurementId, x, y, z);
 };
 
 }  // namespace ActsExamples

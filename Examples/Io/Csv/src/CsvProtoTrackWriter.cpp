@@ -52,14 +52,14 @@ ActsExamples::ProcessCode ActsExamples::CsvProtoTrackWriter::writeT(
   dfe::NamedTupleCsvWriter<ProtoTrackData> writer(path, m_cfg.outputPrecision);
 
   for (auto trackId = 0ul; trackId < tracks.size(); ++trackId) {
-    for (Index hit : tracks[trackId]) {
-      const auto spr = findSpacePointForIndex(hit, spacepoints);
+    for (Index measurmentId : tracks[trackId]) {
+      const auto spr = findSpacePointForIndex(measurmentId, spacepoints);
       if (not spr) {
-        ACTS_WARNING("Could not convert index " << hit << " to spacepoint");
+        ACTS_WARNING("Could not convert index " << measurmentId << " to spacepoint");
         continue;
       }
       const auto& sp = *spr;
-      writer.append({trackId, sp.x(), sp.y(), sp.z()});
+      writer.append({trackId, measurmentId, sp.x(), sp.y(), sp.z()});
     }
   }
   return ActsExamples::ProcessCode::SUCCESS;
