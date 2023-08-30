@@ -108,6 +108,7 @@ void addTruthTracking(Context& ctx) {
     ACTS_PYTHON_STRUCT_BEGIN(c, Config);
     ACTS_PYTHON_MEMBER(inputParticles);
     ACTS_PYTHON_MEMBER(inputMeasurementParticlesMap);
+    ACTS_PYTHON_MEMBER(inputMeasurements);
     ACTS_PYTHON_MEMBER(outputParticles);
     ACTS_PYTHON_MEMBER(rhoMin);
     ACTS_PYTHON_MEMBER(rhoMax);
@@ -127,6 +128,7 @@ void addTruthTracking(Context& ctx) {
     ACTS_PYTHON_MEMBER(ptMax);
     ACTS_PYTHON_MEMBER(measurementsMin);
     ACTS_PYTHON_MEMBER(measurementsMax);
+    ACTS_PYTHON_MEMBER(measurementGeometrySelection);
     ACTS_PYTHON_MEMBER(removeCharged);
     ACTS_PYTHON_MEMBER(removeNeutral);
     ACTS_PYTHON_MEMBER(removeSecondaries);

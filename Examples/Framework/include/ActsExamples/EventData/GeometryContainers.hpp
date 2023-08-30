@@ -11,6 +11,7 @@
 #include "Acts/EventData/SourceLink.hpp"
 #include "Acts/Geometry/GeometryIdentifier.hpp"
 #include "Acts/Surfaces/Surface.hpp"
+#include "ActsExamples/EventData/Measurement.hpp"
 #include "ActsExamples/Utilities/GroupBy.hpp"
 #include "ActsExamples/Utilities/Range.hpp"
 
@@ -56,6 +57,11 @@ struct GeometryIdGetter {
       -> decltype(thing.get().geometryId(), Acts::GeometryIdentifier()) {
     return thing.get().geometryId();
   }
+  // support measurements
+  constexpr auto operator()(const ActsExamples::Measurement& meas) const {
+    auto f = [](const auto& m) { return m.sourceLink().geometryId(); };
+    return std::visit(f, meas);
+  }
 };
 
 struct CompareGeometryId {
@@ -64,7 +70,7 @@ struct CompareGeometryId {
   // compare two elements using the automatic key extraction.
   template <typename Left, typename Right>
   constexpr bool operator()(Left&& lhs, Right&& rhs) const {
-    return GeometryIdGetter()(lhs) < GeometryIdGetter()(rhs);
+    return GeometryIdGetter{}(lhs) < GeometryIdGetter{}(rhs);
   }
 };
 

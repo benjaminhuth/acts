@@ -41,11 +41,12 @@ ParticleSelectorConfig = namedtuple(
         "pt",  # (min,max)
         "m",  # (min,max)
         "measurements",  # (min,max) [Only available if measurement_particles_map is provided]
+        "measurementGeometrySelection" # Geometry selection
         "removeCharged",  # bool
         "removeNeutral",  # bool
         "removeSecondaries",  # bool
     ],
-    defaults=[(None, None)] * 9 + [None] * 3,
+    defaults=[(None, None)] * 9 + [None] * 4,
 )
 
 
@@ -334,7 +335,8 @@ def addParticleSelection(
     config: ParticleSelectorConfig,
     inputParticles: str,
     outputParticles: str,
-    inputMeasurementParticlesMap: Optional[str] = None,
+    inputMeasurementParticlesMap: str = "",
+    inputMeasurements: str = "",
     logLevel: Optional[acts.logging.Level] = None,
 ) -> None:
     """
@@ -374,6 +376,7 @@ def addParticleSelection(
                 mMax=config.m[1],
                 measurementsMin=config.measurements[0],
                 measurementsMax=config.measurements[1],
+                measurementGeometrySelection=config.measurementGeometrySelection,
                 removeCharged=config.removeCharged,
                 removeNeutral=config.removeNeutral,
                 removeSecondaries=config.removeSecondaries,
@@ -382,6 +385,7 @@ def addParticleSelection(
             inputParticles=inputParticles,
             outputParticles=outputParticles,
             inputMeasurementParticlesMap=inputMeasurementParticlesMap,
+            inputMeasurements=inputMeasurements,
         )
     )
 
