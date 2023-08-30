@@ -140,7 +140,8 @@ void addTruthTracking(Context& ctx) {
     pythonRangeProperty(c, "absEta", &Config::absEtaMin, &Config::absEtaMax);
     pythonRangeProperty(c, "m", &Config::mMin, &Config::mMax);
     pythonRangeProperty(c, "pt", &Config::ptMin, &Config::ptMax);
-    pythonRangeProperty(c, "measurements", &Config::measurementsMin, &Config::measurementsMax);
+    pythonRangeProperty(c, "measurements", &Config::measurementsMin,
+                        &Config::measurementsMax);
   }
 
   {

@@ -59,12 +59,15 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
 
   // Scope this to keep inference objects seperate
   {
-    auto edgeListTmp = m_cfg.undirected ? torch::cat({edgeList, edgeList.flip(0)}, 1) : edgeList;
+    auto edgeListTmp = m_cfg.undirected
+                           ? torch::cat({edgeList, edgeList.flip(0)}, 1)
+                           : edgeList;
 
     std::vector<torch::jit::IValue> inputTensors(2);
-    inputTensors[0] = m_cfg.numFeatures < nodes.size(1)
-                          ? nodes.index({Slice{}, Slice{None, m_cfg.numFeatures}})
-                          : nodes;
+    inputTensors[0] =
+        m_cfg.numFeatures < nodes.size(1)
+            ? nodes.index({Slice{}, Slice{None, m_cfg.numFeatures}})
+            : nodes;
 
     if (m_cfg.nChunks > 1) {
       std::vector<at::Tensor> results;
@@ -90,19 +93,20 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
   output.sigmoid_();
 
   if (m_cfg.undirected) {
-    auto newSize = output.size(0)/2;
+    auto newSize = output.size(0) / 2;
     output = output.index({Slice(None, newSize)});
   }
 
   ACTS_VERBOSE("Size after classifier: " << output.size(0));
-  ACTS_VERBOSE("Slice of classified output:" << [&](){
+  ACTS_VERBOSE("Slice of classified output:" << [&]() {
     std::stringstream ss;
     auto idxs = torch::argsort(output).to(torch::kInt64);
     for (int i : {0, 1, static_cast<int>(idxs.numel() / 2), -2, -1}) {
       auto ii = idxs[i].item<int64_t>();
-      ss << "\n" << edgeList[0][ii].item<int64_t>()
-                   << ", " << edgeList[1][ii].item<int64_t>() << " -> "
-                   << output[ii].item<float>();
+      ss << "\n"
+         << edgeList[0][ii].item<int64_t>() << ", "
+         << edgeList[1][ii].item<int64_t>() << " -> "
+         << output[ii].item<float>();
     }
     return ss.str();
   }());

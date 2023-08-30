@@ -134,7 +134,8 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::finalize() {
     ACTS_INFO("Wrote performance plots to '" << m_outputFile->GetPath() << "'");
   }
 
-  const auto csvFileName = m_cfg.filePath.substr(0, m_cfg.filePath.size()-5) + ".csv";
+  const auto csvFileName =
+      m_cfg.filePath.substr(0, m_cfg.filePath.size() - 5) + ".csv";
   std::ofstream outputFileParticlesMatched(csvFileName);
   outputFileParticlesMatched << m_particlesMatchedStream.str();
 
@@ -310,12 +311,12 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
   }  // end all truth particles
 
   for (const auto& [pid, recoInfo] : matched) {
-    m_particlesMatchedStream << ctx.eventNumber << "," << pid.value() << "," << 1
-                             << "\n";
+    m_particlesMatchedStream << ctx.eventNumber << "," << pid.value() << ","
+                             << 1 << "\n";
   }
   for (const auto& [pid, size] : unmatched) {
-    m_particlesMatchedStream << ctx.eventNumber << "," << pid.value() << "," << 0
-                             << "\n";
+    m_particlesMatchedStream << ctx.eventNumber << "," << pid.value() << ","
+                             << 0 << "\n";
   }
 
   return ProcessCode::SUCCESS;

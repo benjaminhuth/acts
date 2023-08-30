@@ -28,7 +28,8 @@ struct ProtoTrackSourceLinkAccessor
     const auto& logger = *loggerPtr;
 
     if (protoTrackSourceLinks.contains(surface.geometryId())) {
-      auto [begin, end] = protoTrackSourceLinks.equal_range(surface.geometryId());
+      auto [begin, end] =
+          protoTrackSourceLinks.equal_range(surface.geometryId());
       ACTS_VERBOSE("Select " << std::distance(begin, end)
                              << " source-links from prototrack on "
                              << surface.geometryId());

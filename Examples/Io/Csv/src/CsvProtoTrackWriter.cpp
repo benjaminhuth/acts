@@ -55,7 +55,8 @@ ActsExamples::ProcessCode ActsExamples::CsvProtoTrackWriter::writeT(
     for (Index measurmentId : tracks[trackId]) {
       const auto spr = findSpacePointForIndex(measurmentId, spacepoints);
       if (not spr) {
-        ACTS_WARNING("Could not convert index " << measurmentId << " to spacepoint");
+        ACTS_WARNING("Could not convert index " << measurmentId
+                                                << " to spacepoint");
         continue;
       }
       const auto& sp = *spr;
