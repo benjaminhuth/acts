@@ -150,7 +150,22 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
 
   // Read truth input collections
   const auto& particles = m_inputParticles(ctx);
-  const auto& hitParticlesMap = m_inputMeasurementParticlesMap(ctx);
+  const auto& initialHitParticlesMap = m_inputMeasurementParticlesMap(ctx);
+
+  std::decay_t<decltype(initialHitParticlesMap)> hitParticlesMap;
+  for (const auto& [mid, pid] : initialHitParticlesMap) {
+    if (particles.find(pid) != particles.end()) {
+      hitParticlesMap.emplace(mid, pid);
+    }
+  }
+
+  if (initialHitParticlesMap.size() > hitParticlesMap.size()) {
+    auto c = initialHitParticlesMap.size() - hitParticlesMap.size();
+    ACTS_WARNING(
+        "Measurement-particles-map contains more particles then the truth "
+        "particle collection, discard "
+        << c << "entries");
+  }
 
   // Counter of truth-matched reco tracks
   std::map<ActsFatras::Barcode, std::vector<RecoTrackInfo>> matched;
@@ -311,6 +326,7 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
   }  // end all truth particles
 
   for (const auto& [pid, recoInfo] : matched) {
+    particles.find(pid) != particles.end();
     m_particlesMatchedStream << ctx.eventNumber << "," << pid.value() << ","
                              << 1 << "\n";
   }
