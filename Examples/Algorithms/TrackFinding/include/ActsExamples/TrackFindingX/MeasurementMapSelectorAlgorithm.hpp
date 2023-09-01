@@ -65,7 +65,7 @@ class MeasurementMapSelectorAlgorithm final : public IAlgorithm {
 
     for (const auto geoId : m_cfg.geometrySelection) {
       auto range = selectLowestNonZeroGeometryObject(inputSourceLinks, geoId);
-      for (const auto &sl : range) {
+      for (const auto& sl : range) {
         const auto [begin, end] = inputMap.equal_range(sl.index());
         outputMap.insert(begin, end);
       }

@@ -10,8 +10,8 @@
 
 #include "Acts/Definitions/Common.hpp"
 #include "Acts/Utilities/VectorHelpers.hpp"
-#include "ActsExamples/EventData/IndexSourceLink.hpp"
 #include "ActsExamples/EventData/GeometryContainers.hpp"
+#include "ActsExamples/EventData/IndexSourceLink.hpp"
 #include "ActsExamples/EventData/SimParticle.hpp"
 #include "ActsExamples/Framework/AlgorithmContext.hpp"
 #include "ActsFatras/EventData/Particle.hpp"
@@ -71,7 +71,8 @@ ActsExamples::ParticleSelector::ParticleSelector(const Config& config,
 
 ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
     const AlgorithmContext& ctx) const {
-  using ParticlesMeasurmentMap = boost::container::flat_multimap<ActsFatras::Barcode, Index>;
+  using ParticlesMeasurmentMap =
+      boost::container::flat_multimap<ActsFatras::Barcode, Index>;
 
   // prepare input/ output types
   const auto& inputParticles = m_inputParticles(ctx);
@@ -83,19 +84,24 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
   }
 
   // Make constraint particles measurement maps if necessary
-  std::optional<boost::container::flat_map<Acts::GeometryIdentifier, ParticlesMeasurmentMap>> geoParticlesMeasMaps;
+  std::optional<boost::container::flat_map<Acts::GeometryIdentifier,
+                                           ParticlesMeasurmentMap>>
+      geoParticlesMeasMaps;
   if (m_inputMap.isInitialized() && m_inputMeasurements.isInitialized()) {
     geoParticlesMeasMaps.emplace();
 
     // Fill measurements in geometry multi set
-    GeometryIdMultiset<Measurement> measurements(m_inputMeasurements(ctx).begin(), m_inputMeasurements(ctx).end());
+    GeometryIdMultiset<Measurement> measurements(
+        m_inputMeasurements(ctx).begin(), m_inputMeasurements(ctx).end());
 
     // Make a particle -> measurements map for each constraint
     for (auto geoId : m_cfg.measurementGeometrySelection) {
       auto r = selectLowestNonZeroGeometryObject(measurements, geoId);
       std::decay_t<decltype(m_inputMap(ctx))> constraintMap;
-      for(const Measurement &meas: r) {
-        const auto &sl = std::visit([](const auto &m){ return m.sourceLink(); }, meas).get<IndexSourceLink>();
+      for (const Measurement& meas : r) {
+        const auto& sl =
+            std::visit([](const auto& m) { return m.sourceLink(); }, meas)
+                .get<IndexSourceLink>();
         auto [b, e] = m_inputMap(ctx).equal_range(sl.index());
         constraintMap.insert(b, e);
       }
@@ -134,18 +140,20 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
           within(static_cast<std::size_t>(std::distance(b, e)),
                  m_cfg.measurementsMin, m_cfg.measurementsMax);
 
-      ACTS_VERBOSE("Found " << std::distance(b, e) << " measurements for " << p.particleId());
+      ACTS_VERBOSE("Found " << std::distance(b, e) << " measurements for "
+                            << p.particleId());
     }
 
     // In this case, go through the measurements and check if the fullfill the
     // geometry requirement
     if (validMeasurementCount && geoParticlesMeasMaps) {
       ACTS_VERBOSE("-> Check number of measurements in geometry constraint for "
-                    << p.particleId());
+                   << p.particleId());
       std::size_t count = 0;
-      for (const auto &[geoId, map] : *geoParticlesMeasMaps) {
+      for (const auto& [geoId, map] : *geoParticlesMeasMaps) {
         auto [b, e] = map.equal_range(p.particleId());
-        ACTS_VERBOSE("-> Found " << std::distance(b, e) << " measurements in " << geoId);
+        ACTS_VERBOSE("-> Found " << std::distance(b, e) << " measurements in "
+                                 << geoId);
         count += static_cast<std::size_t>(std::distance(b, e));
       }
 
@@ -187,8 +195,10 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
                       << outputParticles.size() << " from "
                       << inputParticles.size() << " particles");
   ACTS_DEBUG("filtered out because of charge: " << nInvalidCharge);
-  ACTS_DEBUG("filtered out because of measurement count: " << nInvalidMeasurementCount);
-  ACTS_DEBUG("filtered out because of measurement count + geometry constraint: " << nInvalidMeasurementCountWithConstraint);
+  ACTS_DEBUG("filtered out because of measurement count: "
+             << nInvalidMeasurementCount);
+  ACTS_DEBUG("filtered out because of measurement count + geometry constraint: "
+             << nInvalidMeasurementCountWithConstraint);
 
   m_outputParticles(ctx, std::move(outputParticles));
   return ProcessCode::SUCCESS;
