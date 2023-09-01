@@ -28,7 +28,7 @@ PrototracksToSeeds::PrototracksToSeeds(Config cfg, Acts::Logging::Level lvl)
 
 ProcessCode PrototracksToSeeds::execute(const AlgorithmContext& ctx) const {
   const auto& sps = m_inputSpacePoints(ctx);
-  auto prototracks = m_inputProtoTracks(ctx);
+  const auto& prototracks = m_inputProtoTracks(ctx);
 
   // Make prototrack unique with respect to volume and layer
   // So we don't get a seed where we have two spacepoints on the same layer
@@ -39,34 +39,38 @@ ProcessCode PrototracksToSeeds::execute(const AlgorithmContext& ctx) const {
         .geometryId();
   };
 
-  for (auto& track : prototracks) {
-    auto newEnd = std::unique(track.begin(), track.end(), [&](auto a, auto b) {
-      auto ga = geoIdFromIndex(a);
-      auto gb = geoIdFromIndex(b);
-      return ga.volume() == gb.volume() && ga.layer() == gb.layer();
-    });
-
-    track.erase(newEnd, track.end());
-  }
-
-  // Remove tracks with less then three hits
-  const auto nBefore = prototracks.size();
-  prototracks.erase(std::remove_if(prototracks.begin(), prototracks.end(),
-                                   [](const auto& t) { return t.size() < 3; }),
-                    prototracks.end());
-  ACTS_DEBUG("Discarded " << prototracks.size() - nBefore
-                          << " prototracks with less then 3 hits");
-
-  // Make seeds
   SimSeedContainer seeds;
   seeds.reserve(prototracks.size());
+  ProtoTrackContainer seededTracks;
+  seededTracks.reserve(prototracks.size());
 
-  std::transform(prototracks.begin(), prototracks.end(),
-                 std::back_inserter(seeds),
-                 [&](const auto& pt) { return prototrackToSeed(pt, sps); });
+  // Here, we want to create a seed only if the prototrack with removed unique
+  // layer-volume spacepoints has 3 or more hits. However, if this is the case,
+  // we want to keep the whole prototrack. Therefore, we operate on a tmpTrack.
+  ProtoTrack tmpTrack;
+  for (const auto& track : prototracks) {
+    tmpTrack.clear();
+    std::unique_copy(track.begin(), track.end(), std::back_inserter(tmpTrack),
+                     [&](auto a, auto b) {
+                       auto ga = geoIdFromIndex(a);
+                       auto gb = geoIdFromIndex(b);
+                       return ga.volume() == gb.volume() &&
+                              ga.layer() == gb.layer();
+                     });
+
+    if (tmpTrack.size() < 3) {
+      continue;
+    }
+
+    seededTracks.push_back(track);
+    seeds.push_back(prototrackToSeed(tmpTrack, sps));
+  }
+
+  ACTS_DEBUG("Seeded " << seeds.size() << " out of " << prototracks.size()
+                       << " prototracks");
 
   m_outputSeeds(ctx, std::move(seeds));
-  m_outputProtoTracks(ctx, std::move(prototracks));
+  m_outputProtoTracks(ctx, std::move(seededTracks));
 
   return ProcessCode::SUCCESS;
 }
