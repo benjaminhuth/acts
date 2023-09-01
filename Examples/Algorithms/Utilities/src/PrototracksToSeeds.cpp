@@ -27,8 +27,29 @@ PrototracksToSeeds::PrototracksToSeeds(Config cfg, Acts::Logging::Level lvl)
 }
 
 ProcessCode PrototracksToSeeds::execute(const AlgorithmContext& ctx) const {
+  const auto& sps = m_inputSpacePoints(ctx);
   auto prototracks = m_inputProtoTracks(ctx);
 
+  // Make prototrack unique with respect to volume and layer
+  // So we don't get a seed where we have two spacepoints on the same layer
+  auto geoIdFromIndex = [&](auto index) -> Acts::GeometryIdentifier {
+    return findSpacePointForIndex(index, sps)
+        ->sourceLinks()
+        .front()
+        .geometryId();
+  };
+
+  for (auto& track : prototracks) {
+    auto newEnd = std::unique(track.begin(), track.end(), [&](auto a, auto b) {
+      auto ga = geoIdFromIndex(a);
+      auto gb = geoIdFromIndex(b);
+      return ga.volume() == gb.volume() && ga.layer() == gb.layer();
+    });
+
+    track.erase(newEnd, track.end());
+  }
+
+  // Remove tracks with less then three hits
   const auto nBefore = prototracks.size();
   prototracks.erase(std::remove_if(prototracks.begin(), prototracks.end(),
                                    [](const auto& t) { return t.size() < 3; }),
@@ -36,10 +57,10 @@ ProcessCode PrototracksToSeeds::execute(const AlgorithmContext& ctx) const {
   ACTS_DEBUG("Discarded " << prototracks.size() - nBefore
                           << " prototracks with less then 3 hits");
 
+  // Make seeds
   SimSeedContainer seeds;
   seeds.reserve(prototracks.size());
 
-  const auto& sps = m_inputSpacePoints(ctx);
   std::transform(prototracks.begin(), prototracks.end(),
                  std::back_inserter(seeds),
                  [&](const auto& pt) { return prototrackToSeed(pt, sps); });
