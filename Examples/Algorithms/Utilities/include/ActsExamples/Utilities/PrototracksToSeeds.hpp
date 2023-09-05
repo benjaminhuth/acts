@@ -22,6 +22,7 @@ class PrototracksToSeeds final : public IAlgorithm {
     std::string inputSpacePoints;
     std::string outputSeeds = "seeds-from-prototracks";
     std::string outputProtoTracks = "remaining-prototracks";
+    bool advancedSeeding = false;
   };
 
   /// Construct the algorithm.
