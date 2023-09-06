@@ -31,6 +31,8 @@ class PrototracksToSeeds final : public IAlgorithm {
   /// @param lvl is the logging level
   PrototracksToSeeds(Config cfg, Acts::Logging::Level lvl);
 
+  ~PrototracksToSeeds();
+
   /// Run the algorithm.
   ///
   /// @param ctx is the algorithm context with event information
@@ -42,6 +44,9 @@ class PrototracksToSeeds final : public IAlgorithm {
 
  private:
   Config m_cfg;
+
+  struct SeedingImpl;
+  std::unique_ptr<SeedingImpl> m_advancedSeeding;
 
   WriteDataHandle<SimSeedContainer> m_outputSeeds{this, "OutputSeeds"};
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,

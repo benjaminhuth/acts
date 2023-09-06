@@ -22,91 +22,140 @@
 
 #include <algorithm>
 
+class LittleDrawer {
+  std::size_t m_width = 80;
+  std::size_t m_height = 15;
+  char m_marker = 'x';
+
+  std::vector<std::vector<int>> m_vals;
+
+ public:
+  using SpacePointIt = ActsExamples::SimSpacePointContainer::iterator;
+
+  LittleDrawer(SpacePointIt b, SpacePointIt e)
+      : m_vals(m_height, std::vector<int>(m_width, 0)) {
+    auto [minRIt, maxRIt] = std::minmax_element(
+        b, e, [](const auto &a, const auto &b) { return a.r() < b.r(); });
+    auto [minZIt, maxZIt] = std::minmax_element(
+        b, e, [](const auto &a, const auto &b) { return a.z() < b.z(); });
+
+    auto minR = minRIt->r();
+    auto maxR = maxRIt->r();
+    auto minZ = minZIt->z();
+    auto maxZ = maxZIt->z();
+
+    maxR += 0.1 * (maxR - minR);
+    minR -= 0.1 * (maxR - minR);
+
+    maxZ += 0.1 * (maxZ - minZ);
+    minZ -= 0.1 * (maxZ - minZ);
+
+    float factorZ = static_cast<float>(m_width) / (maxZ - minZ);
+    float factorR = static_cast<float>(m_height) / (maxR - minR);
+
+    for (auto it = b; it != e; ++it) {
+      const ActsExamples::SimSpacePoint &sp = *it;
+      float vz = (sp.z() - minZ) * factorZ;
+      float vr = (sp.r() - minR) * factorR;
+
+      auto iz = static_cast<std::size_t>(std::round(vz));
+      auto ir = static_cast<std::size_t>(std::round(vr));
+
+      assert(iz < m_width && iz >= 0);
+      assert(ir < m_height && ir >= 0);
+
+      m_vals[ir][iz]++;
+    }
+  }
+
+  friend std::ostream &operator<<(std::ostream &os, const LittleDrawer drawer) {
+    os << "+" << std::string(drawer.m_width + 2, '-') << "+\n";
+
+    std::string s;
+    for (auto rowIt = drawer.m_vals.rbegin(); rowIt != drawer.m_vals.rend();
+         ++rowIt) {
+      s.clear();
+      s.resize(rowIt->size(), ' ');
+
+      for (auto i = 0ul; i < rowIt->size(); ++i) {
+        if (rowIt->at(i) > 0 && rowIt->at(i) < 10) {
+          s[i] = std::to_string(rowIt->at(i)).front();
+        } else if (rowIt->at(i) >= 10) {
+          s[i] = 'X';
+        }
+      }
+      os << "| " << s << " |\n";
+    }
+    os << "+" << std::string(drawer.m_width + 2, '-') << "+";
+    return os;
+  }
+};
+
 using namespace ActsExamples;
 using namespace Acts::UnitLiterals;
 
-namespace {
+struct ActsExamples::PrototracksToSeeds::SeedingImpl {
+  SimSpacePointContainer m_spacepoints;
+  std::unique_ptr<Acts::Logger> m_logger;
 
-std::tuple<ProtoTrackContainer, SimSeedContainer> naiveSeeding(
-    const ProtoTrackContainer &prototracks, const SimSpacePointContainer &sps,
-    const Acts::Logger &) {
-  // Make prototrack unique with respect to volume and layer
-  // So we don't get a seed where we have two spacepoints on the same layer
-  auto geoIdFromIndex = [&](auto index) -> Acts::GeometryIdentifier {
-    return findSpacePointForIndex(index, sps)
-        ->sourceLinks()
-        .front()
-        .geometryId();
-  };
+  Acts::SeedFinderConfig<SimSpacePoint> m_seedFinderCfg;
+  Acts::SeedFinderOptions m_seedFinderOptions;
+  Acts::SeedFinder<SimSpacePoint> m_seedFinder;
 
-  SimSeedContainer seeds;
-  seeds.reserve(prototracks.size());
-  ProtoTrackContainer seededTracks;
-  seededTracks.reserve(prototracks.size());
+  std::shared_ptr<const Acts::BinFinder<SimSpacePoint>> m_bottomBinFinder;
+  std::shared_ptr<const Acts::BinFinder<SimSpacePoint>> m_topBinFinder;
 
-  // Here, we want to create a seed only if the prototrack with removed unique
-  // layer-volume spacepoints has 3 or more hits. However, if this is the case,
-  // we want to keep the whole prototrack. Therefore, we operate on a tmpTrack.
-  ProtoTrack tmpTrack;
-  for (const auto &track : prototracks) {
-    tmpTrack.clear();
-    std::unique_copy(track.begin(), track.end(), std::back_inserter(tmpTrack),
-                     [&](auto a, auto b) {
-                       auto ga = geoIdFromIndex(a);
-                       auto gb = geoIdFromIndex(b);
-                       return ga.volume() == gb.volume() &&
-                              ga.layer() == gb.layer();
-                     });
+  Acts::SpacePointGridConfig m_gridCfg;
+  Acts::SpacePointGridOptions gridOptions;
 
-    if (tmpTrack.size() < 3) {
-      continue;
-    }
+  SeedingImpl(const Acts::Logger &logger) : m_logger(logger.clone()) {
+    m_seedFinderCfg.deltaRMaxBottomSP = 100_mm;  // should go from layer 0 -> 2
+    m_seedFinderCfg.deltaRMinBottomSP = 15_mm;   // should not be in same layer
+    m_seedFinderCfg.deltaRMaxTopSP = 120_mm;     // should go from layer 2 -> 3
+    m_seedFinderCfg.deltaRMinTopSP = 30_mm;      // should not be in same layer
 
-    seededTracks.push_back(track);
-    seeds.push_back(prototrackToSeed(tmpTrack, sps));
+    Acts::SeedFilterConfig seedFilterCfg;
+    seedFilterCfg.deltaRMin = m_seedFinderCfg.deltaRMin;
+
+    m_seedFinderCfg.seedFilter =
+        std::make_shared<Acts::SeedFilter<SimSpacePoint>>(
+            seedFilterCfg.toInternalUnits());
+
+    m_seedFinder =
+        Acts::SeedFinder<SimSpacePoint>(m_seedFinderCfg.toInternalUnits());
+
+    m_gridCfg.deltaRMax = m_seedFinderCfg.deltaRMax;
+    m_gridCfg.rMax = 200_mm;
+    m_gridCfg.zMax = 1500_mm;
+    m_gridCfg.zMin = -1500_mm;
+
+    std::vector<std::pair<int, int>> zBinNeighborsBottom;
+    std::vector<std::pair<int, int>> zBinNeighborsTop;
+    std::size_t numPhiNeighbors = 1;
+
+    m_bottomBinFinder = std::make_shared<const Acts::BinFinder<SimSpacePoint>>(
+        zBinNeighborsBottom, numPhiNeighbors);
+    m_topBinFinder = std::make_shared<const Acts::BinFinder<SimSpacePoint>>(
+        zBinNeighborsTop, numPhiNeighbors);
   }
 
-  return {seededTracks, seeds};
-}
+  const Acts::Logger &logger() const { return *m_logger; }
 
-std::tuple<ProtoTrackContainer, SimSeedContainer> realSeeding(
-    const ProtoTrackContainer &prototracks, const SimSpacePointContainer &sps,
-    const Acts::Logger &logger) {
-  SimSeedContainer seeds;
-  ProtoTrackContainer seededTracks;
+  void seedPrototrack(const ProtoTrack &track,
+                      const SimSpacePointContainer &sps,
+                      ProtoTrackContainer &outputTracks,
+                      SimSeedContainer &outputSeeds) const {
+    // construct the seeding tools
+    // covariance tool, extracts covariances per spacepoint as required
+    auto extractGlobalQuantities =
+        [=](const SimSpacePoint &sp, float, float,
+            float) -> std::pair<Acts::Vector3, Acts::Vector2> {
+      Acts::Vector3 position{sp.x(), sp.y(), sp.z()};
+      Acts::Vector2 covariance{sp.varianceR(), sp.varianceZ()};
+      return std::make_pair(position, covariance);
+    };
 
-  Acts::SpacePointGridConfig gridCfg;
-  Acts::SpacePointGridOptions gridOptions;
-  gridOptions.bFieldInZ = 2_T;
-
-  std::vector<std::pair<int, int>> zBinNeighborsBottom;
-  std::vector<std::pair<int, int>> zBinNeighborsTop;
-  std::size_t numPhiNeighbors = 1;
-
-  auto bottomBinFinder = std::make_shared<const Acts::BinFinder<SimSpacePoint>>(
-      zBinNeighborsBottom, numPhiNeighbors);
-  auto topBinFinder = std::make_shared<const Acts::BinFinder<SimSpacePoint>>(
-      zBinNeighborsTop, numPhiNeighbors);
-
-  Acts::SeedFinderConfig<SimSpacePoint> seedFinderConfig;
-  Acts::SeedFinderOptions seedFinderOptions;
-
-  Acts::SeedFinder<SimSpacePoint> seedFinder(seedFinderConfig);
-
-  // construct the seeding tools
-  // covariance tool, extracts covariances per spacepoint as required
-  auto extractGlobalQuantities =
-      [=](const SimSpacePoint &sp, float, float,
-          float) -> std::pair<Acts::Vector3, Acts::Vector2> {
-    Acts::Vector3 position{sp.x(), sp.y(), sp.z()};
-    Acts::Vector2 covariance{sp.varianceR(), sp.varianceZ()};
-    return std::make_pair(position, covariance);
-  };
-
-  // Make space point pointer vector
-  std::vector<const SimSpacePoint *> spacePointPtrs;
-  for (const auto &track : prototracks) {
-    spacePointPtrs.clear();
+    std::vector<const SimSpacePoint *> spacePointPtrs;
     for (auto hit : track) {
       auto spPtr = findSpacePointForIndex(hit, sps);
       if (spPtr) {
@@ -118,44 +167,78 @@ std::tuple<ProtoTrackContainer, SimSeedContainer> realSeeding(
     Acts::Extent rRangeSPExtent;
 
     auto grid = Acts::SpacePointGridCreator::createGrid<SimSpacePoint>(
-        gridCfg, gridOptions);
+        m_gridCfg.toInternalUnits(), gridOptions.toInternalUnits());
 
     auto spacePointsGrouping = Acts::BinnedSPGroup<SimSpacePoint>(
         spacePointPtrs.begin(), spacePointPtrs.end(), extractGlobalQuantities,
-        bottomBinFinder, topBinFinder, std::move(grid), rRangeSPExtent,
-        seedFinderConfig, seedFinderOptions);
-
-    // safely clamp double to float
-    float up = Acts::clampValue<float>(
-        std::floor(rRangeSPExtent.max(Acts::binR) / 2) * 2);
+        m_bottomBinFinder, m_topBinFinder, std::move(grid), rRangeSPExtent,
+        m_seedFinderCfg.toInternalUnits(),
+        m_seedFinderOptions.toInternalUnits());
 
     /// variable middle SP radial region of interest
-    const Acts::Range1D<float> rMiddleSPRange(
-        std::floor(rRangeSPExtent.min(Acts::binR) / 2) * 2 +
-            seedFinderConfig.deltaRMiddleMinSPRange,
-        up - seedFinderConfig.deltaRMiddleMaxSPRange);
+    const Acts::Range1D<float> rMiddleSPRange(50_mm, 150_mm);
 
     // run the seeding
-    decltype(seedFinder)::SeedingState state;
+    decltype(m_seedFinder)::SeedingState state;
     state.spacePointData.resize(spacePointPtrs.size());
 
-    auto seedsBefore = seeds.size();
+    auto seedsBefore = outputSeeds.size();
     for (const auto [bottom, middle, top] : spacePointsGrouping) {
-      seedFinder.createSeedsForGroup(
-          seedFinderOptions, state, spacePointsGrouping.grid(),
-          std::back_inserter(seeds), bottom, middle, top, rMiddleSPRange);
-    }
-    for (auto i = seedsBefore; i < seeds.size(); ++i) {
-      seededTracks.push_back(track);
+      m_seedFinder.createSeedsForGroup(m_seedFinderOptions.toInternalUnits(),
+                                       state, spacePointsGrouping.grid(),
+                                       std::back_inserter(outputSeeds), bottom,
+                                       middle, top, rMiddleSPRange);
     }
 
-    if (seedsBefore == seeds.size()) {
+    for (auto i = seedsBefore; i < outputSeeds.size(); ++i) {
+      outputTracks.push_back(track);
+    }
+
+    if (outputTracks.size() != outputSeeds.size()) {
+      throw std::runtime_error("size mismatch");
+    }
+
+    if (seedsBefore == outputSeeds.size()) {
       ACTS_WARNING("No seed created für prototrack");
-    } else if (seeds.size() - seedsBefore > 1) {
-      ACTS_DEBUG("created " << seeds.size() - seedsBefore << " for prototrack")
+    } else if (outputSeeds.size() - seedsBefore > 1) {
+      ACTS_DEBUG("created " << outputSeeds.size() - seedsBefore
+                            << " for prototrack")
     }
   }
-  return {seededTracks, seeds};
+};
+
+namespace {
+
+void naiveSeeding(const ProtoTrack &track, const SimSpacePointContainer &sps,
+                  ProtoTrackContainer &outputTracks,
+                  SimSeedContainer &outputSeeds, const Acts::Logger &) {
+  // Make prototrack unique with respect to volume and layer
+  // So we don't get a seed where we have two spacepoints on the same layer
+  auto geoIdFromIndex = [&](auto index) -> Acts::GeometryIdentifier {
+    return findSpacePointForIndex(index, sps)
+        ->sourceLinks()
+        .front()
+        .geometryId();
+  };
+
+  // Here, we want to create a seed only if the prototrack with removed unique
+  // layer-volume spacepoints has 3 or more hits. However, if this is the case,
+  // we want to keep the whole prototrack. Therefore, we operate on a tmpTrack.
+  ProtoTrack tmpTrack;
+  std::unique_copy(track.begin(), track.end(), std::back_inserter(tmpTrack),
+                   [&](auto a, auto b) {
+                     auto ga = geoIdFromIndex(a);
+                     auto gb = geoIdFromIndex(b);
+                     return ga.volume() == gb.volume() &&
+                            ga.layer() == gb.layer();
+                   });
+
+  if (tmpTrack.size() < 3) {
+    return;
+  }
+
+  outputTracks.push_back(track);
+  outputSeeds.push_back(prototrackToSeed(tmpTrack, sps));
 }
 
 }  // namespace
@@ -168,20 +251,61 @@ PrototracksToSeeds::PrototracksToSeeds(Config cfg, Acts::Logging::Level lvl)
   m_outputProtoTracks.initialize(m_cfg.outputProtoTracks);
   m_inputProtoTracks.initialize(m_cfg.inputProtoTracks);
   m_inputSpacePoints.initialize(m_cfg.inputSpacePoints);
+
+  m_advancedSeeding = std::make_unique<SeedingImpl>(logger());
 }
+
+PrototracksToSeeds::~PrototracksToSeeds() {}
 
 ProcessCode PrototracksToSeeds::execute(const AlgorithmContext &ctx) const {
   const auto &sps = m_inputSpacePoints(ctx);
-  const auto &prototracks = m_inputProtoTracks(ctx);
+  auto prototracks = m_inputProtoTracks(ctx);
 
-  using SeedFunction = std::tuple<ProtoTrackContainer, SimSeedContainer> (*)(
-      const ProtoTrackContainer &, const SimSpacePointContainer &,
-      const Acts::Logger &);
+  ProtoTrackContainer seededTracks;
+  SimSeedContainer seeds;
 
-  SeedFunction seedFunction =
-      m_cfg.advancedSeeding ? realSeeding : naiveSeeding;
+  auto geoIdFromIndex = [&](auto index) -> Acts::GeometryIdentifier {
+    return findSpacePointForIndex(index, sps)
+        ->sourceLinks()
+        .front()
+        .geometryId();
+  };
 
-  auto [seededTracks, seeds] = seedFunction(prototracks, sps, logger());
+  for (auto &track : prototracks) {
+    if (track.size() == 3 || !m_cfg.advancedSeeding) {
+      naiveSeeding(track, sps, seededTracks, seeds, logger());
+      continue;
+    }
+
+    // Sort by geometry Id
+    std::sort(track.begin(), track.end(), [&](auto a, auto b) {
+      return geoIdFromIndex(a) < geoIdFromIndex(b);
+    });
+
+    // Check if we have multiple hits on one module
+    auto it = std::unique(track.begin(), track.end(), [&](auto a, auto b) {
+      return geoIdFromIndex(a) == geoIdFromIndex(b);
+    });
+
+    // Sort again by geometry Id, so we can use std::unique inside
+    std::sort(track.begin(), track.end(), [&](auto a, auto b) {
+      return geoIdFromIndex(a) < geoIdFromIndex(b);
+    });
+
+    if (std::distance(it, track.end()) > 0) {
+      std::vector<SimSpacePoint> tsps;
+      std::transform(track.begin(), track.end(), std::back_inserter(tsps),
+                     [&](auto i) { return *findSpacePointForIndex(i, sps); });
+      LittleDrawer drawer{tsps.begin(), tsps.end()};
+      ACTS_DEBUG("Advanced seeding for track with " << track.size()
+                                                    << " hits:\n"
+                                                    << drawer);
+
+      m_advancedSeeding->seedPrototrack(track, sps, seededTracks, seeds);
+    } else {
+      naiveSeeding(track, sps, seededTracks, seeds, logger());
+    }
+  }
 
   ACTS_DEBUG("Seeded " << seeds.size() << " out of " << prototracks.size()
                        << " prototracks");
