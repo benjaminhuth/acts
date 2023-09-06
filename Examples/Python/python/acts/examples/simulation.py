@@ -41,7 +41,7 @@ ParticleSelectorConfig = namedtuple(
         "pt",  # (min,max)
         "m",  # (min,max)
         "measurements",  # (min,max) [Only available if measurement_particles_map is provided]
-        "measurementGeometrySelection" # Geometry selection
+        "measurementGeometrySelection", # Geometry selection
         "removeCharged",  # bool
         "removeNeutral",  # bool
         "removeSecondaries",  # bool
