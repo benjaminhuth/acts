@@ -65,6 +65,11 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
   const auto& protoTracks = m_inputProtoTracks(ctx);
   const auto& initialParameters = m_inputInitialTrackParameters(ctx);
 
+  if( initialParameters.size() != protoTracks.size() ) {
+    ACTS_FATAL("Inconsistent number of parameters and prototracks");
+    return ProcessCode::ABORT;
+  }
+
   // Construct a perigee surface as the target surface
   auto pSurface = Acts::Surface::makeShared<Acts::PerigeeSurface>(
       Acts::Vector3{0., 0., 0.});
@@ -119,7 +124,8 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
   tracks.addColumn<unsigned int>("trackGroup");
   Acts::TrackAccessor<unsigned int> seedNumber("trackGroup");
 
-  unsigned int nSeed = 0;
+  std::size_t nSeed = 0;
+  std::size_t nFailed = 0;
 
   for (auto i = 0ul; i < initialParameters.size(); ++i) {
     sourceLinkAccessor.protoTrackSourceLinks.clear();
@@ -139,6 +145,7 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
     nSeed++;
 
     if (!result.ok()) {
+      nFailed++;
       ACTS_WARNING("Track finding failed for proto track " << i << " with error"
                                                            << result.error());
       continue;
@@ -155,6 +162,7 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
   //   computeSharedHits(sourceLinks, tracks);
   // }
 
+  ACTS_INFO("Event " << ctx.eventNumber << ": " << nFailed << " / " << nSeed << " failed (" << ((100.f*nFailed)/nSeed) << "%)");
   ACTS_DEBUG("Finalized track finding with " << tracks.size()
                                              << " track candidates.");
   auto constTrackStateContainer =
