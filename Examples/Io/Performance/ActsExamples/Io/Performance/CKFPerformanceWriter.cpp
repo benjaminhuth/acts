@@ -150,22 +150,7 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
 
   // Read truth input collections
   const auto& particles = m_inputParticles(ctx);
-  const auto& initialHitParticlesMap = m_inputMeasurementParticlesMap(ctx);
-
-  std::decay_t<decltype(initialHitParticlesMap)> hitParticlesMap;
-  for (const auto& [mid, pid] : initialHitParticlesMap) {
-    if (particles.find(pid) != particles.end()) {
-      hitParticlesMap.emplace(mid, pid);
-    }
-  }
-
-  if (initialHitParticlesMap.size() > hitParticlesMap.size()) {
-    auto c = initialHitParticlesMap.size() - hitParticlesMap.size();
-    ACTS_WARNING(
-        "Measurement-particles-map contains more particles then the truth "
-        "particle collection, discard "
-        << c << "entries");
-  }
+  const auto& hitParticlesMap = m_inputMeasurementParticlesMap(ctx);
 
   // Counter of truth-matched reco tracks
   std::map<ActsFatras::Barcode, std::vector<RecoTrackInfo>> matched;
@@ -207,7 +192,7 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
       identifyContributingParticles(hitParticlesMap, traj, trackTip,
                                     particleHitCounts);
       if (particleHitCounts.empty()) {
-        ACTS_WARNING(
+        ACTS_DEBUG(
             "No truth particle associated with this trajectory with entry "
             "index = "
             << trackTip);
@@ -325,14 +310,10 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
     m_nTotalParticles += 1;
   }  // end all truth particles
 
-  for (const auto& [pid, recoInfo] : matched) {
-    particles.find(pid) != particles.end();
-    m_particlesMatchedStream << ctx.eventNumber << "," << pid.value() << ","
-                             << 1 << "\n";
-  }
-  for (const auto& [pid, size] : unmatched) {
-    m_particlesMatchedStream << ctx.eventNumber << "," << pid.value() << ","
-                             << 0 << "\n";
+  for(const auto &p : particles) {
+    bool m = (matched.find(p.particleId()) != matched.end());
+    m_particlesMatchedStream << ctx.eventNumber << "," << p.particleId().value() << ","
+                             << m << "\n";
   }
 
   return ProcessCode::SUCCESS;
