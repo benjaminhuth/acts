@@ -116,6 +116,7 @@ struct ActsExamples::PrototracksToSeeds::SeedingImpl {
 
     Acts::SeedFilterConfig seedFilterCfg;
     seedFilterCfg.deltaRMin = m_seedFinderCfg.deltaRMin;
+    seedFilterCfg.maxSeedsPerSpM = 2;
 
     m_seedFinderCfg.seedFilter =
         std::make_shared<Acts::SeedFilter<SimSpacePoint>>(
@@ -199,17 +200,17 @@ struct ActsExamples::PrototracksToSeeds::SeedingImpl {
     }
 
     if (seedsBefore == outputSeeds.size()) {
-      ACTS_WARNING("No seed created für prototrack");
+      ACTS_WARNING("No seed created for prototrack");
     } else if (outputSeeds.size() - seedsBefore > 1) {
-      ACTS_DEBUG("created " << outputSeeds.size() - seedsBefore
-                            << " for prototrack")
+      ACTS_VERBOSE("created " << outputSeeds.size() - seedsBefore
+                            << " seeds for prototrack")
     }
   }
 };
 
 namespace {
 
-void naiveSeeding(const ProtoTrack &track, const SimSpacePointContainer &sps,
+void naiveSeeding(ProtoTrack track, const SimSpacePointContainer &sps,
                   ProtoTrackContainer &outputTracks,
                   SimSeedContainer &outputSeeds, const Acts::Logger &) {
   // Make prototrack unique with respect to volume and layer
@@ -224,6 +225,15 @@ void naiveSeeding(const ProtoTrack &track, const SimSpacePointContainer &sps,
   // Here, we want to create a seed only if the prototrack with removed unique
   // layer-volume spacepoints has 3 or more hits. However, if this is the case,
   // we want to keep the whole prototrack. Therefore, we operate on a tmpTrack.
+  std::sort(track.begin(), track.end(), [&](auto a, auto b) {
+    auto ga = geoIdFromIndex(a);
+    auto gb = geoIdFromIndex(b);
+    if( ga.volume() != gb.volume() ) {
+      return ga.volume() < gb.volume();
+    }
+    return ga.layer() < gb.layer();
+  });
+
   ProtoTrack tmpTrack;
   std::unique_copy(track.begin(), track.end(), std::back_inserter(tmpTrack),
                    [&](auto a, auto b) {
@@ -233,6 +243,7 @@ void naiveSeeding(const ProtoTrack &track, const SimSpacePointContainer &sps,
                             ga.layer() == gb.layer();
                    });
 
+  // in this case we cannot seed properly
   if (tmpTrack.size() < 3) {
     return;
   }
@@ -271,40 +282,46 @@ ProcessCode PrototracksToSeeds::execute(const AlgorithmContext &ctx) const {
         .geometryId();
   };
 
+  std::vector<Acts::GeometryIdentifier> tmpGeoIds;
   for (auto &track : prototracks) {
+    ACTS_VERBOSE("Try to get seed from prototrack with " << track.size() << " hits");
     if (track.size() == 3 || !m_cfg.advancedSeeding) {
+      ACTS_VERBOSE("go directly to naive seeding");
+      naiveSeeding(track, sps, seededTracks, seeds, logger());
+      continue;
+    }
+    // Make vector of geometry Ids
+    tmpGeoIds.clear();
+    std::transform(track.begin(), track.end(), std::back_inserter(tmpGeoIds), [&](auto i){ return geoIdFromIndex(i); });
+    std::sort(tmpGeoIds.begin(), tmpGeoIds.end());
+
+    // Go to naive seeding for tracks that are in the endcaps, because there it works quite well
+    std::size_t nBarrelHits = std::count_if(tmpGeoIds.begin(), tmpGeoIds.end(), [](auto gid){ return gid.volume() == 17; });
+    if( nBarrelHits < track.size() ) {
+      ACTS_VERBOSE("go to naive seeding because not all hits in barrel");
       naiveSeeding(track, sps, seededTracks, seeds, logger());
       continue;
     }
 
-    // Sort by geometry Id
-    std::sort(track.begin(), track.end(), [&](auto a, auto b) {
-      return geoIdFromIndex(a) < geoIdFromIndex(b);
-    });
+    // Check if we have duplicate geoids
+    auto it = std::unique(tmpGeoIds.begin(), tmpGeoIds.end());
+    bool hasGeoIdDuplicates = (it != tmpGeoIds.end());
 
-    // Check if we have multiple hits on one module
-    auto it = std::unique(track.begin(), track.end(), [&](auto a, auto b) {
-      return geoIdFromIndex(a) == geoIdFromIndex(b);
-    });
-
-    // Sort again by geometry Id, so we can use std::unique inside
-    std::sort(track.begin(), track.end(), [&](auto a, auto b) {
-      return geoIdFromIndex(a) < geoIdFromIndex(b);
-    });
-
-    if (std::distance(it, track.end()) > 0) {
+    if (hasGeoIdDuplicates) {
+      ACTS_VERBOSE("Found GeoId duplicates");
       std::vector<SimSpacePoint> tsps;
       std::transform(track.begin(), track.end(), std::back_inserter(tsps),
                      [&](auto i) { return *findSpacePointForIndex(i, sps); });
       LittleDrawer drawer{tsps.begin(), tsps.end()};
-      ACTS_DEBUG("Advanced seeding for track with " << track.size()
-                                                    << " hits:\n"
-                                                    << drawer);
-
+      ACTS_VERBOSE("Advanced seeding for track with " << track.size()
+                                                    << " hits");
       m_advancedSeeding->seedPrototrack(track, sps, seededTracks, seeds);
+      ACTS_VERBOSE("Visualization:\n" << drawer);
     } else {
+      ACTS_VERBOSE("Naive seeding");
       naiveSeeding(track, sps, seededTracks, seeds, logger());
     }
+
   }
 
   ACTS_DEBUG("Seeded " << seeds.size() << " out of " << prototracks.size()
