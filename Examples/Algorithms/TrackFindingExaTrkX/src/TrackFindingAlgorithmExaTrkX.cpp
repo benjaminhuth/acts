@@ -33,14 +33,20 @@ class ExamplesEdmHook : public Acts::PipelineHook {
 
   const Acts::Logger& logger() const { return *m_logger; }
 
+  struct HitInfo {
+    std::size_t spacePointIndex;
+    int32_t hitIndex;
+  };
+
  public:
   ExamplesEdmHook(const SimSpacePointContainer& spacepoints,
-                  const IndexMultimap<ActsFatras::Barcode>& measHitMap,
+                  const IndexMultimap<Index>& measHitMap,
+                  const SimHitContainer& simhits,
                   const SimParticleContainer& particles,
                   const Acts::Logger& logger)
       : m_logger(logger.clone("MetricsHook")) {
     // Associate tracks to graph, collect momentum
-    std::unordered_map<ActsFatras::Barcode, std::vector<std::size_t>> tracks;
+    std::unordered_map<ActsFatras::Barcode, std::vector<HitInfo>> tracks;
 
     for (auto i = 0ul; i < spacepoints.size(); ++i) {
       const auto measId = spacepoints[i]
@@ -50,16 +56,9 @@ class ExamplesEdmHook : public Acts::PipelineHook {
 
       auto [a, b] = measHitMap.equal_range(measId);
       for (auto it = a; it != b; ++it) {
-        auto found = particles.find(it->second);
+        const auto& hit = *simhits.nth(it->second);
 
-        if (found == particles.end()) {
-          ACTS_ERROR("could not find particle with id " << it->second);
-          continue;
-        }
-
-        // We use the spacepoint index here, since thats how edges are
-        // represented within the Exa.TrkX algorithm
-        tracks[found->particleId()].push_back(i);
+        tracks[hit.particleId()].push_back({i, hit.index()});
       }
     }
 
@@ -67,20 +66,35 @@ class ExamplesEdmHook : public Acts::PipelineHook {
     std::vector<int64_t> truthGraph;
     std::vector<int64_t> targetGraph;
 
+    std::size_t notMatched = 0;
+
     for (auto& [pid, track] : tracks) {
-      std::sort(track.begin(), track.end());
-      const auto pT = particles.find(pid)->transverseMomentum();
+      // Sort by hit index, so the edges are connected correctly
+      std::sort(track.begin(), track.end(), [](const auto& a, const auto& b) {
+        return a.hitIndex < b.hitIndex;
+      });
 
       for (auto i = 0ul; i < track.size() - 1; ++i) {
-        truthGraph.push_back(track[i]);
-        truthGraph.push_back(track[i + 1]);
+        truthGraph.push_back(track[i].spacePointIndex);
+        truthGraph.push_back(track[i + 1].spacePointIndex);
+      }
 
-        if (pT > m_targetPT && track.size() >= m_targetSize) {
-          targetGraph.push_back(track[i]);
-          targetGraph.push_back(track[i + 1]);
+      auto found = particles.find(pid);
+      if (found == particles.end()) {
+        ACTS_VERBOSE("Did not find " << pid << ", cannot add to target graph");
+        notMatched++;
+        continue;
+      }
+
+      if (found->transverseMomentum() > m_targetPT && track.size() >= m_targetSize) {
+        for (auto i = 0ul; i < track.size() - 1; ++i) {
+          targetGraph.push_back(track[i].spacePointIndex);
+          targetGraph.push_back(track[i + 1].spacePointIndex);
         }
       }
     }
+
+    ACTS_DEBUG("Was not able to match " << notMatched << " particles, these might be missing in target graph");
 
     m_truthGraphHook = std::make_unique<Acts::TorchTruthGraphMetricsHook>(
         truthGraph, logger.clone());
@@ -137,8 +151,9 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   m_inputClusters.maybeInitialize(m_cfg.inputClusters);
   m_outputProtoTracks.initialize(m_cfg.outputProtoTracks);
 
+  m_inputSimHits.maybeInitialize(m_cfg.inputSimHits);
   m_inputParticles.maybeInitialize(m_cfg.inputParticles);
-  m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementParticlesMap);
+  m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementSimhitsMap);
 }
 
 enum feat : std::size_t {
@@ -166,11 +181,9 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   }
 
   auto hook = std::make_unique<Acts::PipelineHook>();
-  if (m_inputParticles.isInitialized() &&
-      m_inputMeasurementMap.isInitialized()) {
-    hook = std::make_unique<ExamplesEdmHook>(spacepoints,
-                                             m_inputMeasurementMap(ctx),
-                                             m_inputParticles(ctx), logger());
+  if (m_inputSimHits.isInitialized() && m_inputMeasurementMap.isInitialized()) {
+    hook = std::make_unique<ExamplesEdmHook>(
+        spacepoints, m_inputMeasurementMap(ctx), m_inputSimHits(ctx), m_inputParticles(ctx), logger());
   }
 
   // Convert Input data to a list of size [num_measurements x
