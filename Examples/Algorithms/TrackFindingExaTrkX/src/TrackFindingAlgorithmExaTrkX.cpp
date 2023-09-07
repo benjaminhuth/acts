@@ -16,16 +16,16 @@
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
 
-#include <torch/torch.h>
+#include <numeric>
 
 using namespace ActsExamples;
 using namespace Acts::UnitLiterals;
 
 namespace {
 
-class ExamplesEdmHook : public Acts::PipelineHook {
-  constexpr static double m_targetPT = 0.5_GeV;
-  constexpr static std::size_t m_targetSize = 3;
+class ExamplesEdmHook : public Acts::ExaTrkXHook {
+  double m_targetPT = 0.5_GeV;
+  std::size_t m_targetSize = 3;
 
   std::unique_ptr<const Acts::Logger> m_logger;
   std::unique_ptr<Acts::TorchTruthGraphMetricsHook> m_truthGraphHook;
@@ -43,8 +43,11 @@ class ExamplesEdmHook : public Acts::PipelineHook {
                   const IndexMultimap<Index>& measHitMap,
                   const SimHitContainer& simhits,
                   const SimParticleContainer& particles,
+                  std::size_t targetMinHits, double targetMinPT,
                   const Acts::Logger& logger)
-      : m_logger(logger.clone("MetricsHook")) {
+      : m_targetPT(targetMinPT),
+        m_targetSize(targetMinHits),
+        m_logger(logger.clone("MetricsHook")) {
     // Associate tracks to graph, collect momentum
     std::unordered_map<ActsFatras::Barcode, std::vector<HitInfo>> tracks;
 
@@ -74,11 +77,6 @@ class ExamplesEdmHook : public Acts::PipelineHook {
         return a.hitIndex < b.hitIndex;
       });
 
-      for (auto i = 0ul; i < track.size() - 1; ++i) {
-        truthGraph.push_back(track[i].spacePointIndex);
-        truthGraph.push_back(track[i + 1].spacePointIndex);
-      }
-
       auto found = particles.find(pid);
       if (found == particles.end()) {
         ACTS_VERBOSE("Did not find " << pid << ", cannot add to target graph");
@@ -86,8 +84,12 @@ class ExamplesEdmHook : public Acts::PipelineHook {
         continue;
       }
 
-      if (found->transverseMomentum() > m_targetPT && track.size() >= m_targetSize) {
-        for (auto i = 0ul; i < track.size() - 1; ++i) {
+      for (auto i = 0ul; i < track.size() - 1; ++i) {
+        truthGraph.push_back(track[i].spacePointIndex);
+        truthGraph.push_back(track[i + 1].spacePointIndex);
+
+        if (found->transverseMomentum() > m_targetPT &&
+            track.size() >= m_targetSize) {
           targetGraph.push_back(track[i].spacePointIndex);
           targetGraph.push_back(track[i + 1].spacePointIndex);
         }
@@ -156,8 +158,9 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementSimhitsMap);
 }
 
+/// Allow access to features with nice names
 enum feat : std::size_t {
-  eR,
+  eR = 0,
   ePhi,
   eZ,
   eCellCount,
@@ -170,20 +173,24 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
     const ActsExamples::AlgorithmContext& ctx) const {
   // Read input data
   auto spacepoints = m_inputSpacePoints(ctx);
+#if 0
   std::sort(spacepoints.begin(), spacepoints.end(),
             [](const auto& a, const auto& b) {
               return std::hypot(a.x(), a.y()) < std::hypot(b.x(), b.y());
             });
+#endif
+
+  auto hook = std::make_unique<Acts::ExaTrkXHook>();
+  if (m_inputSimHits.isInitialized() && m_inputMeasurementMap.isInitialized()) {
+    hook = std::make_unique<ExamplesEdmHook>(
+        spacepoints, m_inputMeasurementMap(ctx), m_inputSimHits(ctx),
+        m_inputParticles(ctx), m_cfg.targetMinHits, m_cfg.targetMinPT,
+        logger());
+  }
 
   std::optional<ClusterContainer> clusters;
   if (m_inputClusters.isInitialized()) {
     clusters = m_inputClusters(ctx);
-  }
-
-  auto hook = std::make_unique<Acts::PipelineHook>();
-  if (m_inputSimHits.isInitialized() && m_inputMeasurementMap.isInitialized()) {
-    hook = std::make_unique<ExamplesEdmHook>(
-        spacepoints, m_inputMeasurementMap(ctx), m_inputSimHits(ctx), m_inputParticles(ctx), logger());
   }
 
   // Convert Input data to a list of size [num_measurements x
@@ -203,6 +210,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   for (auto i = 0ul; i < numSpacepoints; ++i) {
     const auto& sp = spacepoints[i];
 
+    // I would prefer to use a std::span or boost::span here once available
     float* featurePtr = features.data() + i * numFeatures;
 
     // For now just take the first index since does require one single index
@@ -236,6 +244,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   ACTS_DEBUG("Avg cell count: " << sumCells / spacepoints.size());
   ACTS_DEBUG("Avg activation: " << sumActivation / sumCells);
 
+#if 0
   {
     std::stringstream ss;
     std::copy(features.begin(), features.begin() + numFeatures,
@@ -246,6 +255,10 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
     ss << "\n";
     ACTS_DEBUG("First & last row:\n" << ss.str());
   }
+#endif
+
+  ACTS_DEBUG("Avg cell count: " << sumCells / spacepoints.size());
+  ACTS_DEBUG("Avg activation: " << sumActivation / sumCells);
 
   // Run the pipeline
   const auto trackCandidates = m_pipeline.run(features, spacepointIDs, *hook);

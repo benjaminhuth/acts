@@ -55,6 +55,27 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
     throw std::runtime_error("requested more features then available");
   }
 
+  std::vector<at::Tensor> results;
+  results.reserve(m_cfg.nChunks);
+
+  auto edgeListTmp =
+      m_cfg.undirected ? torch::cat({edgeList, edgeList.flip(0)}, 1) : edgeList;
+
+  std::vector<torch::jit::IValue> inputTensors(2);
+  inputTensors[0] = m_cfg.numFeatures < nodes.size(1)
+                        ? nodes.index({Slice{}, Slice{None, m_cfg.numFeatures}})
+                        : nodes;
+
+  const auto chunks = at::chunk(at::arange(edgeListTmp.size(1)), m_cfg.nChunks);
+  for (const auto& chunk : chunks) {
+    ACTS_VERBOSE("Process chunk");
+    inputTensors[1] = edgeListTmp.index({Slice(), chunk});
+
+    results.push_back(m_model->forward(inputTensors).toTensor());
+    results.back().squeeze_();
+    results.back().sigmoid_();
+  }
+
   torch::Tensor output;
 
   // Scope this to keep inference objects seperate
@@ -98,6 +119,7 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
   }
 
   ACTS_VERBOSE("Size after classifier: " << output.size(0));
+#if 0
   ACTS_VERBOSE("Slice of classified output:" << [&]() {
     std::stringstream ss;
     auto idxs = torch::argsort(output).to(torch::kInt64);
@@ -110,6 +132,10 @@ std::tuple<std::any, std::any, std::any> TorchEdgeClassifier::operator()(
     }
     return ss.str();
   }());
+#else
+  ACTS_VERBOSE("Slice of classified output:\n"
+               << output.slice(/*dim=*/0, /*start=*/0, /*end=*/9));
+#endif
   printCudaMemInfo(logger());
 
   torch::Tensor mask = output > m_cfg.cut;

@@ -104,6 +104,7 @@ std::tuple<std::any, std::any> TorchMetricLearning::operator()(
   // ****************
   // Building Edges
   // ****************
+
   auto edgeList = detail::buildEdges(output, m_cfg.rVal, m_cfg.knnVal,
                                      m_cfg.shuffleDirections);
 

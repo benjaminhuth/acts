@@ -8,7 +8,8 @@
 
 #pragma once
 
-#include "Acts/Plugins/ExaTrkX/Pipeline.hpp"
+#include "Acts/Definitions/Units.hpp"
+#include "Acts/Plugins/ExaTrkX/ExaTrkXPipeline.hpp"
 #include "Acts/Plugins/ExaTrkX/Stages.hpp"
 #include "ActsExamples/EventData/Cluster.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
@@ -65,6 +66,10 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
     float cellSumScale = 1.f;
     float clusterXScale = 1.f;
     float clusterYScale = 1.f;
+
+    /// Target graph properties
+    std::size_t targetMinHits = 3;
+    double targetMinPT = 500 * Acts::UnitConstants::MeV;
   };
 
   /// Constructor of the track finding algorithm
@@ -88,11 +93,12 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
   // configuration
   Config m_cfg;
 
-  Acts::Pipeline m_pipeline;
+  Acts::ExaTrkXPipeline m_pipeline;
 
   ReadDataHandle<SimSpacePointContainer> m_inputSpacePoints{this,
                                                             "InputSpacePoints"};
   ReadDataHandle<ClusterContainer> m_inputClusters{this, "InputClusters"};
+
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,
                                                            "OutputProtoTracks"};
 

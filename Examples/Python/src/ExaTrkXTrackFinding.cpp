@@ -8,6 +8,7 @@
 
 #include "Acts/Plugins/ExaTrkX/BoostTrackBuilding.hpp"
 #include "Acts/Plugins/ExaTrkX/CugraphTrackBuilding.hpp"
+#include "Acts/Plugins/ExaTrkX/ExaTrkXPipeline.hpp"
 #include "Acts/Plugins/ExaTrkX/OnnxEdgeClassifier.hpp"
 #include "Acts/Plugins/ExaTrkX/OnnxMetricLearning.hpp"
 #include "Acts/Plugins/ExaTrkX/Pipeline.hpp"
@@ -171,21 +172,21 @@ void addExaTrkXTrackFinding(Context &ctx) {
 
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::TrackFindingAlgorithmExaTrkX, mex,
-      "TrackFindingAlgorithmExaTrkX", inputSpacePoints, inputClusters,
-      inputSimHits, inputParticles, inputMeasurementSimhitsMap, outputProtoTracks,
+      "TrackFindingAlgorithmExaTrkX", inputSpacePoints, inputSimHits,
+      inputParticles, inputMeasurementSimhitsMap, outputProtoTracks,
       graphConstructor, edgeClassifiers, trackBuilder, rScale, phiScale, zScale,
-      cellCountScale, cellSumScale, clusterXScale, clusterYScale);
+      targetMinHits, targetMinPT);
 
   {
     auto cls =
-        py::class_<Acts::PipelineHook, std::shared_ptr<Acts::PipelineHook>>(
-            mex, "PipelineHook");
+        py::class_<Acts::ExaTrkXHook, std::shared_ptr<Acts::ExaTrkXHook>>(
+            mex, "ExaTrkXHook");
   }
 
   {
     using Class = Acts::TorchTruthGraphMetricsHook;
 
-    auto cls = py::class_<Class, Acts::PipelineHook, std::shared_ptr<Class>>(
+    auto cls = py::class_<Class, Acts::ExaTrkXHook, std::shared_ptr<Class>>(
                    mex, "TorchTruthGraphMetricsHook")
                    .def(py::init(
                        [](const std::vector<int64_t> &g, Logging::Level lvl) {
@@ -195,10 +196,10 @@ void addExaTrkXTrackFinding(Context &ctx) {
   }
 
   {
-    using Class = Acts::Pipeline;
+    using Class = Acts::ExaTrkXPipeline;
 
     auto cls =
-        py::class_<Class, std::shared_ptr<Class>>(mex, "Pipeline")
+        py::class_<Class, std::shared_ptr<Class>>(mex, "ExaTrkXPipeline")
             .def(py::init(
                      [](std::shared_ptr<GraphConstructionBase> g,
                         std::vector<std::shared_ptr<EdgeClassificationBase>> e,
@@ -209,9 +210,8 @@ void addExaTrkXTrackFinding(Context &ctx) {
                      }),
                  py::arg("graphConstructor"), py::arg("edgeClassifiers"),
                  py::arg("trackBuilder"), py::arg("level"))
-            .def("run", &Pipeline::run, py::arg("features"),
-                 py::arg("spacepoints"),
-                 py::arg("hook") = Acts::PipelineHook{});
+            .def("run", &ExaTrkXPipeline::run, py::arg("features"),
+                 py::arg("spacepoints"), py::arg("hook") = Acts::ExaTrkXHook{});
   }
 
   ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::ProtoTrackEffPurPrinter, mex,
