@@ -65,7 +65,7 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
   const auto& protoTracks = m_inputProtoTracks(ctx);
   const auto& initialParameters = m_inputInitialTrackParameters(ctx);
 
-  if( initialParameters.size() != protoTracks.size() ) {
+  if (initialParameters.size() != protoTracks.size()) {
     ACTS_FATAL("Inconsistent number of parameters and prototracks");
     return ProcessCode::ABORT;
   }
@@ -162,7 +162,8 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
   //   computeSharedHits(sourceLinks, tracks);
   // }
 
-  ACTS_INFO("Event " << ctx.eventNumber << ": " << nFailed << " / " << nSeed << " failed (" << ((100.f*nFailed)/nSeed) << "%)");
+  ACTS_INFO("Event " << ctx.eventNumber << ": " << nFailed << " / " << nSeed
+                     << " failed (" << ((100.f * nFailed) / nSeed) << "%)");
   ACTS_DEBUG("Finalized track finding with " << tracks.size()
                                              << " track candidates.");
   auto constTrackStateContainer =

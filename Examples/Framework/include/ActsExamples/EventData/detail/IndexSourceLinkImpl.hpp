@@ -69,4 +69,4 @@ class IndexSourceLink final {
   }
 };
 
-}
+}  // namespace ActsExamples

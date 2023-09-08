@@ -26,7 +26,7 @@ class PrototracksToParsAndSeeds final : public IAlgorithm {
     std::string outputParameters = "parameters";
     std::shared_ptr<Acts::TrackingGeometry> geometry;
     bool advancedSeeding = false;
-    
+
     /// The minimum magnetic field to trigger the track parameters estimation
     double bFieldMin = 0.1 * Acts::UnitConstants::T;
     /// Constant term of the loc0 resolution.
@@ -72,8 +72,8 @@ class PrototracksToParsAndSeeds final : public IAlgorithm {
   WriteDataHandle<SimSeedContainer> m_outputSeeds{this, "OutputSeeds"};
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,
                                                            "OutputProtoTracks"};
-  WriteDataHandle<TrackParametersContainer> m_outputParameters{this,
-                                                          "OutputParameters"};
+  WriteDataHandle<TrackParametersContainer> m_outputParameters{
+      this, "OutputParameters"};
   ReadDataHandle<SimSpacePointContainer> m_inputSpacePoints{this,
                                                             "InputSpacePoints"};
   ReadDataHandle<ProtoTrackContainer> m_inputProtoTracks{this,

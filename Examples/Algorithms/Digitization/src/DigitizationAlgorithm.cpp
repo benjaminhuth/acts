@@ -228,7 +228,8 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
                              << res.error().message() << ")");
 
                 // Some statistics
-                const auto pt = std::hypot(simHit.momentum4Before()[0], simHit.momentum4Before()[1]);
+                const auto pt = std::hypot(simHit.momentum4Before()[0],
+                                           simHit.momentum4Before()[1]);
                 sumPt += pt;
                 minPt = std::min(minPt, pt);
                 maxPt = std::max(maxPt, pt);

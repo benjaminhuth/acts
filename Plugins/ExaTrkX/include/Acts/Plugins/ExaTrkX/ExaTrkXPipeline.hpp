@@ -35,7 +35,8 @@ class ExaTrkXPipeline {
       std::unique_ptr<const Acts::Logger> logger);
 
   std::vector<std::vector<int>> run(std::vector<float> &features,
-                                    std::vector<int> &spacepointIDs, int deviceHint = -1,
+                                    std::vector<int> &spacepointIDs,
+                                    int deviceHint = -1,
                                     const ExaTrkXHook &hook = {}) const;
 
  private:

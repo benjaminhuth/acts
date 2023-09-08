@@ -8,14 +8,14 @@
 
 #include "ActsExamples/TrackFindingExaTrkX/PrototracksToParsAndSeeds.hpp"
 
-#include "Acts/Utilities/Zip.hpp"
-#include "Acts/Seeding/EstimateTrackParamsFromSeed.hpp"
 #include "Acts/Seeding/BinFinder.hpp"
 #include "Acts/Seeding/BinnedSPGroup.hpp"
+#include "Acts/Seeding/EstimateTrackParamsFromSeed.hpp"
 #include "Acts/Seeding/InternalSpacePoint.hpp"
 #include "Acts/Seeding/SeedFilter.hpp"
 #include "Acts/Seeding/SeedFinder.hpp"
 #include "Acts/Seeding/SeedFinderConfig.hpp"
+#include "Acts/Utilities/Zip.hpp"
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/SimSeed.hpp"
@@ -205,7 +205,7 @@ struct ActsExamples::PrototracksToParsAndSeeds::SeedingImpl {
       ACTS_WARNING("No seed created for prototrack");
     } else if (outputSeeds.size() - seedsBefore > 1) {
       ACTS_VERBOSE("created " << outputSeeds.size() - seedsBefore
-                            << " seeds for prototrack")
+                              << " seeds for prototrack")
     }
   }
 };
@@ -220,7 +220,8 @@ void naiveSeeding(ProtoTrack track, const SimSpacePointContainer &sps,
   auto geoIdFromIndex = [&](auto index) -> Acts::GeometryIdentifier {
     return findSpacePointForIndex(index, sps)
         ->sourceLinks()
-        .front().template get<IndexSourceLink>()
+        .front()
+        .template get<IndexSourceLink>()
         .geometryId();
   };
 
@@ -230,7 +231,7 @@ void naiveSeeding(ProtoTrack track, const SimSpacePointContainer &sps,
   std::sort(track.begin(), track.end(), [&](auto a, auto b) {
     auto ga = geoIdFromIndex(a);
     auto gb = geoIdFromIndex(b);
-    if( ga.volume() != gb.volume() ) {
+    if (ga.volume() != gb.volume()) {
       return ga.volume() < gb.volume();
     }
     return ga.layer() < gb.layer();
@@ -258,20 +259,21 @@ void naiveSeeding(ProtoTrack track, const SimSpacePointContainer &sps,
 
 namespace ActsExamples {
 
-PrototracksToParsAndSeeds::PrototracksToParsAndSeeds(Config cfg, Acts::Logging::Level lvl)
+PrototracksToParsAndSeeds::PrototracksToParsAndSeeds(Config cfg,
+                                                     Acts::Logging::Level lvl)
     : IAlgorithm("PrototracksToParsAndSeeds", lvl), m_cfg(std::move(cfg)) {
   m_outputSeeds.initialize(m_cfg.outputSeeds);
   m_outputProtoTracks.initialize(m_cfg.outputProtoTracks);
   m_inputProtoTracks.initialize(m_cfg.inputProtoTracks);
   m_inputSpacePoints.initialize(m_cfg.inputSpacePoints);
   m_outputParameters.initialize(m_cfg.outputParameters);
-  
-  if( m_cfg.geometry == nullptr ) {
+
+  if (m_cfg.geometry == nullptr) {
     throw std::invalid_argument("No geometry given");
   }
-  
+
   m_advancedSeeding = std::make_unique<SeedingImpl>(logger());
-  
+
   // Set up the track parameters covariance (the same for all tracks)
   m_covariance(Acts::eBoundLoc0, Acts::eBoundLoc0) =
       m_cfg.initialVarInflation[Acts::eBoundLoc0] * cfg.sigmaLoc0 *
@@ -295,7 +297,8 @@ PrototracksToParsAndSeeds::PrototracksToParsAndSeeds(Config cfg, Acts::Logging::
 
 PrototracksToParsAndSeeds::~PrototracksToParsAndSeeds() {}
 
-ProcessCode PrototracksToParsAndSeeds::execute(const AlgorithmContext &ctx) const {
+ProcessCode PrototracksToParsAndSeeds::execute(
+    const AlgorithmContext &ctx) const {
   const auto &sps = m_inputSpacePoints(ctx);
   auto prototracks = m_inputProtoTracks(ctx);
 
@@ -305,13 +308,15 @@ ProcessCode PrototracksToParsAndSeeds::execute(const AlgorithmContext &ctx) cons
   auto geoIdFromIndex = [&](auto index) -> Acts::GeometryIdentifier {
     return findSpacePointForIndex(index, sps)
         ->sourceLinks()
-        .front().template get<IndexSourceLink>()
+        .front()
+        .template get<IndexSourceLink>()
         .geometryId();
   };
 
   std::vector<Acts::GeometryIdentifier> tmpGeoIds;
   for (auto &track : prototracks) {
-    ACTS_VERBOSE("Try to get seed from prototrack with " << track.size() << " hits");
+    ACTS_VERBOSE("Try to get seed from prototrack with " << track.size()
+                                                         << " hits");
     if (track.size() == 3 || !m_cfg.advancedSeeding) {
       ACTS_VERBOSE("go directly to naive seeding");
       naiveSeeding(track, sps, seededTracks, seeds, logger());
@@ -319,12 +324,16 @@ ProcessCode PrototracksToParsAndSeeds::execute(const AlgorithmContext &ctx) cons
     }
     // Make vector of geometry Ids
     tmpGeoIds.clear();
-    std::transform(track.begin(), track.end(), std::back_inserter(tmpGeoIds), [&](auto i){ return geoIdFromIndex(i); });
+    std::transform(track.begin(), track.end(), std::back_inserter(tmpGeoIds),
+                   [&](auto i) { return geoIdFromIndex(i); });
     std::sort(tmpGeoIds.begin(), tmpGeoIds.end());
 
-    // Go to naive seeding for tracks that are in the endcaps, because there it works quite well
-    std::size_t nBarrelHits = std::count_if(tmpGeoIds.begin(), tmpGeoIds.end(), [](auto gid){ return gid.volume() == 17; });
-    if( nBarrelHits < track.size() ) {
+    // Go to naive seeding for tracks that are in the endcaps, because there it
+    // works quite well
+    std::size_t nBarrelHits =
+        std::count_if(tmpGeoIds.begin(), tmpGeoIds.end(),
+                      [](auto gid) { return gid.volume() == 17; });
+    if (nBarrelHits < track.size()) {
       ACTS_VERBOSE("go to naive seeding because not all hits in barrel");
       naiveSeeding(track, sps, seededTracks, seeds, logger());
       continue;
@@ -341,40 +350,45 @@ ProcessCode PrototracksToParsAndSeeds::execute(const AlgorithmContext &ctx) cons
                      [&](auto i) { return *findSpacePointForIndex(i, sps); });
       LittleDrawer drawer{tsps.begin(), tsps.end()};
       ACTS_VERBOSE("Advanced seeding for track with " << track.size()
-                                                    << " hits");
+                                                      << " hits");
       m_advancedSeeding->seedPrototrack(track, sps, seededTracks, seeds);
       ACTS_VERBOSE("Visualization:\n" << drawer);
     } else {
       ACTS_VERBOSE("Naive seeding");
       naiveSeeding(track, sps, seededTracks, seeds, logger());
     }
-
   }
 
-  
   ProtoTrackContainer finalTracks;
   finalTracks.reserve(seeds.size());
-  
+
   SimSeedContainer finalSeeds;
   finalSeeds.reserve(seeds.size());
-  
+
   TrackParametersContainer parameters;
   parameters.reserve(seeds.size());
-  
-  for(auto [seed, track] : Acts::zip(seeds, seededTracks)) {
-    const auto geoId = seed.sp().front()->sourceLinks().front().template get<IndexSourceLink>().geometryId();
+
+  for (auto [seed, track] : Acts::zip(seeds, seededTracks)) {
+    const auto geoId = seed.sp()
+                           .front()
+                           ->sourceLinks()
+                           .front()
+                           .template get<IndexSourceLink>()
+                           .geometryId();
     const auto &surface = *m_cfg.geometry->findSurface(geoId);
-    auto pars = Acts::estimateTrackParamsFromSeed({}, seed.sp().begin(), seed.sp().end(), surface, {0., 0., 2_T}, 0.0);
-    
-    if( pars ) {
+    auto pars = Acts::estimateTrackParamsFromSeed(
+        {}, seed.sp().begin(), seed.sp().end(), surface, {0., 0., 2_T}, 0.0);
+
+    if (pars) {
       finalSeeds.emplace_back(std::move(seed));
       finalTracks.emplace_back(std::move(track));
-      parameters.push_back(Acts::BoundTrackParameters(surface.getSharedPtr(), *pars, m_covariance));
+      parameters.push_back(Acts::BoundTrackParameters(surface.getSharedPtr(),
+                                                      *pars, m_covariance));
     } else {
       ACTS_WARNING("Skip track because of bad params");
     }
   }
-  
+
   ACTS_DEBUG("Seeded " << seeds.size() << " out of " << prototracks.size()
                        << " prototracks");
 

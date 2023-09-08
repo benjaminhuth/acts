@@ -33,9 +33,11 @@ Pipeline::Pipeline(
 }
 
 std::vector<std::vector<int>> Pipeline::run(std::vector<float> &features,
-                                            std::vector<int> &spacepointIDs, int deviceHint,
+                                            std::vector<int> &spacepointIDs,
+                                            int deviceHint,
                                             const PipelineHook &hook) const {
-  auto [nodes, edges] = (*m_graphConstructor)(features, spacepointIDs.size(), deviceHint);
+  auto [nodes, edges] =
+      (*m_graphConstructor)(features, spacepointIDs.size(), deviceHint);
 
   hook(nodes, edges);
 

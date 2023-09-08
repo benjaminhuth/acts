@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include "ActsExamples/EventData/detail/IndexSourceLinkImpl.hpp"
 #include "ActsExamples/EventData/GeometryContainers.hpp"
+#include "ActsExamples/EventData/detail/IndexSourceLinkImpl.hpp"
 
 namespace ActsExamples {
 

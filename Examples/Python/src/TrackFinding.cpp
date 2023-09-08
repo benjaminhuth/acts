@@ -354,10 +354,9 @@ void addTrackFinding(Context& ctx) {
                                 "SeedsToPrototracks", inputSeeds,
                                 outputProtoTracks);
 
-  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::PrototracksToSeeds, mex,
-                                "PrototracksToSeeds", inputProtoTracks,
-                                inputSpacePoints, outputSeeds,
-                                outputProtoTracks);
+  ACTS_PYTHON_DECLARE_ALGORITHM(
+      ActsExamples::PrototracksToSeeds, mex, "PrototracksToSeeds",
+      inputProtoTracks, inputSpacePoints, outputSeeds, outputProtoTracks);
 
   ////////////////////////////
   // For GNN+CKF Experiment //

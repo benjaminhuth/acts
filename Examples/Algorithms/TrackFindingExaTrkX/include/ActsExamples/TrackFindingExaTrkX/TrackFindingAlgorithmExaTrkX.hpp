@@ -70,7 +70,7 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
     /// Target graph properties
     std::size_t targetMinHits = 3;
     double targetMinPT = 500 * Acts::UnitConstants::MeV;
-    
+
     /// Try to use multiple GPUs in parallel
     bool useGPUsParallel = false;
   };

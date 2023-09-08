@@ -310,10 +310,10 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
     m_nTotalParticles += 1;
   }  // end all truth particles
 
-  for(const auto &p : particles) {
+  for (const auto& p : particles) {
     bool m = (matched.find(p.particleId()) != matched.end());
-    m_particlesMatchedStream << ctx.eventNumber << "," << p.particleId().value() << ","
-                             << m << "\n";
+    m_particlesMatchedStream << ctx.eventNumber << "," << p.particleId().value()
+                             << "," << m << "\n";
   }
 
   return ProcessCode::SUCCESS;

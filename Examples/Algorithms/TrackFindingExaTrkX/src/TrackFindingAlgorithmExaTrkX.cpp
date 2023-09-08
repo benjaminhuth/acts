@@ -17,8 +17,8 @@
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
 
-#include <numeric>
 #include <mutex>
+#include <numeric>
 
 using namespace ActsExamples;
 using namespace Acts::UnitLiterals;
@@ -98,7 +98,9 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
       }
     }
 
-    ACTS_DEBUG("Was not able to match " << notMatched << " particles, these might be missing in target graph");
+    ACTS_DEBUG("Was not able to match "
+               << notMatched
+               << " particles, these might be missing in target graph");
 
     m_truthGraphHook = std::make_unique<Acts::TorchTruthGraphMetricsHook>(
         truthGraph, logger.clone());

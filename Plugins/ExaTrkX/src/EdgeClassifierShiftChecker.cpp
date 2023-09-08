@@ -14,8 +14,8 @@ struct DummyGraphConstruction : Acts::GraphConstructionBase {
   torch::Tensor features;
   torch::Tensor edges;
 
-  std::tuple<std::any, std::any> operator()(std::vector<float> &,
-                                            std::size_t, int) override {
+  std::tuple<std::any, std::any> operator()(std::vector<float> &, std::size_t,
+                                            int) override {
     return {features, edges};
   }
 };
