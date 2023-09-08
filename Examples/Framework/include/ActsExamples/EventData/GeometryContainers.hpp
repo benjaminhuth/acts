@@ -11,9 +11,8 @@
 #include "Acts/EventData/SourceLink.hpp"
 #include "Acts/Geometry/GeometryIdentifier.hpp"
 #include "Acts/Surfaces/Surface.hpp"
-#include "ActsExamples/EventData/Measurement.hpp"
-#include "ActsExamples/EventData/detail/IndexSourceLinkImpl.hpp"
 #include "ActsExamples/Utilities/GroupBy.hpp"
+#include "ActsExamples/EventData/Measurement.hpp"
 #include "ActsExamples/Utilities/Range.hpp"
 
 #include <algorithm>
@@ -58,13 +57,8 @@ struct GeometryIdGetter {
       -> decltype(thing.get().geometryId(), Acts::GeometryIdentifier()) {
     return thing.get().geometryId();
   }
-  // support measurements
-  constexpr auto operator()(const ActsExamples::Measurement& meas) const {
-    auto f = [](const auto& m) {
-      return m.sourceLink().template get<IndexSourceLink>().geometryId();
-    };
-    return std::visit(f, meas);
-  }
+  // support measurements (Implemented in cpp to avoid cyclic include)
+  Acts::GeometryIdentifier operator()(const ActsExamples::Measurement& meas) const;
 };
 
 struct CompareGeometryId {

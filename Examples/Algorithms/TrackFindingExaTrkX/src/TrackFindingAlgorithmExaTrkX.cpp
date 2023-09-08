@@ -287,6 +287,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
 
       // This should block until the mutex is free
       lock = std::unique_lock<std::mutex>(*m_mutexes.at(mutexIdx));
+      ACTS_INFO("Event " << ctx.eventNumber << " locked mutex " << mutexIdx);
     } else {
       // This should block until the mutex is free
       lock = std::unique_lock<std::mutex>(*m_mutexes.front());

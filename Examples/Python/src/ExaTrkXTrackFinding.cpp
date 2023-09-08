@@ -173,9 +173,9 @@ void addExaTrkXTrackFinding(Context &ctx) {
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::TrackFindingAlgorithmExaTrkX, mex,
       "TrackFindingAlgorithmExaTrkX", inputSpacePoints, inputSimHits,
-      inputParticles, inputMeasurementSimhitsMap, outputProtoTracks,
-      graphConstructor, edgeClassifiers, trackBuilder, rScale, phiScale, zScale,
-      targetMinHits, targetMinPT);
+      inputParticles, inputClusters, inputMeasurementSimhitsMap, outputProtoTracks,
+      graphConstructor, edgeClassifiers, trackBuilder, rScale, phiScale, zScale, cellCountScale, cellSumScale, clusterXScale, clusterYScale,
+      targetMinHits, targetMinPT, useGPUsParallel);
 
   {
     auto cls =
