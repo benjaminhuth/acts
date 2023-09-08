@@ -527,8 +527,14 @@ class Sequencer(ActsPythonBindings._examples._Sequencer):
 
     @classmethod
     def _printFpeSummary(cls, masks: List[FpeMask]):
+        disableEnvironVar = "ACTS_SEQUENCER_DISABLE_FPE_MASK_PRINTING"
+        if disableEnvironVar in os.environ:
+            return
+        
         if len(masks) == 0:
             return
+
+        print(f"Note: Disable FPE mask printing by defining {disableEnvironVar}")
 
         # Try to make a nice summary with rich, or fallback to a plain text one
         try:

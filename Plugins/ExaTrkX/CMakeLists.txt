@@ -1,6 +1,7 @@
 set(SOURCES 
   src/buildEdges.cpp
   src/ExaTrkXPipeline.cpp
+  src/CudaInfo.cpp
 )
 
 if(ACTS_EXATRKX_ENABLE_ONNX)
@@ -102,14 +103,14 @@ if(ACTS_EXATRKX_ENABLE_TORCH)
 endif()
 
 
-add_executable(EdgeClassifierShiftChecker src/EdgeClassifierShiftChecker.cpp)
-target_link_libraries(EdgeClassifierShiftChecker PUBLIC ActsPluginExaTrkX ${TORCH_LIBRARIES})
-
-add_executable(GraphConstructorShiftChecker src/GraphConstructorShiftChecker.cpp)
-target_link_libraries(GraphConstructorShiftChecker PUBLIC ActsPluginExaTrkX ${TORCH_LIBRARIES})
-
-add_executable(CheckPipelineShift.cpp src/CheckPipelineShift.cpp)
-target_link_libraries(CheckPipelineShift.cpp PUBLIC ActsPluginExaTrkX ${TORCH_LIBRARIES})
+# add_executable(EdgeClassifierShiftChecker src/EdgeClassifierShiftChecker.cpp)
+# target_link_libraries(EdgeClassifierShiftChecker PUBLIC ActsPluginExaTrkX ${TORCH_LIBRARIES})
+# 
+# add_executable(GraphConstructorShiftChecker src/GraphConstructorShiftChecker.cpp)
+# target_link_libraries(GraphConstructorShiftChecker PUBLIC ActsPluginExaTrkX ${TORCH_LIBRARIES})
+# 
+# add_executable(CheckPipelineShift.cpp src/CheckPipelineShift.cpp)
+# target_link_libraries(CheckPipelineShift.cpp PUBLIC ActsPluginExaTrkX ${TORCH_LIBRARIES})
 
 install(
   TARGETS ActsPluginExaTrkX

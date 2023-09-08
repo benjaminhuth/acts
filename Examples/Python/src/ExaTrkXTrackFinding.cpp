@@ -11,7 +11,7 @@
 #include "Acts/Plugins/ExaTrkX/ExaTrkXPipeline.hpp"
 #include "Acts/Plugins/ExaTrkX/OnnxEdgeClassifier.hpp"
 #include "Acts/Plugins/ExaTrkX/OnnxMetricLearning.hpp"
-#include "Acts/Plugins/ExaTrkX/Pipeline.hpp"
+#include "Acts/Plugins/ExaTrkX/ExaTrkXPipeline.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchEdgeClassifier.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchMetricLearning.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
@@ -22,6 +22,7 @@
 #include "ActsExamples/TrackFinding/TrackFindingAlgorithm.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/ProtoTrackEffPurPrinter.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
+#include "ActsExamples/TrackFindingExaTrkX/PrototracksToParsAndSeeds.hpp"
 
 #include <memory>
 
@@ -211,12 +212,18 @@ void addExaTrkXTrackFinding(Context &ctx) {
                  py::arg("graphConstructor"), py::arg("edgeClassifiers"),
                  py::arg("trackBuilder"), py::arg("level"))
             .def("run", &ExaTrkXPipeline::run, py::arg("features"),
-                 py::arg("spacepoints"), py::arg("hook") = Acts::ExaTrkXHook{});
+                 py::arg("spacepoints"), py::arg("hook") = Acts::ExaTrkXHook{}, py::arg("deviceHint") = -1);
   }
 
   ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::ProtoTrackEffPurPrinter, mex,
                                 "ProtoTrackEffPurPrinter", testProtoTracks,
                                 refProtoTracks);
+  
+  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::PrototracksToParsAndSeeds, mex,
+                                "PrototracksToParsAndSeeds", inputProtoTracks,
+                                inputSpacePoints, outputSeeds, outputParameters,
+                                outputProtoTracks, advancedSeeding, geometry);
+  
 }
 
 }  // namespace Acts::Python

@@ -10,6 +10,7 @@
 
 #include "Acts/Definitions/Units.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
+#include "Acts/Plugins/ExaTrkX/detail/CudaInfo.hpp"
 #include "ActsExamples/EventData/Index.hpp"
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
@@ -17,6 +18,7 @@
 #include "ActsExamples/Framework/WhiteBoard.hpp"
 
 #include <numeric>
+#include <mutex>
 
 using namespace ActsExamples;
 using namespace Acts::UnitLiterals;
@@ -156,6 +158,16 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   m_inputSimHits.maybeInitialize(m_cfg.inputSimHits);
   m_inputParticles.maybeInitialize(m_cfg.inputParticles);
   m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementSimhitsMap);
+
+  /// Parallel GPUs
+  if (m_cfg.useGPUsParallel) {
+    for (auto i = 0ul; i < Acts::detail::cudaNumDevices(); ++i) {
+      m_mutexes.emplace_back(std::make_unique<std::mutex>());
+    }
+    ACTS_INFO("Use " << m_mutexes.size() << " GPUs in parallel");
+  } else {
+    m_mutexes.emplace_back(std::make_unique<std::mutex>());
+  }
 }
 
 /// Allow access to features with nice names
@@ -261,7 +273,24 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   ACTS_DEBUG("Avg activation: " << sumActivation / sumCells);
 
   // Run the pipeline
-  const auto trackCandidates = m_pipeline.run(features, spacepointIDs, *hook);
+  const auto trackCandidates = [&]() {
+    // Try to aquire mutex
+    int deviceHint = -1;
+    std::unique_lock<std::mutex> lock;
+
+    // Only use a mutex if the flag is set
+    if (m_cfg.useGPUsParallel) {
+      auto mutexIdx = ctx.eventNumber % m_mutexes.size();
+      deviceHint = mutexIdx;
+
+      // This should block until the mutex is free
+      lock = std::unique_lock<std::mutex>(*m_mutexes.at(mutexIdx));
+    } else {
+      // This should block until the mutex is free
+      lock = std::unique_lock<std::mutex>(*m_mutexes.front());
+    }
+    return m_pipeline.run(features, spacepointIDs, deviceHint, *hook);
+  }();
 
   ACTS_DEBUG("Done with pipeline, received " << trackCandidates.size()
                                              << " candidates");

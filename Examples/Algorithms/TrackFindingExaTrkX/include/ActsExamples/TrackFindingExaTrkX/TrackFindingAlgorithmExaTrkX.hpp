@@ -70,6 +70,9 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
     /// Target graph properties
     std::size_t targetMinHits = 3;
     double targetMinPT = 500 * Acts::UnitConstants::MeV;
+    
+    /// Try to use multiple GPUs in parallel
+    bool useGPUsParallel = false;
   };
 
   /// Constructor of the track finding algorithm
@@ -90,10 +93,10 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
   const Config& config() const { return m_cfg; }
 
  private:
-  // configuration
   Config m_cfg;
 
   Acts::ExaTrkXPipeline m_pipeline;
+  mutable std::vector<std::unique_ptr<std::mutex>> m_mutexes;
 
   ReadDataHandle<SimSpacePointContainer> m_inputSpacePoints{this,
                                                             "InputSpacePoints"};

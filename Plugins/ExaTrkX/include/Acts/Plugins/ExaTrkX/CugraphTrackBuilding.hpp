@@ -22,7 +22,7 @@ class CugraphTrackBuilding final : public Acts::TrackBuildingBase {
 
   std::vector<std::vector<int>> operator()(
       std::any nodes, std::any edges, std::any edge_weights,
-      std::vector<int> &spacepointIDs) override;
+      std::vector<int> &spacepointIDs, int deviceHint = -1) override;
 
  private:
   std::unique_ptr<const Acts::Logger> m_logger;

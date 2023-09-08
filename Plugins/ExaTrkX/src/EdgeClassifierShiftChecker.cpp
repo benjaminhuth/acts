@@ -15,7 +15,7 @@ struct DummyGraphConstruction : Acts::GraphConstructionBase {
   torch::Tensor edges;
 
   std::tuple<std::any, std::any> operator()(std::vector<float> &,
-                                            std::size_t) override {
+                                            std::size_t, int) override {
     return {features, edges};
   }
 };
@@ -27,7 +27,7 @@ struct DummyTrackBuilder : Acts::TrackBuildingBase {
 
   std::vector<std::vector<int>> operator()(std::any nodes, std::any edges,
                                            std::any edgeWeights,
-                                           std::vector<int> &) override {
+                                           std::vector<int> &, int) override {
     out_features = std::any_cast<torch::Tensor>(nodes);
     out_edges = std::any_cast<torch::Tensor>(edges);
     out_weights = std::any_cast<torch::Tensor>(edgeWeights);

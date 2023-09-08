@@ -10,6 +10,7 @@
 
 #include "Acts/EventData/SourceLink.hpp"
 #include "Acts/Geometry/GeometryIdentifier.hpp"
+#include "ActsExamples/EventData/detail/IndexSourceLinkImpl.hpp"
 #include "Acts/Surfaces/Surface.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
 #include "ActsExamples/Utilities/GroupBy.hpp"
@@ -59,7 +60,7 @@ struct GeometryIdGetter {
   }
   // support measurements
   constexpr auto operator()(const ActsExamples::Measurement& meas) const {
-    auto f = [](const auto& m) { return m.sourceLink().geometryId(); };
+    auto f = [](const auto& m) { return m.sourceLink().template get<IndexSourceLink>().geometryId(); };
     return std::visit(f, meas);
   }
 };

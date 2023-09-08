@@ -2,6 +2,7 @@ add_library(
   ActsExamplesTrackFindingExaTrkX SHARED
   src/TrackFindingAlgorithmExaTrkX.cpp
   src/ProtoTrackEffPurPrinter.cpp
+  src/PrototracksToParsAndSeeds.cpp
 )
 
 target_include_directories(

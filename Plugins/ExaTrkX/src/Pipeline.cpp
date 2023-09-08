@@ -33,9 +33,9 @@ Pipeline::Pipeline(
 }
 
 std::vector<std::vector<int>> Pipeline::run(std::vector<float> &features,
-                                            std::vector<int> &spacepointIDs,
+                                            std::vector<int> &spacepointIDs, int deviceHint,
                                             const PipelineHook &hook) const {
-  auto [nodes, edges] = (*m_graphConstructor)(features, spacepointIDs.size());
+  auto [nodes, edges] = (*m_graphConstructor)(features, spacepointIDs.size(), deviceHint);
 
   hook(nodes, edges);
 
@@ -43,7 +43,7 @@ std::vector<std::vector<int>> Pipeline::run(std::vector<float> &features,
 
   for (auto edgeClassifier : m_edgeClassifiers) {
     auto [newNodes, newEdges, newWeights] =
-        (*edgeClassifier)(std::move(nodes), std::move(edges));
+        (*edgeClassifier)(std::move(nodes), std::move(edges), deviceHint);
     nodes = std::move(newNodes);
     edges = std::move(newEdges);
     edge_weights = std::move(newWeights);
@@ -52,7 +52,7 @@ std::vector<std::vector<int>> Pipeline::run(std::vector<float> &features,
   }
 
   return (*m_trackBuilder)(std::move(nodes), std::move(edges),
-                           std::move(edge_weights), spacepointIDs);
+                           std::move(edge_weights), spacepointIDs, deviceHint);
 }
 
 }  // namespace Acts
