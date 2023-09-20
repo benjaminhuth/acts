@@ -10,6 +10,7 @@
 
 #include "Acts/Definitions/Units.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
+#include "Acts/Plugins/ExaTrkX/TorchGraphStoreHook.hpp"
 #include "Acts/Plugins/ExaTrkX/detail/CudaInfo.hpp"
 #include "ActsExamples/EventData/Index.hpp"
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
@@ -32,6 +33,7 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
   std::unique_ptr<const Acts::Logger> m_logger;
   std::unique_ptr<Acts::TorchTruthGraphMetricsHook> m_truthGraphHook;
   std::unique_ptr<Acts::TorchTruthGraphMetricsHook> m_targetGraphHook;
+  std::unique_ptr<Acts::TorchGraphStoreHook> m_graphStoreHook;
 
   const Acts::Logger& logger() const { return *m_logger; }
 
@@ -39,6 +41,8 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
     std::size_t spacePointIndex;
     int32_t hitIndex;
   };
+  
+  std::unique_ptr<std::vector<std::size_t>> m_savedGraph;
 
  public:
   ExamplesEdmHook(const SimSpacePointContainer& spacepoints,
@@ -106,9 +110,12 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
         truthGraph, logger.clone());
     m_targetGraphHook = std::make_unique<Acts::TorchTruthGraphMetricsHook>(
         targetGraph, logger.clone());
+    m_graphStoreHook = std::make_unique<Acts::TorchGraphStoreHook>();
   }
 
   ~ExamplesEdmHook(){};
+  
+  auto storedGraph() const { return m_graphStoreHook->storedGraph(); }
 
   void operator()(const std::any& nodes, const std::any& edges) const override {
     ACTS_INFO("Metrics for total graph:");
@@ -117,6 +124,7 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
               << m_targetPT / Acts::UnitConstants::GeV
               << " GeV, nHits >= " << m_targetSize << "):");
     (*m_targetGraphHook)(nodes, edges);
+    (*m_graphStoreHook)(nodes, edges);
   }
 };
 
@@ -160,6 +168,8 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   m_inputSimHits.maybeInitialize(m_cfg.inputSimHits);
   m_inputParticles.maybeInitialize(m_cfg.inputParticles);
   m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementSimhitsMap);
+  
+  m_outputGraph.maybeInitialize(m_cfg.outputGraph);
 
   /// Parallel GPUs
   if (m_cfg.useGPUsParallel) {
@@ -320,6 +330,12 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   ACTS_INFO("Removed " << nShortTracks << " with less then 3 hits");
   ACTS_INFO("Created " << protoTracks.size() << " proto tracks");
   m_outputProtoTracks(ctx, std::move(protoTracks));
+  
+  if(auto dhook = dynamic_cast<ExamplesEdmHook *>(&*hook); dhook && m_outputGraph.isInitialized()) {
+    auto graph = dhook->storedGraph();
+    std::transform(graph.begin(), graph.end(), graph.begin(), [&](const auto &a) -> int64_t { return spacepointIDs.at(a); });
+    m_outputGraph(ctx, std::move(graph));
+  }
 
   return ActsExamples::ProcessCode::SUCCESS;
 }

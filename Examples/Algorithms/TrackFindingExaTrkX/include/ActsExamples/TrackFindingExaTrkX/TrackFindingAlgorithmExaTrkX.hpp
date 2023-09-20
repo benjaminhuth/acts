@@ -51,6 +51,9 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
 
     /// Output protoTracks collection.
     std::string outputProtoTracks;
+    
+    /// Output graph (optional)
+    std::string outputGraph;
 
     std::shared_ptr<Acts::GraphConstructionBase> graphConstructor;
 
@@ -104,6 +107,7 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
 
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,
                                                            "OutputProtoTracks"};
+  WriteDataHandle<std::vector<int64_t>> m_outputGraph{this, "OutputGraph"};
 
   // for truth graph
   ReadDataHandle<SimHitContainer> m_inputSimHits{this, "InputSimHits"};
