@@ -24,22 +24,6 @@ auto weaklyConnectedComponents(vertex_t numNodes,
                                boost::beast::span<vertex_t>& colIndices,
                                boost::beast::span<weight_t>& edgeWeights,
                                std::vector<vertex_t>& trackLabels) {
-  using Graph =
-      boost::adjacency_list<boost::vecS,         // edge list
-                            boost::vecS,         // vertex list
-                            boost::undirectedS,  // directedness
-                            boost::no_property,  // property of vertices
-                            weight_t             // property of edges
-                            >;
-
-  Graph g(numNodes);
-
-  for (const auto [row, col, weight] :
-       Acts::zip(rowIndices, colIndices, edgeWeights)) {
-    boost::add_edge(row, col, weight, g);
-  }
-
-  return boost::connected_components(g, &trackLabels[0]);
 }
 }  // namespace
 
@@ -75,10 +59,69 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
                                            numEdges);
 
   std::vector<vertex_t> trackLabels(numSpacepoints);
+  
+  // Construct Graph
+  // using EdgeWeightProperty = boost::property<boost::edge_weight_t, weight_t>;
+  struct EdgeProperty {
+    weight_t weight;
+  };
+  
+  using Graph =
+      boost::adjacency_list<boost::vecS,         // edge list
+                            boost::vecS,         // vertex list
+                            boost::undirectedS,  // directedness
+                            boost::no_property,  // property of vertices
+                            EdgeProperty   // property of edges
+                            >;
 
-  auto numberLabels = weaklyConnectedComponents<vertex_t, weight_t>(
-      numSpacepoints, rowIndices, colIndices, edgeWeights, trackLabels);
+  Graph g(numSpacepoints);
 
+  for (const auto [row, col, weight] :
+       Acts::zip(rowIndices, colIndices, edgeWeights)) {
+    boost::add_edge(row, col, EdgeProperty{weight}, g);
+  }
+  
+  // Maybe resolve vertices
+  if(m_cfg.ensure2EdgesPerVertex) {
+    ACTS_DEBUG("Ensure we have at most 2 edges per vertex");
+    ACTS_DEBUG("Before edge removal: Graph has " << boost::num_edges(g));
+    for (auto vd : boost::make_iterator_range(vertices(g))) {
+      if( boost::degree(vd, g) <= 2 ) {
+        continue;
+      }
+      
+      // Even for undirected graphs, boost::graph documentation says we should use the directed API
+      const auto edgeRange = boost::make_iterator_range(boost::out_edges(vd, g));
+      
+      // Find second largest weight
+      weight_t largest = 0.f;
+      weight_t secondLargest = 0.f;
+      for( auto ed : edgeRange) {
+        const auto w = g[ed].weight;
+        if (w > largest) {
+          secondLargest = largest;
+          largest = w;
+        } else if (w > secondLargest) {
+          secondLargest = w;
+        }
+      }
+
+      // Set all other weights to 0
+      for( auto ed : edgeRange) {
+        if(g[ed].weight < secondLargest) {
+          g[ed].weight = 0.f;
+        }
+      }
+    }
+    
+    // remove edges
+    boost::remove_edge_if([&](auto ed) { return g[ed].weight == 0.f; }, g);
+    ACTS_DEBUG("After edge removal: Graph has " << boost::num_edges(g));
+  }
+
+  const auto numberLabels = boost::connected_components(g, &trackLabels[0]);
+
+  // Label edges
   ACTS_VERBOSE("Number of track labels: " << trackLabels.size());
   ACTS_VERBOSE("Number of unique track labels: " << [&]() {
     std::vector<vertex_t> sorted(trackLabels);

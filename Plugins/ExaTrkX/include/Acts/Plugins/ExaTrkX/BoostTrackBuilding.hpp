@@ -17,8 +17,12 @@ namespace Acts {
 
 class BoostTrackBuilding final : public Acts::TrackBuildingBase {
  public:
-  BoostTrackBuilding(std::unique_ptr<const Logger> logger)
-      : m_logger(std::move(logger)){};
+  struct Config {
+    bool ensure2EdgesPerVertex = false;
+  };
+  
+  BoostTrackBuilding(const Config &config, std::unique_ptr<const Logger> logger)
+      : m_cfg(config), m_logger(std::move(logger)){};
 
   std::vector<std::vector<int>> operator()(std::any nodes, std::any edges,
                                            std::any edge_weights,
@@ -26,6 +30,7 @@ class BoostTrackBuilding final : public Acts::TrackBuildingBase {
                                            int deviceHint = -1) override;
 
  private:
+  Config m_cfg;
   std::unique_ptr<const Acts::Logger> m_logger;
   const auto &logger() const { return *m_logger; }
 };
