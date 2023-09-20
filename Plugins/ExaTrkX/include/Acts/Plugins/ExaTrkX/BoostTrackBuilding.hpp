@@ -19,8 +19,9 @@ class BoostTrackBuilding final : public Acts::TrackBuildingBase {
  public:
   struct Config {
     bool ensure2EdgesPerVertex = false;
+    bool useDirectedGraph = false;
   };
-  
+
   BoostTrackBuilding(const Config &config, std::unique_ptr<const Logger> logger)
       : m_cfg(config), m_logger(std::move(logger)){};
 

@@ -18,6 +18,6 @@ Acts::TorchGraphStoreHook::TorchGraphStoreHook() {
 
 void Acts::TorchGraphStoreHook::operator()(const std::any&,
                                            const std::any& edges) const {
-  *m_storedGraph =
-      detail::tensor2DToVector<int64_t>(std::any_cast<torch::Tensor>(edges).t());
+  *m_storedGraph = detail::tensor2DToVector<int64_t>(
+      std::any_cast<torch::Tensor>(edges).t());
 }
