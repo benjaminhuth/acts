@@ -17,6 +17,8 @@
 #include <boost/graph/connected_components.hpp>
 #include <torch/torch.h>
 
+using namespace torch::indexing;
+
 namespace {
 template <bool directed, typename vertex_t, typename weight_t>
 auto weaklyConnectedComponents(std::size_t numNodes,
@@ -136,9 +138,17 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
     std::any nodes, std::any edges, std::any weights,
     std::vector<int>& spacepointIDs, int) {
   ACTS_DEBUG("Start track building");
-  const auto nodeTensor =
-      std::any_cast<torch::Tensor>(nodes).to(torch::kCPU).t();
+
+  // Get nodes
+  const auto nodeTensor = std::any_cast<torch::Tensor>(nodes).to(torch::kCPU);
+  assert(static_cast<std::size_t>(nodeTensor.size(0)) == spacepointIDs.size());
+  // TODO is this clone necessary?
+  const auto radiusTensor = nodeTensor.index({Slice{}, 0}).clone();
+
+  // Get edges
   const auto edgeTensor = std::any_cast<torch::Tensor>(edges).to(torch::kCPU);
+
+  // Get weights
   const auto edgeWeightTensor =
       std::any_cast<torch::Tensor>(weights).to(torch::kCPU);
 
@@ -162,8 +172,8 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
       edgeTensor.data_ptr<vertex_t>() + numEdges, numEdges);
   boost::beast::span<weight_t> edgeWeights(edgeWeightTensor.data_ptr<float>(),
                                            numEdges);
-  boost::beast::span<float> nodeRadius(nodeTensor.data_ptr<float>(),
-                                       numSpacepoints);
+  boost::beast::span<float> nodeRadius(radiusTensor.data_ptr<float>(),
+                                       radiusTensor.numel());
 
   std::vector<vertex_t> trackLabels(numSpacepoints);
 
