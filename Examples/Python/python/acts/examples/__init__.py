@@ -37,6 +37,7 @@ for module in [
     "OnnxMetricLearning",
     "TorchEdgeClassifier",
     "OnnxEdgeClassifier",
+    "BoostTrackBuilding",
 ]:
     if hasattr(ActsPythonBindings._examples, module):
         _patchKwargsConstructor(getattr(ActsPythonBindings._examples, module))
