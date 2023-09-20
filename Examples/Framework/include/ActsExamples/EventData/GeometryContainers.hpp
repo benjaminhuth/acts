@@ -11,8 +11,8 @@
 #include "Acts/EventData/SourceLink.hpp"
 #include "Acts/Geometry/GeometryIdentifier.hpp"
 #include "Acts/Surfaces/Surface.hpp"
-#include "ActsExamples/Utilities/GroupBy.hpp"
 #include "ActsExamples/EventData/Measurement.hpp"
+#include "ActsExamples/Utilities/GroupBy.hpp"
 #include "ActsExamples/Utilities/Range.hpp"
 
 #include <algorithm>
@@ -58,7 +58,8 @@ struct GeometryIdGetter {
     return thing.get().geometryId();
   }
   // support measurements (Implemented in cpp to avoid cyclic include)
-  Acts::GeometryIdentifier operator()(const ActsExamples::Measurement& meas) const;
+  Acts::GeometryIdentifier operator()(
+      const ActsExamples::Measurement& meas) const;
 };
 
 struct CompareGeometryId {

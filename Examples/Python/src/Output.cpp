@@ -14,6 +14,7 @@
 #include "ActsExamples/Digitization/DigitizationConfig.hpp"
 #include "ActsExamples/Framework/ProcessCode.hpp"
 #include "ActsExamples/Io/Csv/CsvBFieldWriter.hpp"
+#include "ActsExamples/Io/Csv/CsvExaTrkXGraphWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvMeasurementWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvMultiTrajectoryWriter.hpp"
 #include "ActsExamples/Io/Csv/CsvParticleWriter.hpp"
@@ -44,7 +45,6 @@
 #include "ActsExamples/MaterialMapping/IMaterialWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjPropagationStepsWriter.hpp"
 #include "ActsExamples/Plugins/Obj/ObjTrackingGeometryWriter.hpp"
-#include "ActsExamples/Io/Csv/CsvExaTrkXGraphWriter.hpp"
 
 #include <array>
 #include <memory>
@@ -407,8 +407,9 @@ void addOutput(Context& ctx) {
     register_csv_bfield_writer_binding<Writer::CoordinateType::RZ, true>(w);
     register_csv_bfield_writer_binding<Writer::CoordinateType::RZ, false>(w);
   }
-  
+
   ACTS_PYTHON_DECLARE_WRITER(ActsExamples::CsvExaTrkXGraphWriter, mex,
-                             "CsvExaTrkXGraphWriter", inputGraph, outputDir, outputStem);
+                             "CsvExaTrkXGraphWriter", inputGraph, outputDir,
+                             outputStem);
 }
 }  // namespace Acts::Python

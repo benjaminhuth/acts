@@ -51,7 +51,7 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
 
     /// Output protoTracks collection.
     std::string outputProtoTracks;
-    
+
     /// Output graph (optional)
     std::string outputGraph;
 

@@ -11,11 +11,11 @@
 #include "Acts/Utilities/Logger.hpp"
 #include "ActsExamples/Framework/ProcessCode.hpp"
 #include "ActsExamples/Framework/WriterT.hpp"
+#include <ActsExamples/Utilities/Paths.hpp>
 
 #include <cstddef>
 #include <limits>
 #include <string>
-#include <ActsExamples/Utilities/Paths.hpp>
 
 namespace ActsExamples {
 struct AlgorithmContext;
@@ -39,7 +39,6 @@ class CsvExaTrkXGraphWriter final : public WriterT<std::vector<int64_t>> {
 
   /// Readonly access to the config
   const Config& config() const { return m_cfg; }
-  
 
  protected:
   /// Type-specific write implementation.

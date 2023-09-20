@@ -9,8 +9,8 @@
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
 
 #include "Acts/Definitions/Units.hpp"
-#include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchGraphStoreHook.hpp"
+#include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
 #include "Acts/Plugins/ExaTrkX/detail/CudaInfo.hpp"
 #include "ActsExamples/EventData/Index.hpp"
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
@@ -41,7 +41,7 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
     std::size_t spacePointIndex;
     int32_t hitIndex;
   };
-  
+
   std::unique_ptr<std::vector<std::size_t>> m_savedGraph;
 
  public:
@@ -114,7 +114,7 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
   }
 
   ~ExamplesEdmHook(){};
-  
+
   auto storedGraph() const { return m_graphStoreHook->storedGraph(); }
 
   void operator()(const std::any& nodes, const std::any& edges) const override {
@@ -168,7 +168,7 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   m_inputSimHits.maybeInitialize(m_cfg.inputSimHits);
   m_inputParticles.maybeInitialize(m_cfg.inputParticles);
   m_inputMeasurementMap.maybeInitialize(m_cfg.inputMeasurementSimhitsMap);
-  
+
   m_outputGraph.maybeInitialize(m_cfg.outputGraph);
 
   /// Parallel GPUs
@@ -330,10 +330,13 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   ACTS_INFO("Removed " << nShortTracks << " with less then 3 hits");
   ACTS_INFO("Created " << protoTracks.size() << " proto tracks");
   m_outputProtoTracks(ctx, std::move(protoTracks));
-  
-  if(auto dhook = dynamic_cast<ExamplesEdmHook *>(&*hook); dhook && m_outputGraph.isInitialized()) {
+
+  if (auto dhook = dynamic_cast<ExamplesEdmHook*>(&*hook);
+      dhook && m_outputGraph.isInitialized()) {
     auto graph = dhook->storedGraph();
-    std::transform(graph.begin(), graph.end(), graph.begin(), [&](const auto &a) -> int64_t { return spacepointIDs.at(a); });
+    std::transform(
+        graph.begin(), graph.end(), graph.begin(),
+        [&](const auto& a) -> int64_t { return spacepointIDs.at(a); });
     m_outputGraph(ctx, std::move(graph));
   }
 
