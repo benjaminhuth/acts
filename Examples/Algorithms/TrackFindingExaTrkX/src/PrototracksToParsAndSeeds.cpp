@@ -72,24 +72,16 @@ ProcessCode PrototracksToParsAndSeeds::execute(
   const auto &sps = m_inputSpacePoints(ctx);
   auto prototracks = m_inputProtoTracks(ctx);
 
-  // Make some lookup tables
-  std::vector<const SimSpacePoint *> indexToSpacepoint;
-  indexToSpacepoint.reserve(sps.size());
-  std::vector<Acts::GeometryIdentifier> indexToGeoId;
-  indexToGeoId.reserve(sps.size());
+  // Make some lookup tables. Allocate space for the maximum number of indices
+  // (max 2 source links per spacepoint)
+  std::vector<const SimSpacePoint *> indexToSpacepoint(2 * sps.size(), nullptr);
+  std::vector<Acts::GeometryIdentifier> indexToGeoId(
+      2 * sps.size(), Acts::GeometryIdentifier{0});
 
   for (const auto &sp : sps) {
     for (const auto &sl : sp.sourceLinks()) {
       const auto &isl = sl.template get<IndexSourceLink>();
-
-      if (indexToSpacepoint.size() <= isl.index()) {
-        indexToSpacepoint.resize(isl.index(), nullptr);
-      }
       indexToSpacepoint[isl.index()] = &sp;
-
-      if (indexToGeoId.size() <= isl.index()) {
-        indexToGeoId.resize(isl.index(), Acts::GeometryIdentifier{0});
-      }
       indexToGeoId[isl.index()] = isl.geometryId();
     }
   }
@@ -103,6 +95,7 @@ ProcessCode PrototracksToParsAndSeeds::execute(
   // Loop over the prototracks to make seeds
   ProtoTrack tmpTrack;
   std::vector<const SimSpacePoint *> tmpSps;
+  std::size_t skippedTracks = 0;
   for (auto &track : prototracks) {
     ACTS_VERBOSE("Try to get seed from prototrack with " << track.size()
                                                          << " hits");
@@ -130,9 +123,10 @@ ProcessCode PrototracksToParsAndSeeds::execute(
 
     // in this case we cannot seed properly
     if (tmpTrack.size() < 3) {
-      ACTS_WARNING(
+      ACTS_DEBUG(
           "Cannot seed because less then three hits with unique (layer, "
           "volume)");
+      skippedTracks++;
       continue;
     }
 
@@ -146,6 +140,7 @@ ProcessCode PrototracksToParsAndSeeds::execute(
 
     if (tmpSps.size() < 3) {
       ACTS_WARNING("Could not find all spacepoints, skip");
+      skippedTracks++;
       continue;
     }
 
@@ -162,6 +157,10 @@ ProcessCode PrototracksToParsAndSeeds::execute(
 
     seeds.emplace_back(*tmpSps[0], *tmpSps[s / 2], *tmpSps[s - 1], z_vertex);
     seededTracks.push_back(track);
+  }
+
+  if (skippedTracks > 0) {
+    ACTS_WARNING("Skipped seeding of " << skippedTracks);
   }
 
   ProtoTrackContainer finalTracks;
