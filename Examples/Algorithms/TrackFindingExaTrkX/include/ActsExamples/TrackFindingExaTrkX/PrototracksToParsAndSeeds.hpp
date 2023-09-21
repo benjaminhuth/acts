@@ -24,8 +24,9 @@ class PrototracksToParsAndSeeds final : public IAlgorithm {
     std::string outputSeeds = "seeds-from-prototracks";
     std::string outputProtoTracks = "remaining-prototracks";
     std::string outputParameters = "parameters";
+
+    // The tracking geometry
     std::shared_ptr<Acts::TrackingGeometry> geometry;
-    bool advancedSeeding = false;
 
     /// The minimum magnetic field to trigger the track parameters estimation
     double bFieldMin = 0.1 * Acts::UnitConstants::T;
@@ -65,9 +66,6 @@ class PrototracksToParsAndSeeds final : public IAlgorithm {
  private:
   Config m_cfg;
   Acts::BoundSquareMatrix m_covariance = Acts::BoundSquareMatrix::Zero();
-
-  struct SeedingImpl;
-  std::unique_ptr<SeedingImpl> m_advancedSeeding;
 
   WriteDataHandle<SimSeedContainer> m_outputSeeds{this, "OutputSeeds"};
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,
