@@ -11,6 +11,7 @@
 #include "Acts/Definitions/Units.hpp"
 #include "Acts/Plugins/ExaTrkX/ExaTrkXPipeline.hpp"
 #include "Acts/Plugins/ExaTrkX/Stages.hpp"
+#include "Acts/Plugins/ExaTrkX/TorchGraphStoreHook.hpp"
 #include "ActsExamples/EventData/Cluster.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/SimHit.hpp"
@@ -107,7 +108,8 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
 
   WriteDataHandle<ProtoTrackContainer> m_outputProtoTracks{this,
                                                            "OutputProtoTracks"};
-  WriteDataHandle<std::vector<int64_t>> m_outputGraph{this, "OutputGraph"};
+  WriteDataHandle<Acts::TorchGraphStoreHook::Graph> m_outputGraph{
+      this, "OutputGraph"};
 
   // for truth graph
   ReadDataHandle<SimHitContainer> m_inputSimHits{this, "InputSimHits"};

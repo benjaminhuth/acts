@@ -24,7 +24,8 @@
 struct GraphData {
   int64_t edge0;
   int64_t edge1;
-  DFE_NAMEDTUPLE(GraphData, edge0, edge1);
+  float weight;
+  DFE_NAMEDTUPLE(GraphData, edge0, edge1, weight);
 };
 
 ActsExamples::CsvExaTrkXGraphWriter::CsvExaTrkXGraphWriter(
@@ -34,17 +35,20 @@ ActsExamples::CsvExaTrkXGraphWriter::CsvExaTrkXGraphWriter(
       m_cfg(config) {}
 
 ActsExamples::ProcessCode ActsExamples::CsvExaTrkXGraphWriter::writeT(
-    const AlgorithmContext& ctx, const std::vector<int64_t>& edges) {
+    const ActsExamples::AlgorithmContext& ctx,
+    const std::pair<std::vector<int64_t>, std::vector<float>>& graph) {
   std::string path = perEventFilepath(
       m_cfg.outputDir, m_cfg.outputStem + ".csv", ctx.eventNumber);
 
   dfe::NamedTupleCsvWriter<GraphData> writer(path);
 
-  for (auto i = 0ul; i < edges.size(); i += 2) {
-    GraphData edge;
-    edge.edge0 = edges[i];
-    edge.edge1 = edges[i + 1];
+  const auto& [edges, weights] = graph;
 
+  for (auto i = 0ul; i < weights.size(); ++i) {
+    GraphData edge;
+    edge.edge0 = edges[2 * i];
+    edge.edge1 = edges[2 * i + 1];
+    edge.weight = weights[i];
     writer.append(edge);
   }
 

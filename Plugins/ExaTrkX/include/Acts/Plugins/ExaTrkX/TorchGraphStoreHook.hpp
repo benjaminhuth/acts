@@ -15,15 +15,20 @@
 namespace Acts {
 
 class TorchGraphStoreHook : public ExaTrkXHook {
-  std::unique_ptr<std::vector<int64_t>> m_storedGraph;
+ public:
+  using Graph = std::pair<std::vector<int64_t>, std::vector<float>>;
+
+ private:
+  std::unique_ptr<Graph> m_storedGraph;
 
  public:
   TorchGraphStoreHook();
   ~TorchGraphStoreHook() override {}
 
-  void operator()(const std::any &, const std::any &edges) const override;
+  void operator()(const std::any &, const std::any &edges,
+                  const std::any &weights) const override;
 
-  const std::vector<int64_t> &storedGraph() const { return *m_storedGraph; }
+  const Graph &storedGraph() const { return *m_storedGraph; }
 };
 
 }  // namespace Acts

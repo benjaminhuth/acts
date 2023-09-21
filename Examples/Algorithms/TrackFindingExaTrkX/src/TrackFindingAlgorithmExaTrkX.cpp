@@ -42,8 +42,6 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
     int32_t hitIndex;
   };
 
-  std::unique_ptr<std::vector<std::size_t>> m_savedGraph;
-
  public:
   ExamplesEdmHook(const SimSpacePointContainer& spacepoints,
                   const IndexMultimap<Index>& measHitMap,
@@ -117,14 +115,15 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
 
   auto storedGraph() const { return m_graphStoreHook->storedGraph(); }
 
-  void operator()(const std::any& nodes, const std::any& edges) const override {
+  void operator()(const std::any& nodes, const std::any& edges,
+                  const std::any& weights) const override {
     ACTS_INFO("Metrics for total graph:");
-    (*m_truthGraphHook)(nodes, edges);
+    (*m_truthGraphHook)(nodes, edges, weights);
     ACTS_INFO("Metrics for target graph (pT > "
               << m_targetPT / Acts::UnitConstants::GeV
               << " GeV, nHits >= " << m_targetSize << "):");
-    (*m_targetGraphHook)(nodes, edges);
-    (*m_graphStoreHook)(nodes, edges);
+    (*m_targetGraphHook)(nodes, edges, weights);
+    (*m_graphStoreHook)(nodes, edges, weights);
   }
 };
 
@@ -335,7 +334,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
       dhook && m_outputGraph.isInitialized()) {
     auto graph = dhook->storedGraph();
     std::transform(
-        graph.begin(), graph.end(), graph.begin(),
+        graph.first.begin(), graph.first.end(), graph.first.begin(),
         [&](const auto& a) -> int64_t { return spacepointIDs.at(a); });
     m_outputGraph(ctx, std::move(graph));
   }

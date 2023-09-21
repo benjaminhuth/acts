@@ -38,7 +38,7 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
   auto [nodes, edges] =
       (*m_graphConstructor)(features, spacepointIDs.size(), deviceHint);
 
-  hook(nodes, edges);
+  hook(nodes, edges, {});
 
   std::any edge_weights;
 
@@ -49,7 +49,7 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
     edges = std::move(newEdges);
     edge_weights = std::move(newWeights);
 
-    hook(nodes, edges);
+    hook(nodes, edges, edge_weights);
   }
 
   return (*m_trackBuilder)(std::move(nodes), std::move(edges),

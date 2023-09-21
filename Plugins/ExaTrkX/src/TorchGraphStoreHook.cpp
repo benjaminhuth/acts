@@ -13,11 +13,17 @@
 #include <torch/torch.h>
 
 Acts::TorchGraphStoreHook::TorchGraphStoreHook() {
-  m_storedGraph = std::make_unique<std::vector<int64_t>>();
+  m_storedGraph = std::make_unique<Graph>();
 }
 
 void Acts::TorchGraphStoreHook::operator()(const std::any&,
-                                           const std::any& edges) const {
-  *m_storedGraph = detail::tensor2DToVector<int64_t>(
+                                           const std::any& edges,
+                                           const std::any& weights) const {
+  m_storedGraph->first = detail::tensor2DToVector<int64_t>(
       std::any_cast<torch::Tensor>(edges).t());
+
+  auto cpuWeights = std::any_cast<torch::Tensor>(weights).to(torch::kCPU);
+  m_storedGraph->second =
+      std::vector<float>(cpuWeights.data_ptr<float>(),
+                         cpuWeights.data_ptr<float>() + cpuWeights.numel());
 }

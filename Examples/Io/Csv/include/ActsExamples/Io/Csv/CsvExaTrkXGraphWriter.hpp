@@ -11,7 +11,7 @@
 #include "Acts/Utilities/Logger.hpp"
 #include "ActsExamples/Framework/ProcessCode.hpp"
 #include "ActsExamples/Framework/WriterT.hpp"
-#include <ActsExamples/Utilities/Paths.hpp>
+#include "ActsExamples/Utilities/Paths.hpp"
 
 #include <cstddef>
 #include <limits>
@@ -20,7 +20,8 @@
 namespace ActsExamples {
 struct AlgorithmContext;
 
-class CsvExaTrkXGraphWriter final : public WriterT<std::vector<int64_t>> {
+class CsvExaTrkXGraphWriter final
+    : public WriterT<std::pair<std::vector<int64_t>, std::vector<float>>> {
  public:
   struct Config {
     /// Which simulated (truth) hits collection to use.
@@ -46,7 +47,8 @@ class CsvExaTrkXGraphWriter final : public WriterT<std::vector<int64_t>> {
   /// @param[in] ctx is the algorithm context
   /// @param[in] simHits are the simhits to be written
   ProcessCode writeT(const AlgorithmContext& ctx,
-                     const std::vector<int64_t>& simHits) override;
+                     const std::pair<std::vector<int64_t>, std::vector<float>>&
+                         graph) override;
 
  private:
   Config m_cfg;
