@@ -19,7 +19,64 @@
 
 using namespace torch::indexing;
 
-namespace {
+template <typename graph_t, typename vertex_desc_t>
+void pruneVertexEdgesUndirected(graph_t& g, vertex_desc_t vd) {
+  if (boost::out_degree(vd, g) <= 2) {
+    return;
+  }
+
+  // Even for undirected graphs, boost::graph documentation says we should
+  // use the directed API
+  const auto edgeRange = boost::make_iterator_range(boost::out_edges(vd, g));
+
+  using weight_t = std::decay_t<
+      decltype(g[*std::declval<decltype(edgeRange)>().begin()].weight)>;
+
+  // Find second largest weight
+  weight_t largest = 0.f;
+  weight_t secondLargest = 0.f;
+  for (auto ed : edgeRange) {
+    const auto w = g[ed].weight;
+    if (w > largest) {
+      secondLargest = largest;
+      largest = w;
+    } else if (w > secondLargest) {
+      secondLargest = w;
+    }
+  }
+
+  // Set all other weights to 0
+  for (auto ed : edgeRange) {
+    if (g[ed].weight < secondLargest) {
+      g[ed].weight = 0.f;
+    }
+  }
+}
+
+template <typename graph_t, typename vertex_desc_t>
+void pruneVertexEdgesDirected(graph_t& g, vertex_desc_t vd) {
+  auto prune = [&](const auto& r) {
+    auto max = *std::max_element(r.begin(), r.end(),
+                                 [&](const auto& a, const auto& b) {
+                                   return g[a].weight < g[b].weight;
+                                 });
+
+    // Set all other weights to 0
+    for (auto ed : r) {
+      if (g[ed].weight < g[max].weight) {
+        g[ed].weight = 0.f;
+      }
+    }
+  };
+
+  if (boost::out_degree(vd, g) > 1) {
+    prune(boost::make_iterator_range(boost::out_edges(vd, g)));
+  }
+  if (boost::in_degree(vd, g) > 1) {
+    prune(boost::make_iterator_range(boost::in_edges(vd, g)));
+  }
+}
+
 template <bool directed, typename vertex_t, typename weight_t>
 auto weaklyConnectedComponents(std::size_t numNodes,
                                boost::beast::span<vertex_t>& rowIndices,
@@ -36,7 +93,7 @@ auto weaklyConnectedComponents(std::size_t numNodes,
   };
 
   using directedTag =
-      std::conditional_t<directed, boost::directedS, boost::undirectedS>;
+      std::conditional_t<directed, boost::bidirectionalS, boost::undirectedS>;
 
   using Graph =
       boost::adjacency_list<boost::vecS,         // edge list
@@ -68,58 +125,15 @@ auto weaklyConnectedComponents(std::size_t numNodes,
   if (ensure2EdgesPerVertex) {
     // If we have a directed graph, we can ensure that only one outgoing edge is
     // present. Otherwise, restrict ourselfs to 2 in-out edges per vertex
-    constexpr static auto maxOutEdges = directed ? 1 : 2;
-
-    if constexpr (directed) {
-      ACTS_DEBUG(
-          "Ensure we have at most 1 outgoing edge per vertex in directed "
-          "graph");
-    } else {
-      ACTS_DEBUG(
-          "Ensure we have at most 2 edges per vertex in undirected graph");
-    }
+    const auto gtype = directed ? "directed" : "undirected";
+    ACTS_DEBUG("Prune " << gtype << " graph");
     ACTS_DEBUG("Before edge removal: Graph has " << boost::num_edges(g));
+
     for (auto vd : boost::make_iterator_range(vertices(g))) {
-      // Even for undirected graphs, boost::graph documentation says we should
-      // use the directed API
-      if (boost::out_degree(vd, g) <= maxOutEdges) {
-        continue;
-      }
-
-      // Even for undirected graphs, boost::graph documentation says we should
-      // use the directed API
-      const auto edgeRange =
-          boost::make_iterator_range(boost::out_edges(vd, g));
-
-      weight_t weightCut = 0.f;
-
-      if constexpr (maxOutEdges == 2) {
-        // Find second largest weight
-        weight_t largest = 0.f;
-        weight_t secondLargest = 0.f;
-        for (auto ed : edgeRange) {
-          const auto w = g[ed].weight;
-          if (w > largest) {
-            secondLargest = largest;
-            largest = w;
-          } else if (w > secondLargest) {
-            secondLargest = w;
-          }
-        }
-        weightCut = secondLargest;
+      if constexpr (directed) {
+        pruneVertexEdgesDirected(g, vd);
       } else {
-        auto max = std::max_element(edgeRange.begin(), edgeRange.end(),
-                                    [&](const auto& a, const auto& b) {
-                                      return g[a].weight < g[b].weight;
-                                    });
-        weightCut = g[*max].weight;
-      }
-
-      // Set all other weights to 0
-      for (auto ed : edgeRange) {
-        if (g[ed].weight < weightCut) {
-          g[ed].weight = 0.f;
-        }
+        pruneVertexEdgesUndirected(g, vd);
       }
     }
 
@@ -130,7 +144,6 @@ auto weaklyConnectedComponents(std::size_t numNodes,
 
   return boost::connected_components(g, &trackLabels[0]);
 }
-}  // namespace
 
 namespace Acts {
 
