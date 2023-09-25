@@ -172,7 +172,7 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
 
   /// Parallel GPUs
   if (m_cfg.useGPUsParallel) {
-    for (auto i = 0ul; i < Acts::detail::cudaNumDevices(); ++i) {
+    for (auto i = 0ul; i < std::max(1ul, Acts::detail::cudaNumDevices()); ++i) {
       m_mutexes.emplace_back(std::make_unique<std::mutex>());
     }
     ACTS_INFO("Use " << m_mutexes.size() << " GPUs in parallel");
@@ -290,7 +290,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
     std::unique_lock<std::mutex> lock;
 
     // Only use a mutex if the flag is set
-    if (m_cfg.useGPUsParallel) {
+    if (m_cfg.useGPUsParallel && Acts::detail::cudaNumDevices() > 0) {
       auto mutexIdx = ctx.eventNumber % m_mutexes.size();
       deviceHint = mutexIdx;
 
