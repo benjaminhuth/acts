@@ -114,8 +114,7 @@ void addExaTrkXTrackFinding(Context &ctx) {
 
     auto c = py::class_<Config>(alg, "Config").def(py::init<>());
     ACTS_PYTHON_STRUCT_BEGIN(c, Config);
-    ACTS_PYTHON_MEMBER(ensure2EdgesPerVertex);
-    ACTS_PYTHON_MEMBER(useDirectedGraph);
+    ACTS_PYTHON_MEMBER(cleanSubgraphs);
     ACTS_PYTHON_STRUCT_END();
   }
 #endif

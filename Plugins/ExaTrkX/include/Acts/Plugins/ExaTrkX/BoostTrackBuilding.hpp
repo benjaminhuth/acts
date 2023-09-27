@@ -18,8 +18,7 @@ namespace Acts {
 class BoostTrackBuilding final : public Acts::TrackBuildingBase {
  public:
   struct Config {
-    bool ensure2EdgesPerVertex = false;
-    bool useDirectedGraph = false;
+    bool cleanSubgraphs = false;
   };
 
   BoostTrackBuilding(const Config &config, std::unique_ptr<const Logger> logger)

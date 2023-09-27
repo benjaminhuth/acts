@@ -19,7 +19,7 @@ Acts::TorchGraphStoreHook::TorchGraphStoreHook() {
 void Acts::TorchGraphStoreHook::operator()(const std::any&,
                                            const std::any& edges,
                                            const std::any& weights) const {
-  if( not weights.has_value() ) {
+  if (not weights.has_value()) {
     return;
   }
 
