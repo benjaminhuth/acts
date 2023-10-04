@@ -155,7 +155,11 @@ ProcessCode PrototracksToParsAndSeeds::execute(
     const auto z_vertex = -t / m;
     const auto s = tmpSps.size();
 
-    seeds.emplace_back(*tmpSps[0], *tmpSps[s / 2], *tmpSps[s - 1], z_vertex);
+    if (m_cfg.buildTightSeeds) {
+      seeds.emplace_back(*tmpSps[0], *tmpSps[1], *tmpSps[2], z_vertex);
+    } else {
+      seeds.emplace_back(*tmpSps[0], *tmpSps[s / 2], *tmpSps[s - 1], z_vertex);
+    }
     seededTracks.push_back(track);
   }
 

@@ -28,6 +28,9 @@ class PrototracksToParsAndSeeds final : public IAlgorithm {
     // The tracking geometry
     std::shared_ptr<Acts::TrackingGeometry> geometry;
 
+    // Wether to make tight seeds (closest hits to beampipe) or large seeds
+    bool buildTightSeeds = false;
+
     /// The minimum magnetic field to trigger the track parameters estimation
     double bFieldMin = 0.1 * Acts::UnitConstants::T;
     /// Constant term of the loc0 resolution.
