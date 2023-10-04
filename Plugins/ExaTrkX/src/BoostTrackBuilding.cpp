@@ -21,16 +21,6 @@
 
 using namespace torch::indexing;
 
-template <typename vertex_t, typename weight_t>
-auto weaklyConnectedComponents(std::size_t numNodes,
-                               boost::beast::span<vertex_t>& rowIndices,
-                               boost::beast::span<vertex_t>& colIndices,
-                               boost::beast::span<weight_t>& edgeWeights,
-                               boost::beast::span<float>& nodeRadius,
-                               bool ensure2EdgesPerVertex,
-                               std::vector<vertex_t>& trackLabels,
-                               const Acts::Logger& logger) {}
-
 namespace Acts {
 
 std::vector<std::vector<int>> BoostTrackBuilding::operator()(
@@ -41,8 +31,6 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
   // Get nodes
   const auto nodeTensor = std::any_cast<torch::Tensor>(nodes).to(torch::kCPU);
   assert(static_cast<std::size_t>(nodeTensor.size(0)) == spacepointIDs.size());
-  // TODO is this clone necessary?
-  const auto radiusTensor = nodeTensor.index({Slice{}, 0}).clone();
 
   // Get edges
   const auto edgeTensor = std::any_cast<torch::Tensor>(edges).to(torch::kCPU);
@@ -71,6 +59,9 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
       edgeTensor.data_ptr<vertex_t>() + numEdges, numEdges);
   boost::beast::span<weight_t> edgeWeights(edgeWeightTensor.data_ptr<float>(),
                                            numEdges);
+
+  // TODO is this clone necessary?
+  const auto radiusTensor = nodeTensor.index({Slice{}, 0}).clone();
   boost::beast::span<float> nodeRadius(radiusTensor.data_ptr<float>(),
                                        radiusTensor.numel());
 
@@ -82,7 +73,7 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
   using Graph =
       boost::adjacency_list<boost::vecS,            // edge list
                             boost::vecS,            // vertex list
-                            boost::bidirectionalS,  // directedness
+                            boost::undirectedS,     // directedness
                             boost::no_property,     // property of vertices
                             EdgeProperty            // property of edges
                             >;
@@ -100,11 +91,26 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
     }
   }
 
-  if (m_cfg.cleanSubgraphs) {
-    ACTS_VERBOSE("Clean subgraph");
-    detail::cleanSubgraphs(g, logger());
-  }
+  //   if (m_cfg.cleanSubgraphs) {
+  //     ACTS_VERBOSE("Clean subgraph");
+  //     detail::cleanSubgraphs(g, logger());
+  //   }
+  //
+  //   // Workaround over undirected
+  //   using UGraph =
+  //       boost::adjacency_list<boost::vecS,            // edge list
+  //                             boost::vecS,            // vertex list
+  //                             boost::undirectedS,     // directedness
+  //                             boost::no_property,     // property of vertices
+  //                             boost::no_property     // property of edges
+  //                             >;
+  //
+  //   UGraph ug(numSpacepoints);
+  //   for(auto ed : boost::make_iterator_range(boost::edges(g))) {
+  //     boost::add_edge(boost::source(ed, ug), boost::target(ed, ug), ug);
+  //   }
 
+  // Make final connected components
   std::vector<vertex_t> trackLabels(numSpacepoints);
   auto numberLabels = boost::connected_components(g, &trackLabels[0]);
 
