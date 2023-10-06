@@ -53,7 +53,7 @@ namespace ActsExamples {
 
 TrackFindingFromPrototrackAlgorithm::TrackFindingFromPrototrackAlgorithm(
     Config cfg, Acts::Logging::Level lvl)
-    : IAlgorithm("CkfFromProtoTracks", lvl), m_cfg(cfg) {
+    : IAlgorithm(cfg.tag + "CkfFromProtoTracks", lvl), m_cfg(cfg) {
   m_inputInitialTrackParameters.initialize(m_cfg.inputInitialTrackParameters);
   m_inputMeasurements.initialize(m_cfg.inputMeasurements);
   m_inputProtoTracks.initialize(m_cfg.inputProtoTracks);

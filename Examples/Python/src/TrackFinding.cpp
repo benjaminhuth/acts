@@ -379,7 +379,7 @@ void addTrackFinding(Context& ctx) {
         "TrackFindingFromPrototrackAlgorithm", inputProtoTracks,
         inputMeasurements, inputSourceLinks, inputInitialTrackParameters,
         outputTracks, measurementSelectorCfg, trackingGeometry, magneticField,
-        findTracks);
+        findTracks, tag);
 
     ACTS_PYTHON_DECLARE_ALGORITHM(
         ActsExamples::MeasurementMapSelectorAlgorithm, mex,

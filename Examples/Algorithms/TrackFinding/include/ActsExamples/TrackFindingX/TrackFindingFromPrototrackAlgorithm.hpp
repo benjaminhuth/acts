@@ -60,6 +60,9 @@ class TrackFindingFromPrototrackAlgorithm final : public IAlgorithm {
 
     /// Magnetic field
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField;
+    
+    /// Additional tag to distinguish loggers
+    std::string tag = "";
   };
 
   /// Constructor of the track finding algorithm
