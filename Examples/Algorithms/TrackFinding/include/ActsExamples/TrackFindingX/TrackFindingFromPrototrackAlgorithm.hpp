@@ -76,11 +76,16 @@ class TrackFindingFromPrototrackAlgorithm final : public IAlgorithm {
   /// @return a process code to steer the algorithm flow
   ActsExamples::ProcessCode execute(
       const ActsExamples::AlgorithmContext& ctx) const final;
+      
+  ActsExamples::ProcessCode finalize() override;
 
   const Config& config() const { return m_cfg; }
 
  private:
   Config m_cfg;
+  
+  mutable std::mutex m_mutex;
+  mutable std::vector<unsigned> m_nTracksPerSeeds;
 
   ReadDataHandle<ProtoTrackContainer> m_inputProtoTracks{this,
                                                          "InputProtoTracks"};

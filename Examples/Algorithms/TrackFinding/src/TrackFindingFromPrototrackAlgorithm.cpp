@@ -11,6 +11,9 @@
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
 #include "ActsExamples/EventData/MeasurementCalibration.hpp"
 
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics.hpp>
+
 namespace {
 
 using namespace ActsExamples;
@@ -126,6 +129,9 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
 
   std::size_t nSeed = 0;
   std::size_t nFailed = 0;
+  
+  std::vector<std::size_t> nTracksPerSeeds;
+  nTracksPerSeeds.reserve(initialParameters.size());
 
   for (auto i = 0ul; i < initialParameters.size(); ++i) {
     sourceLinkAccessor.protoTrackSourceLinks.clear();
@@ -152,9 +158,19 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
     }
 
     auto& tracksForSeed = result.value();
+
+    nTracksPerSeeds.push_back(tracksForSeed.size());
+    
     for (auto& track : tracksForSeed) {
       seedNumber(track) = nSeed;
     }
+  }
+  
+  {
+    std::lock_guard<std::mutex> guard(m_mutex);
+
+    std::copy(nTracksPerSeeds.begin(), nTracksPerSeeds.end(),
+              std::back_inserter(m_nTracksPerSeeds));
   }
 
   // Compute shared hits from all the reconstructed tracks
@@ -179,4 +195,20 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
   m_outputTracks(ctx, std::move(constTracks));
   return ActsExamples::ProcessCode::SUCCESS;
 }
+
+ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::finalize() {
+  assert(std::distance(m_nTracksPerSeeds.begin(), m_nTracksPerSeeds.end()) > 0);
+  
+  ACTS_INFO("TrackFindingFromPrototracksAlgorithm statistics:");
+  namespace ba = boost::accumulators;
+  using Accumulator = ba::accumulator_set<float, ba::features< ba::tag::sum, ba::tag::mean, ba::tag::variance > >;
+   
+  Accumulator totalAcc;
+  std::for_each(m_nTracksPerSeeds.begin(), m_nTracksPerSeeds.end(), [&](auto v){ totalAcc(static_cast<float>(v)); });
+  ACTS_INFO("- total number tracks: " << ba::sum(totalAcc));
+  ACTS_INFO("- avg tracks per seed: " << ba::mean(totalAcc) << " +- " << std::sqrt(ba::variance(totalAcc)));
+  
+  return {};
+}
+
 }  // namespace ActsExamples

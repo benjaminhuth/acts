@@ -36,6 +36,8 @@
 #include <system_error>
 #include <utility>
 
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics.hpp>
 #include <boost/histogram.hpp>
 
 ActsExamples::TrackFindingAlgorithm::TrackFindingAlgorithm(
@@ -136,6 +138,12 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithm::execute(
 
   unsigned int nSeed = 0;
 
+  std::vector<std::size_t> nTracksPerSeeds;
+  nTracksPerSeeds.reserve(initialParameters.size());
+
+  std::vector<std::size_t> nSelTracksPerSeeds;
+  nSelTracksPerSeeds.reserve(initialParameters.size());
+
   for (std::size_t iseed = 0; iseed < initialParameters.size(); ++iseed) {
     // Clear trackContainerTemp and trackStateContainerTemp
     tracksTemp.clear();
@@ -153,19 +161,35 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithm::execute(
     }
 
     auto& tracksForSeed = result.value();
+
+    nTracksPerSeeds.push_back(tracksForSeed.size());
+    std::size_t nSelTracks = 0;
+
     for (auto& track : tracksForSeed) {
       seedNumber(track) = nSeed;
       if (!m_trackSelector.has_value() ||
           m_trackSelector->isValidTrack(track)) {
+        nSelTracks++;
         auto destProxy = tracks.getTrack(tracks.addTrack());
         destProxy.copyFrom(track, true);  // make sure we copy track states!
       }
     }
+
+    nSelTracksPerSeeds.push_back(nSelTracks);
   }
 
   // Compute shared hits from all the reconstructed tracks
   if (m_cfg.computeSharedHits) {
     computeSharedHits(sourceLinks, tracks);
+  }
+
+  {
+    std::lock_guard<std::mutex> guard(m_mutex);
+
+    std::copy(nTracksPerSeeds.begin(), nTracksPerSeeds.end(),
+              std::back_inserter(m_nTracksPerSeeds));
+    std::copy(nSelTracksPerSeeds.begin(), nSelTracksPerSeeds.end(),
+              std::back_inserter(m_nSelTracksPerSeeds));
   }
 
   ACTS_DEBUG("Finalized track finding with " << tracks.size()
@@ -194,7 +218,21 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithm::finalize() {
   ACTS_INFO("- failed seeds: " << m_nFailedSeeds);
   ACTS_INFO("- failure ratio: " << static_cast<double>(m_nFailedSeeds) /
                                        m_nTotalSeeds);
+  
+  namespace ba = boost::accumulators;
+  using Accumulator = ba::accumulator_set<float, ba::features< ba::tag::sum, ba::tag::mean, ba::tag::variance > >;
+   
+  Accumulator totalAcc;
+  std::for_each(m_nTracksPerSeeds.begin(), m_nTracksPerSeeds.end(), [&](auto v){ totalAcc(static_cast<float>(v)); });
+  ACTS_INFO("- total number tracks: " << ba::sum(totalAcc));
+  ACTS_INFO("- avg tracks per seed: " << ba::mean(totalAcc) << " +- " << std::sqrt(ba::variance(totalAcc)));
 
+  Accumulator selAcc;
+  std::for_each(m_nSelTracksPerSeeds.begin(), m_nSelTracksPerSeeds.end(), [&](auto v){ selAcc(static_cast<float>(v)); });
+  ACTS_INFO("- total number tracks (selected only): " << ba::sum(selAcc));
+  ACTS_INFO("- avg tracks per seed (selected only): " << ba::mean(selAcc) << " +- " << std::sqrt(ba::variance(selAcc)));
+
+  // Memory statistics
   auto memoryStatistics =
       m_memoryStatistics.combine([](const auto& a, const auto& b) {
         Acts::VectorMultiTrajectory::Statistics c;
