@@ -71,11 +71,11 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
   };
 
   using Graph =
-      boost::adjacency_list<boost::vecS,            // edge list
-                            boost::vecS,            // vertex list
-                            boost::undirectedS,     // directedness
-                            boost::no_property,     // property of vertices
-                            EdgeProperty            // property of edges
+      boost::adjacency_list<boost::vecS,         // edge list
+                            boost::vecS,         // vertex list
+                            boost::undirectedS,  // directedness
+                            boost::no_property,  // property of vertices
+                            EdgeProperty         // property of edges
                             >;
 
   Graph g(numSpacepoints);

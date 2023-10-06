@@ -60,7 +60,7 @@ class TrackFindingFromPrototrackAlgorithm final : public IAlgorithm {
 
     /// Magnetic field
     std::shared_ptr<const Acts::MagneticFieldProvider> magneticField;
-    
+
     /// Additional tag to distinguish loggers
     std::string tag = "";
   };
@@ -79,14 +79,14 @@ class TrackFindingFromPrototrackAlgorithm final : public IAlgorithm {
   /// @return a process code to steer the algorithm flow
   ActsExamples::ProcessCode execute(
       const ActsExamples::AlgorithmContext& ctx) const final;
-      
+
   ActsExamples::ProcessCode finalize() override;
 
   const Config& config() const { return m_cfg; }
 
  private:
   Config m_cfg;
-  
+
   mutable std::mutex m_mutex;
   mutable std::vector<unsigned> m_nTracksPerSeeds;
 

@@ -218,19 +218,24 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithm::finalize() {
   ACTS_INFO("- failed seeds: " << m_nFailedSeeds);
   ACTS_INFO("- failure ratio: " << static_cast<double>(m_nFailedSeeds) /
                                        m_nTotalSeeds);
-  
+
   namespace ba = boost::accumulators;
-  using Accumulator = ba::accumulator_set<float, ba::features< ba::tag::sum, ba::tag::mean, ba::tag::variance > >;
-   
+  using Accumulator = ba::accumulator_set<
+      float, ba::features<ba::tag::sum, ba::tag::mean, ba::tag::variance>>;
+
   Accumulator totalAcc;
-  std::for_each(m_nTracksPerSeeds.begin(), m_nTracksPerSeeds.end(), [&](auto v){ totalAcc(static_cast<float>(v)); });
+  std::for_each(m_nTracksPerSeeds.begin(), m_nTracksPerSeeds.end(),
+                [&](auto v) { totalAcc(static_cast<float>(v)); });
   ACTS_INFO("- total number tracks: " << ba::sum(totalAcc));
-  ACTS_INFO("- avg tracks per seed: " << ba::mean(totalAcc) << " +- " << std::sqrt(ba::variance(totalAcc)));
+  ACTS_INFO("- avg tracks per seed: " << ba::mean(totalAcc) << " +- "
+                                      << std::sqrt(ba::variance(totalAcc)));
 
   Accumulator selAcc;
-  std::for_each(m_nSelTracksPerSeeds.begin(), m_nSelTracksPerSeeds.end(), [&](auto v){ selAcc(static_cast<float>(v)); });
+  std::for_each(m_nSelTracksPerSeeds.begin(), m_nSelTracksPerSeeds.end(),
+                [&](auto v) { selAcc(static_cast<float>(v)); });
   ACTS_INFO("- total number tracks (selected only): " << ba::sum(selAcc));
-  ACTS_INFO("- avg tracks per seed (selected only): " << ba::mean(selAcc) << " +- " << std::sqrt(ba::variance(selAcc)));
+  ACTS_INFO("- avg tracks per seed (selected only): "
+            << ba::mean(selAcc) << " +- " << std::sqrt(ba::variance(selAcc)));
 
   // Memory statistics
   auto memoryStatistics =
