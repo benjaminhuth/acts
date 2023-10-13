@@ -152,6 +152,11 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
   const auto& particles = m_inputParticles(ctx);
   const auto& hitParticlesMap = m_inputMeasurementParticlesMap(ctx);
 
+  std::map<ActsFatras::Barcode, std::size_t> particleTruthHitCount;
+  for (const auto& [_, pid] : hitParticlesMap) {
+    particleTruthHitCount[pid]++;
+  }
+
   // Counter of truth-matched reco tracks
   std::map<ActsFatras::Barcode, std::vector<RecoTrackInfo>> matched;
   // Counter of truth-unmatched reco tracks
@@ -207,15 +212,26 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
 
       // Check if the trajectory is matched with truth.
       // If not, it will be classified as 'fake'
+      const bool recoMatched =
+          static_cast<float>(nMajorityHits) / trajState.nMeasurements >=
+          m_cfg.truthMatchProbMin;
+      const bool truthMatched =
+          static_cast<float>(nMajorityHits) /
+              particleTruthHitCount.at(majorityParticleId) >=
+          m_cfg.truthMatchProbMin;
+
       bool isFake = false;
-      if (nMajorityHits * 1. / trajState.nMeasurements >=
-          m_cfg.truthMatchProbMin) {
+      if (not m_cfg.doubleMatching and recoMatched) {
+        matched[majorityParticleId].push_back(
+            {nMajorityHits, fittedParameters});
+      } else if (m_cfg.doubleMatching and recoMatched and truthMatched) {
         matched[majorityParticleId].push_back(
             {nMajorityHits, fittedParameters});
       } else {
         isFake = true;
         unmatched[majorityParticleId]++;
       }
+
       // Fill fake rate plots
       m_fakeRatePlotTool.fill(m_fakeRatePlotCache, fittedParameters, isFake);
 
