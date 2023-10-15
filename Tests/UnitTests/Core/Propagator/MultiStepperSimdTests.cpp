@@ -15,19 +15,18 @@ using SimdExtension = Acts::detail::GenericDefaultExtension<Acts::SimdType<4>>;
 using MultiStepper =
     MultiEigenStepperSIMD<4, StepperExtensionList<SimdExtension>>;
 
+
+BOOST_AUTO_TEST_SUITE(multistepper_simd_test)
+
 //////////////////////////////////////////////////////
 /// Test the construction of the MultiStepper::State
 //////////////////////////////////////////////////////
 BOOST_AUTO_TEST_CASE(multi_stepper_state_charged_no_cov) {
-  test_multi_stepper_state<MultiStepper, SinglyCharged, false>();
+  test_multi_stepper_state<MultiStepper, false>();
 }
 
 BOOST_AUTO_TEST_CASE(multi_stepper_state_neutral_no_cov) {
-  test_multi_stepper_state<MultiStepper, Neutral, false>();
-}
-
-BOOST_AUTO_TEST_CASE(multi_stepper_state_charged_cov) {
-  test_multi_stepper_state<MultiStepper, SinglyCharged, true>();
+  test_multi_stepper_state<MultiStepper, false>();
 }
 
 BOOST_AUTO_TEST_CASE(multi_eigen_stepper_state_invalid) {
@@ -100,3 +99,5 @@ BOOST_AUTO_TEST_CASE(multi_eigen_vs_single_eigen) {
 BOOST_AUTO_TEST_CASE(propagator_instatiation_test) {
   propagator_instatiation_test_function<MultiStepper>();
 }
+
+BOOST_AUTO_TEST_SUITE_END()

@@ -140,71 +140,6 @@ class MultiEigenStepperSIMD
   using SimdFreeMatrix = Eigen::Matrix<SimdScalar, eFreeSize, eFreeSize>;
 
   struct State {
-    State() = delete;
-
-    /// Constructor from the initial bound track parameters
-    ///
-    /// @tparam charge_t Type of the bound parameter charge
-    ///
-    /// @param [in] gctx is the context object for the geometry
-    /// @param [in] mctx is the context object for the magnetic field
-    /// @param [in] par The track parameters at start
-    /// @param [in] ndir The navigation direciton w.r.t momentum
-    /// @param [in] ssize is the maximum step size
-    /// @param [in] stolerance is the stepping tolerance
-    ///
-    /// @note the covariance matrix is copied when needed
-    template <typename charge_t>
-    explicit State(
-        const GeometryContext& gctx, const MagneticFieldContext& mctx,
-        const std::shared_ptr<const MagneticFieldProvider>& bfield,
-        const MultiComponentBoundTrackParameters<charge_t>& multipars,
-        Direction ndir = Direction::Forward,
-        double ssize = std::numeric_limits<double>::max(),
-        double /*stolerance*/ = s_onSurfaceTolerance)
-        : q(multipars.charge()),
-          navDir(ndir),
-          fieldCache(bfield->makeCache(mctx)),
-          geoContext(gctx) {
-      throw_assert(!multipars.components().empty(),
-                   "Empty MultiComponent state");
-      throw_assert(multipars.components().size() <= NComponents,
-                   "Missmatching component number: template="
-                       << NComponents
-                       << ", multipars=" << multipars.components().size());
-
-      numComponents = multipars.components().size();
-
-      for (auto i = 0ul; i < multipars.components().size(); ++i) {
-        // extract the single representation of the component
-        const auto [weight, bound, cov] = multipars.components().at(i);
-        const auto free = Acts::detail::transformBoundToFreeParameters(
-            multipars.referenceSurface(), gctx, bound);
-
-        for (auto e = eFreePos0; e < eFreeSize;
-             e = static_cast<FreeIndices>(e + 1)) {
-          pars[e][i] = free[e];
-        }
-
-        // weight
-        weights[i] = weight;
-
-        // handle covariance
-        if (cov) {
-          covTransport = true;
-          covs[i] = BoundSymMatrix(*cov);
-          jacToGlobals[i] =
-              multipars.referenceSurface().boundToFreeJacobian(gctx, bound);
-        }
-      }
-
-      // TODO Smater initialization when moving to std::array...
-      for (auto i = 0ul; i < NComponents; ++i) {
-        stepSizes.push_back(ConstrainedStep(ssize));
-        status[i] = Intersection3D::Status::reachable;
-      }
-    }
-
     /// Number of current active components
     std::size_t numComponents;
 
@@ -224,10 +159,10 @@ class MultiEigenStepperSIMD
     // TODO solve this later
     std::vector<ConstrainedStep> stepSizes;
 
-    /// Scalar parameters
-    double q = 1.;
+    /// Particle hypothesis
+    ParticleHypothesis particleHypothesis = ParticleHypothesis::pion();
+
     bool covTransport = false;
-    Direction navDir;
     double pathAccumulated = 0.;
 
     // Bfield cache
@@ -248,6 +183,64 @@ class MultiEigenStepperSIMD
       SimdVector3 k1, k2, k3, k4;
       std::array<SimdScalar, 4> kQoP;
     } stepData;
+
+
+    State() = delete;
+
+    /// Constructor from the initial bound track parameters
+    ///
+    /// @tparam charge_t Type of the bound parameter charge
+    ///
+    /// @param [in] gctx is the context object for the geometry
+    /// @param [in] mctx is the context object for the magnetic field
+    /// @param [in] par The track parameters at start
+    /// @param [in] ndir The navigation direciton w.r.t momentum
+    /// @param [in] ssize is the maximum step size
+    /// @param [in] stolerance is the stepping tolerance
+    ///
+    /// @note the covariance matrix is copied when needed
+    explicit State(const GeometryContext& gctx,
+                   const MagneticFieldContext& mctx,
+                   const std::shared_ptr<const MagneticFieldProvider>& bfield,
+                   const MultiComponentBoundTrackParameters& multipars,
+                   double ssize = std::numeric_limits<double>::max())
+        : particleHypothesis(multipars.particleHypothesis()),
+          fieldCache(bfield->makeCache(mctx)),
+          geoContext(gctx) {
+      assert(!multipars.components().empty() && "empty cmps");
+      assert(multipars.components().size() <= NComponents && "mismatching cmp number");
+
+      numComponents = multipars.components().size();
+
+      for (auto i = 0ul; i < multipars.components().size(); ++i) {
+        // extract the single representation of the component
+        const auto [weight, bound, cov] = multipars.components().at(i);
+        const auto free = Acts::detail::transformBoundToFreeParameters(
+            multipars.referenceSurface(), gctx, bound);
+
+        for (auto e = eFreePos0; e < eFreeSize;
+             e = static_cast<FreeIndices>(e + 1)) {
+          pars[e][i] = free[e];
+        }
+
+        // weight
+        weights[i] = weight;
+
+        // handle covariance
+        if (cov) {
+          covTransport = true;
+          covs[i] = BoundSquareMatrix(*cov);
+          jacToGlobals[i] =
+              multipars.referenceSurface().boundToFreeJacobian(gctx, bound);
+        }
+      }
+
+      // TODO Smater initialization when moving to std::array...
+      for (auto i = 0ul; i < NComponents; ++i) {
+        stepSizes.push_back(ConstrainedStep(ssize));
+        status[i] = Intersection3D::Status::reachable;
+      }
+    }
   };
 
   /// Proxy class that redirects calls to multi-calls
@@ -331,7 +324,7 @@ class MultiEigenStepperSIMD
 
    public:
     ComponentProxyBase(state_t& s, std::size_t i) : m_state(s), m_i(i) {
-      throw_assert(i < NComponents, "Cannot create proxy: out of range");
+      assert(i < NComponents && "Cannot create proxy: out of range");
     }
 
     auto weight() const { return m_state.weights[m_i]; }
@@ -494,10 +487,9 @@ class MultiEigenStepperSIMD
     return state.numComponents;
   }
 
-  template <typename charge_t>
   State makeState(std::reference_wrapper<const GeometryContext> gctx,
                   std::reference_wrapper<const MagneticFieldContext> mctx,
-                  const MultiComponentBoundTrackParameters<charge_t>& par,
+                  const MultiComponentBoundTrackParameters& par,
                   Direction ndir = Direction::Forward,
                   double ssize = std::numeric_limits<double>::max(),
                   double stolerance = s_onSurfaceTolerance) const {
@@ -739,7 +731,7 @@ class MultiEigenStepperSIMD
   /// @param [in] stepSize Step size
   void resetState(
       State& /*state*/, const BoundVector& /*boundParams*/,
-      const BoundSymMatrix& /*cov*/, const Surface& /*surface*/,
+      const BoundSquareMatrix& /*cov*/, const Surface& /*surface*/,
       const Direction /*navDir*/ = Direction::Forward,
       const double /*stepSize*/ = std::numeric_limits<double>::max()) const {
     throw std::runtime_error("'resetState' not yet implemented correctely");
@@ -861,8 +853,7 @@ class MultiEigenStepperSIMD
   template <typename component_rep_t>
   void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
                         const Surface&) const {
-    throw_assert(cmps.size() <= NComponents,
-                 "tried to create more components than possible");
+    assert(cmps.size() <= NComponents && "tried to create more components than possible");
 
     state.numComponents = cmps.size();
 
@@ -919,8 +910,9 @@ class MultiEigenStepperSIMD
 
   // Seperated stepsize estimate from Single eigen stepper
   /// TODO state should be constant, but then magne
-  template <typename propagator_state_t>
+  template <typename propagator_state_t, typename navigator_t>
   Result<double> estimate_step_size(const propagator_state_t& state,
+                                    const navigator_t &navigator,
                                     const Vector3& k1,
                                     MagneticFieldProvider::Cache& fieldCache,
                                     const SingleProxyStepper& stepper,
@@ -959,13 +951,13 @@ class MultiEigenStepperSIMD
       // Second Runge-Kutta point
       const Vector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
       sd.B_middle = *SingleStepper::m_bField->getField(pos1, fieldCache);
-      if (!extension.k2(state, stepper, sd.k2, sd.B_middle, sd.kQoP, half_h,
+      if (!extension.k2(state, stepper, navigator, sd.k2, sd.B_middle, sd.kQoP, half_h,
                         sd.k1)) {
         return false;
       }
 
       // Third Runge-Kutta point
-      if (!extension.k3(state, stepper, sd.k3, sd.B_middle, sd.kQoP, half_h,
+      if (!extension.k3(state, stepper, navigator, sd.k3, sd.B_middle, sd.kQoP, half_h,
                         sd.k2)) {
         return false;
       }
@@ -973,7 +965,7 @@ class MultiEigenStepperSIMD
       // Last Runge-Kutta point
       const Vector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
       sd.B_last = *SingleStepper::m_bField->getField(pos2, fieldCache);
-      if (!extension.k4(state, stepper, sd.k4, sd.B_last, sd.kQoP, h, sd.k3)) {
+      if (!extension.k4(state, stepper, navigator, sd.k4, sd.B_last, sd.kQoP, h, sd.k3)) {
         return false;
       }
 
@@ -1025,7 +1017,7 @@ class MultiEigenStepperSIMD
   /// parameters that are being propagated.
   template <typename propagator_state_t, typename navigator_t>
   Result<double> step(propagator_state_t& state,
-                      const navigator_t& /*navigator*/) const {
+                      const navigator_t& navigator) const {
     auto& sd = state.stepping.stepData;
     auto& stepping = state.stepping;
 
@@ -1034,16 +1026,16 @@ class MultiEigenStepperSIMD
 
     // First Runge-Kutta point
     sd.B_first = getMultiField(stepping, pos);
-    if (!stepping.extension.validExtensionForStep(state, MultiProxyStepper{}) ||
-        !stepping.extension.k1(state, MultiProxyStepper{}, sd.k1, sd.B_first,
+    if (!stepping.extension.validExtensionForStep(state, MultiProxyStepper{}, navigator) ||
+        !stepping.extension.k1(state, MultiProxyStepper{}, navigator, sd.k1, sd.B_first,
                                sd.kQoP)) {
       return EigenStepperError::StepInvalid;
     }
 
     // check for nan
-    for (int i = 0; i < 3; ++i)
-      throw_assert(!sd.k1[i].isNaN().any(),
-                   "k1 contains nan for component " << i);
+    for (int i = 0; i < 3; ++i) {
+      assert(!sd.k1[i].isNaN().any() && "k1 contains nan");
+    }
 
     // Now do stepsize estimate, use the minimum momentum component for this
     auto estimated_h = [&]() {
@@ -1053,7 +1045,7 @@ class MultiEigenStepperSIMD
       const Vector3 k1{sd.k1[0][r], sd.k1[1][r], sd.k1[2][r]};
       const ConstrainedStep h = stepping.stepSizes[r];
 
-      return estimate_step_size(state, k1, stepping.fieldCache,
+      return estimate_step_size(state, navigator, k1, stepping.fieldCache,
                                 SingleProxyStepper{static_cast<std::size_t>(r)},
                                 h);
     }();
@@ -1089,53 +1081,53 @@ class MultiEigenStepperSIMD
     const SimdVector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
     sd.B_middle = getMultiField(stepping, pos1);
 
-    if (!stepping.extension.k2(state, MultiProxyStepper{}, sd.k2, sd.B_middle,
+    if (!stepping.extension.k2(state, MultiProxyStepper{}, navigator, sd.k2, sd.B_middle,
                                sd.kQoP, half_h, sd.k1)) {
       return EigenStepperError::StepInvalid;
     }
 
     // check for nan
-    for (int i = 0; i < 3; ++i)
-      throw_assert(!sd.k2[i].isNaN().any(),
-                   "k2 contains nan for component " << i);
+    for (int i = 0; i < 3; ++i) {
+      assert(!sd.k2[i].isNaN().any() && "k2 contains nan");
+    }
 
     // Third Runge-Kutta point
-    if (!stepping.extension.k3(state, MultiProxyStepper{}, sd.k3, sd.B_middle,
+    if (!stepping.extension.k3(state, MultiProxyStepper{}, navigator, sd.k3, sd.B_middle,
                                sd.kQoP, half_h, sd.k2)) {
       return EigenStepperError::StepInvalid;
     }
 
     // check for nan
-    for (int i = 0; i < 3; ++i)
-      throw_assert(!sd.k3[i].isNaN().any(),
-                   "k3 contains nan for component " << i);
+    for (int i = 0; i < 3; ++i) {
+      assert(!sd.k3[i].isNaN().any() && "k3 contains nan");
+    }
 
     // Last Runge-Kutta point
     const SimdVector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
     sd.B_last = getMultiField(stepping, pos2);
 
-    if (!stepping.extension.k4(state, MultiProxyStepper{}, sd.k4, sd.B_last,
+    if (!stepping.extension.k4(state, MultiProxyStepper{}, navigator, sd.k4, sd.B_last,
                                sd.kQoP, h, sd.k3)) {
       return EigenStepperError::StepInvalid;
     }
 
     // check for nan
-    for (int i = 0; i < 3; ++i)
-      throw_assert(!sd.k4[i].isNaN().any(),
-                   "k4 contains nan for component " << i);
+    for (int i = 0; i < 3; ++i) {
+      assert(!sd.k4[i].isNaN().any() && "k4 contains nan");
+    }
 
     // When doing error propagation, update the associated Jacobian matrix
     if (stepping.covTransport) {
       // The step transport matrix in global coordinates
       SimdFreeMatrix D;
-      if (!stepping.extension.finalize(state, MultiProxyStepper{}, h, D)) {
+      if (!stepping.extension.finalize(state, MultiProxyStepper{}, navigator, h, D)) {
         return EigenStepperError::StepInvalid;
       }
 
       // for moment, only update the transport part
       stepping.jacTransport = D * stepping.jacTransport;
     } else {
-      if (!stepping.extension.finalize(state, MultiProxyStepper{}, h)) {
+      if (!stepping.extension.finalize(state, MultiProxyStepper{}, navigator, h)) {
         return EigenStepperError::StepInvalid;
       }
     }
@@ -1160,9 +1152,7 @@ class MultiEigenStepperSIMD
 
     // check for nan
     for (auto i = 0ul; i < eFreeSize; ++i)
-      throw_assert(
-          !stepping.pars[i].isNaN().any(),
-          "AT THE END track parameters contain nan for component " << i);
+      assert(!stepping.pars[i].isNaN().any() && "free parameters contain nan");
 
     // Compute average step and return
     const auto avg_step = h.sum() / NComponents;
