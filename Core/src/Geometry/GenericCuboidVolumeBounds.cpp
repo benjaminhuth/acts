@@ -9,6 +9,7 @@
 #include "Acts/Geometry/GenericCuboidVolumeBounds.hpp"
 
 #include "Acts/Definitions/Algebra.hpp"
+#include "Acts/Definitions/Direction.hpp"
 #include "Acts/Geometry/Volume.hpp"
 #include "Acts/Surfaces/ConvexPolygonBounds.hpp"
 #include "Acts/Surfaces/PlaneSurface.hpp"
@@ -23,6 +24,8 @@
 #include <memory>
 #include <ostream>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 Acts::GenericCuboidVolumeBounds::GenericCuboidVolumeBounds(
     const std::array<Acts::Vector3, 8>& vertices) noexcept(false)
@@ -31,7 +34,7 @@ Acts::GenericCuboidVolumeBounds::GenericCuboidVolumeBounds(
 }
 
 Acts::GenericCuboidVolumeBounds::GenericCuboidVolumeBounds(
-    const std::array<double, GenericCuboidVolumeBounds::eSize>&
+    const std::array<double, GenericCuboidVolumeBounds::BoundValues::eSize>&
         values) noexcept(false)
     : m_vertices() {
   for (size_t iv = 0; iv < 8; ++iv) {
@@ -87,6 +90,10 @@ Acts::OrientedSurfaces Acts::GenericCuboidVolumeBounds::orientedSurfaces(
     // z is normal in local coordinates
     // Volume local to surface local
     Transform3 vol2srf;
+
+    // GCC13+ Complains about maybe uninitialized memory inside Eigen's SVD code
+    // This warning is ignored in this compilation unit by using the pragma at
+    // the top of this file.
     vol2srf = (Eigen::Quaternion<Transform3::Scalar>().setFromTwoVectors(
         normal, Vector3::UnitZ()));
 
@@ -181,7 +188,7 @@ void Acts::GenericCuboidVolumeBounds::construct() noexcept(false) {
 
 std::vector<double> Acts::GenericCuboidVolumeBounds::values() const {
   std::vector<double> rvalues;
-  rvalues.reserve(eSize);
+  rvalues.reserve(BoundValues::eSize);
   for (size_t iv = 0; iv < 8; ++iv) {
     for (size_t ic = 0; ic < 3; ++ic) {
       rvalues.push_back(m_vertices[iv][ic]);

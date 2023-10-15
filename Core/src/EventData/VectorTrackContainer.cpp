@@ -8,6 +8,10 @@
 
 #include "Acts/EventData/VectorTrackContainer.hpp"
 
+#include "Acts/EventData/ParticleHypothesis.hpp"
+
+#include <iterator>
+
 namespace Acts {
 
 namespace detail_vtc {
@@ -15,6 +19,8 @@ namespace detail_vtc {
 VectorTrackContainerBase::VectorTrackContainerBase(
     const VectorTrackContainerBase& other)
     : m_tipIndex{other.m_tipIndex},
+      m_stemIndex{other.m_stemIndex},
+      m_particleHypothesis{other.m_particleHypothesis},
       m_params{other.m_params},
       m_cov{other.m_cov},
       m_referenceSurfaces{other.m_referenceSurfaces},
@@ -35,7 +41,9 @@ VectorTrackContainer::IndexType VectorTrackContainer::addTrack_impl() {
   assert(checkConsistency());
 
   m_tipIndex.emplace_back(kInvalid);
+  m_stemIndex.emplace_back(kInvalid);
 
+  m_particleHypothesis.emplace_back(ParticleHypothesis::pion());
   m_params.emplace_back();
   m_cov.emplace_back();
   m_referenceSurfaces.emplace_back();
@@ -68,6 +76,7 @@ void VectorTrackContainer::removeTrack_impl(IndexType itrack) {
   };
 
   erase(m_tipIndex);
+  erase(m_stemIndex);
 
   erase(m_params);
   erase(m_cov);
@@ -111,7 +120,9 @@ void VectorTrackContainer::ensureDynamicColumns_impl(
 
 void VectorTrackContainer::reserve(IndexType size) {
   m_tipIndex.reserve(size);
+  m_stemIndex.reserve(size);
 
+  m_particleHypothesis.reserve(size);
   m_params.reserve(size);
   m_cov.reserve(size);
   m_referenceSurfaces.reserve(size);
@@ -127,6 +138,29 @@ void VectorTrackContainer::reserve(IndexType size) {
 
   for (auto& [key, vec] : m_dynamic) {
     vec->reserve(size);
+  }
+}
+
+void VectorTrackContainer::clear() {
+  m_tipIndex.clear();
+  m_stemIndex.clear();
+
+  m_particleHypothesis.clear();
+  m_params.clear();
+  m_cov.clear();
+  m_referenceSurfaces.clear();
+
+  m_nMeasurements.clear();
+  m_nHoles.clear();
+
+  m_chi2.clear();
+  m_ndf.clear();
+
+  m_nOutliers.clear();
+  m_nSharedHits.clear();
+
+  for (auto& [key, vec] : m_dynamic) {
+    vec->clear();
   }
 }
 

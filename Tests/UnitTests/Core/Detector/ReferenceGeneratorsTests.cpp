@@ -10,10 +10,15 @@
 
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Detector/detail/ReferenceGenerators.hpp"
+#include "Acts/Geometry/GeometryContext.hpp"
 #include "Acts/Surfaces/PlaneSurface.hpp"
 #include "Acts/Surfaces/RectangleBounds.hpp"
+#include "Acts/Surfaces/Surface.hpp"
+#include "Acts/Utilities/BinningType.hpp"
 
 #include <memory>
+#include <utility>
+#include <vector>
 
 using namespace Acts::Experimental::detail;
 
@@ -36,8 +41,9 @@ BOOST_AUTO_TEST_CASE(CenterReference) {
 BOOST_AUTO_TEST_CASE(BinningPositionReference) {
   // Simply return binning position, we test only the behavior of the generator
   // not the output
-  auto binningPosition = BinningValueReferenceGenerator{Acts::binZ}.references(
-      tContext, *pSurface);
+  auto binningPosition =
+      BinningValueReferenceGenerator<Acts::binZ>{}.references(tContext,
+                                                              *pSurface);
   BOOST_CHECK(binningPosition.size() == 1u);
 }
 
@@ -45,7 +51,7 @@ BOOST_AUTO_TEST_CASE(PolyhedronReference) {
   // Simply return binning position, we test only the behavior of the generator
   // not the output
   auto referencePositions =
-      PolyhedronReferenceGenerator{}.references(tContext, *pSurface);
+      PolyhedronReferenceGenerator<>{}.references(tContext, *pSurface);
   // 4 corners with center of gravity
   BOOST_CHECK(referencePositions.size() == 5u);
 }

@@ -11,9 +11,9 @@
 #include "Acts/Detector/Portal.hpp"
 #include "Acts/MagneticField/ConstantBField.hpp"
 #include "Acts/MagneticField/MagneticFieldContext.hpp"
+#include "Acts/Navigation/DetectorNavigator.hpp"
 #include "Acts/Navigation/DetectorVolumeFinders.hpp"
 #include "Acts/Navigation/NavigationState.hpp"
-#include "Acts/Navigation/NextNavigator.hpp"
 #include "Acts/Navigation/SurfaceCandidatesUpdators.hpp"
 #include "Acts/Propagator/AbortList.hpp"
 #include "Acts/Propagator/EigenStepper.hpp"
@@ -75,11 +75,9 @@ int main() {
       mockup_builder.buildChamber(mockup_chamberConfig_outer);
 
   std::vector<std::shared_ptr<Acts::Experimental::DetectorVolume>>
-      detector_volumes = {};
-
-  detector_volumes.push_back(detectorVolume_inner_chamber);
-  detector_volumes.push_back(detectorVolume_middle_chamber);
-  detector_volumes.push_back(detectorVolume_outer_chamber);
+      detector_volumes = {detectorVolume_inner_chamber,
+                          detectorVolume_middle_chamber,
+                          detectorVolume_outer_chamber};
 
   auto detectorVolume_sector = mockup_builder.buildSector(detector_volumes);
 

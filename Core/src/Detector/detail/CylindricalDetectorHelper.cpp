@@ -8,13 +8,12 @@
 
 #include "Acts/Detector/detail/CylindricalDetectorHelper.hpp"
 
-#include "Acts/Detector/Detector.hpp"
+#include "Acts/Definitions/Direction.hpp"
+#include "Acts/Definitions/Tolerance.hpp"
 #include "Acts/Detector/DetectorVolume.hpp"
+#include "Acts/Detector/Portal.hpp"
 #include "Acts/Detector/detail/PortalHelper.hpp"
 #include "Acts/Geometry/CutoutCylinderVolumeBounds.hpp"
-#include "Acts/Geometry/CylinderVolumeBounds.hpp"
-#include "Acts/Geometry/VolumeBounds.hpp"
-#include "Acts/Navigation/DetectorVolumeFinders.hpp"
 #include "Acts/Surfaces/CylinderBounds.hpp"
 #include "Acts/Surfaces/CylinderSurface.hpp"
 #include "Acts/Surfaces/DiscSurface.hpp"
@@ -22,12 +21,25 @@
 #include "Acts/Surfaces/PlaneSurface.hpp"
 #include "Acts/Surfaces/RadialBounds.hpp"
 #include "Acts/Surfaces/RectangleBounds.hpp"
+#include "Acts/Surfaces/Surface.hpp"
+#include "Acts/Surfaces/SurfaceBounds.hpp"
+#include "Acts/Utilities/BinningType.hpp"
 #include "Acts/Utilities/Enumerate.hpp"
 #include "Acts/Utilities/Helpers.hpp"
+#include "Acts/Utilities/StringHelpers.hpp"
 #include "Acts/Utilities/detail/Axis.hpp"
 #include "Acts/Utilities/detail/Grid.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <iterator>
+#include <map>
+#include <ostream>
 #include <stdexcept>
+#include <string>
+#include <tuple>
+#include <utility>
 
 // Indexing of the portals follows the generation order of portals in the
 // CylinderVolumeBounds and BevelledCylinderVolumeBounds (latter for wrapping)
@@ -210,7 +222,7 @@ stripSideVolumes(
     Acts::Logging::Level logLevel = Acts::Logging::INFO) {
   ACTS_LOCAL_LOGGER(Acts::getDefaultLogger("::stripSideVolumes", logLevel));
 
-  // Thes are the stripped off outside volumes
+  // These are the stripped off outside volumes
   std::map<unsigned int,
            std::vector<std::shared_ptr<Acts::Experimental::DetectorVolume>>>
       sideVolumes;
@@ -274,7 +286,7 @@ void checkAlignment(
   }
 }
 
-/// @brief Helper method to check the volumes in general and throw and excpetion if failes
+/// @brief Helper method to check the volumes in general and throw and exception if fails
 ///
 /// @param gctx the geometry context
 /// @param volumes the input volumes to be checked
@@ -404,7 +416,7 @@ Acts::Experimental::detail::CylindricalDetectorHelper::connectInR(
   // Fuse the cylinders - portals can be reused for this operation
   for (unsigned int iv = 1; iv < volumes.size(); ++iv) {
     refValues = volumes[iv]->volumeBounds().values();
-    // Keep on collecting the outside maximum r for the overal r boundaries
+    // Keep on collecting the outside maximum r for the overall r boundaries
     rBoundaries.push_back(refValues[CylinderVolumeBounds::BoundValues::eMaxR]);
     // Only connect if configured to do so
     if (connectR) {
@@ -412,7 +424,7 @@ Acts::Experimental::detail::CylindricalDetectorHelper::connectInR(
                                       << volumes[iv]->name() << "'.");
 
       // When fusing volumes at a cylinder boundary, we *keep* one
-      // portal and tranfer the portal link information from the other
+      // portal and transfer the portal link information from the other
       //
       // In this case the outer cylinder portal of the inner volume is kept,
       // the inner cylinder of the outer portal goes to waste
@@ -442,7 +454,7 @@ Acts::Experimental::detail::CylindricalDetectorHelper::connectInR(
   // direction, the binning and bins
   std::vector<PortalReplacement> pReplacements = {};
 
-  // Disc assignments are forwad for negative disc, backward for positive
+  // Disc assignments are forward for negative disc, backward for positive
   std::vector<Acts::Direction> discDirs = {Acts::Direction::Forward,
                                            Acts::Direction::Backward};
   for (const auto [iu, idir] : enumerate(discDirs)) {
@@ -521,7 +533,7 @@ Acts::Experimental::detail::CylindricalDetectorHelper::connectInZ(
   // Check for bounds compatibility
   // We check phi sector (3u) and average phi (4u)
   std::vector<std::array<unsigned int, 2u>> checks = {{3u, 3u}, {4u, 4u}};
-  // And we check the inner radius [0u], outer radius[1u] if its' not a
+  // And we check the inner radius [0u], outer radius[1u] if it is not a
   // selective attachment
   if (selectedOnly.empty()) {
     checks.push_back({0u, 0u});
@@ -572,7 +584,7 @@ Acts::Experimental::detail::CylindricalDetectorHelper::connectInZ(
       ACTS_VERBOSE("Connect volume '" << volumes[iv - 1]->name() << "' to "
                                       << volumes[iv]->name() << "'.");
       // When fusing, one portal survives (keep) and gets the
-      // portal linking from the waste tranfered
+      // portal linking from the waste transferred
       //
       // In this case we keep the disc at positive z of the volume
       // at lower relative z, and trash the disc at negative z of the
@@ -644,7 +656,7 @@ Acts::Experimental::detail::CylindricalDetectorHelper::connectInZ(
   // direction, the binning and bins
   std::vector<PortalReplacement> pReplacements = {};
 
-  // Disc assignments are forwad for negative disc, backward for positive
+  // Disc assignments are forward for negative disc, backward for positive
   std::vector<Acts::Direction> cylinderDirs = {Acts::Direction::Backward};
   // Cylinder radii
   std::vector<Acts::ActsScalar> cylinderR = {maxR};
@@ -1064,7 +1076,7 @@ Acts::Experimental::detail::CylindricalDetectorHelper::wrapInZR(
     Acts::Logging::Level logLevel) {
   if (containers.size() != 2u) {
     throw std::invalid_argument(
-        "CylindricalDetectorHelper: wrapping must take exaclty two "
+        "CylindricalDetectorHelper: wrapping must take exactly two "
         "containers.");
   }
 
@@ -1165,75 +1177,4 @@ Acts::Experimental::detail::CylindricalDetectorHelper::wrapInZR(
 
   // Done.
   return dShell;
-}
-
-std::array<std::vector<Acts::ActsScalar>, 3u>
-Acts::Experimental::detail::CylindricalDetectorHelper::rzphiBoundaries(
-    const GeometryContext& gctx,
-    const std::vector<const Acts::Experimental::DetectorVolume*>& volumes,
-    Acts::Logging::Level logLevel) {
-  // The local logger
-  ACTS_LOCAL_LOGGER(getDefaultLogger("CylindricalDetectorHelper", logLevel));
-
-  ACTS_DEBUG("Estimate R/z/phi boundaries of  " << volumes.size()
-                                                << " volumes.");
-
-  // The return boundaries
-  std::array<std::vector<Acts::ActsScalar>, 3u> boundaries;
-
-  // The map for collecting
-  std::array<std::map<ActsScalar, size_t>, 3u> valueMaps;
-  auto& rMap = valueMaps[0u];
-  auto& zMap = valueMaps[1u];
-  auto& phiMap = valueMaps[2u];
-
-  auto fillMap = [&](std::map<ActsScalar, size_t>& map,
-                     const std::array<ActsScalar, 2u>& values) {
-    for (auto v : values) {
-      if (map.find(v) != map.end()) {
-        ++map[v];
-      } else {
-        map[v] = 1u;
-      }
-    }
-  };
-
-  // Loop over the volumes and collect boundaries
-  for (const auto& v : volumes) {
-    if (v->volumeBounds().type() == Acts::VolumeBounds::BoundsType::eCylinder) {
-      auto bValues = v->volumeBounds().values();
-      // The min/max values
-      ActsScalar rMin = bValues[CylinderVolumeBounds::BoundValues::eMinR];
-      ActsScalar rMax = bValues[CylinderVolumeBounds::BoundValues::eMaxR];
-      ActsScalar zCenter = v->transform(gctx).translation().z();
-      ActsScalar zHalfLength =
-          bValues[CylinderVolumeBounds::BoundValues::eHalfLengthZ];
-      ActsScalar zMin = zCenter - zHalfLength;
-      ActsScalar zMax = zCenter + zHalfLength;
-      ActsScalar phiCenter =
-          bValues[CylinderVolumeBounds::BoundValues::eAveragePhi];
-      ActsScalar phiSector =
-          bValues[CylinderVolumeBounds::BoundValues::eHalfPhiSector];
-      ActsScalar phiMin = phiCenter - phiSector;
-      ActsScalar phiMax = phiCenter + phiSector;
-      // Fill the maps
-      fillMap(rMap, {rMin, rMax});
-      fillMap(zMap, {zMin, zMax});
-      fillMap(phiMap, {phiMin, phiMax});
-    }
-  }
-
-  for (auto [im, map] : enumerate(valueMaps)) {
-    for (auto [key, value] : map) {
-      boundaries[im].push_back(key);
-    }
-    std::sort(boundaries[im].begin(), boundaries[im].end());
-  }
-
-  ACTS_VERBOSE("- did yield " << boundaries[0u].size() << " boundaries in R.");
-  ACTS_VERBOSE("- did yield " << boundaries[1u].size() << " boundaries in z.");
-  ACTS_VERBOSE("- did yield " << boundaries[2u].size()
-                              << " boundaries in phi.");
-
-  return boundaries;
 }

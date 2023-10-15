@@ -10,14 +10,31 @@
 
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Detector/detail/IndexedGridFiller.hpp"
+#include "Acts/Detector/detail/ReferenceGenerators.hpp"
+#include "Acts/Geometry/GeometryContext.hpp"
+#include "Acts/Navigation/NavigationStateUpdators.hpp"
 #include "Acts/Navigation/SurfaceCandidatesUpdators.hpp"
 #include "Acts/Surfaces/CylinderBounds.hpp"
 #include "Acts/Surfaces/CylinderSurface.hpp"
 #include "Acts/Surfaces/PlaneSurface.hpp"
 #include "Acts/Surfaces/RectangleBounds.hpp"
+#include "Acts/Surfaces/Surface.hpp"
+#include "Acts/Utilities/BinningType.hpp"
+#include "Acts/Utilities/Enumerate.hpp"
 #include "Acts/Utilities/Logger.hpp"
+#include "Acts/Utilities/TypeTraits.hpp"
 #include "Acts/Utilities/detail/Axis.hpp"
+#include "Acts/Utilities/detail/AxisFwd.hpp"
 #include "Acts/Utilities/detail/Grid.hpp"
+
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <memory>
+#include <ostream>
+#include <set>
+#include <utility>
+#include <vector>
 
 using namespace Acts;
 using namespace Acts::detail;
@@ -157,7 +174,7 @@ BOOST_AUTO_TEST_CASE(IndexGridXYOneSurfaceBinValue) {
   IndexedGridFiller filler{{}};
   filler.oLogger = getDefaultLogger("IndexGridFiller", Logging::VERBOSE);
 
-  BinningValueReferenceGenerator generator{binX};
+  BinningValueReferenceGenerator<binX> generator;
   std::vector<std::shared_ptr<Surface>> surfaces = {pSurface};
 
   // Fill the surface
@@ -194,7 +211,7 @@ BOOST_AUTO_TEST_CASE(IndexGridXYOneSurfacePolyhedron) {
   IndexedGridFiller filler{{0u, 0u}};
   filler.oLogger = getDefaultLogger("IndexGridFiller", Logging::DEBUG);
 
-  PolyhedronReferenceGenerator generator;
+  PolyhedronReferenceGenerator<1u, true> generator;
   std::vector<std::shared_ptr<Surface>> surfaces = {pSurface};
 
   // Fill the surface
@@ -231,7 +248,7 @@ BOOST_AUTO_TEST_CASE(IndexGridXYOneSurfacePolyhedronBinExpansion) {
   IndexedGridFiller filler{{1u, 1u}};
   filler.oLogger = getDefaultLogger("IndexGridFiller", Logging::DEBUG);
 
-  PolyhedronReferenceGenerator generator;
+  PolyhedronReferenceGenerator<1u, true> generator;
   std::vector<std::shared_ptr<Surface>> surfaces = {pSurface};
 
   // Fill the surface
@@ -268,7 +285,7 @@ BOOST_AUTO_TEST_CASE(IndexGridZPhiYOneSurfacePolyhedronBinExpansion) {
   IndexedGridFiller filler{{0u, 0u}};
   filler.oLogger = getDefaultLogger("IndexGridFiller", Logging::DEBUG);
 
-  PolyhedronReferenceGenerator generator;
+  PolyhedronReferenceGenerator<1u, true> generator;
   std::vector<std::shared_ptr<Surface>> surfaces = {cSurface};
 
   // Fill the surface
@@ -304,7 +321,7 @@ BOOST_AUTO_TEST_CASE(IndexGridZPhiYOneSurfaceMPIPolyhedronBinExpansion) {
   IndexedGridFiller filler{{0u, 0u}};
   filler.oLogger = getDefaultLogger("IndexGridFiller", Logging::DEBUG);
 
-  PolyhedronReferenceGenerator generator;
+  PolyhedronReferenceGenerator<1u, true> generator;
   std::vector<std::shared_ptr<Surface>> surfaces = {cSurface};
 
   // Fill the surface
