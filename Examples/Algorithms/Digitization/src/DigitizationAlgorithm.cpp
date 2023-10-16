@@ -151,10 +151,7 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
   auto rng = m_cfg.randomNumbers->spawnGenerator(ctx);
 
   // Some statistics
-  std::size_t hitSmearingErrors = 0;
-  double sumPt = 0.0;
-  double maxPt = 0.0;
-  double minPt = std::numeric_limits<double>::max();
+  std::size_t skippedHits = 0;
 
   ACTS_DEBUG("Starting loop over modules ...");
   for (const auto& simHitsGroup : groupByModule(simHits)) {
@@ -228,17 +225,9 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
               auto res =
                   digitizer.smearing(rng, simHit, *surfacePtr, ctx.geoContext);
               if (not res.ok()) {
-                hitSmearingErrors++;
-                ACTS_VERBOSE("Problem in hit smearing, skip hit ("
-                             << res.error().message() << ")");
-
-                // Some statistics
-                const auto pt = std::hypot(simHit.momentum4Before()[0],
-                                           simHit.momentum4Before()[1]);
-                sumPt += pt;
-                minPt = std::min(minPt, pt);
-                maxPt = std::max(maxPt, pt);
-
+                ++skippedHits;
+                ACTS_DEBUG("Problem in hit smearing, skip hit ("
+                           << res.error().message() << ")");
                 continue;
               }
               const auto& [par, cov] = res.value();
@@ -289,11 +278,10 @@ ActsExamples::ProcessCode ActsExamples::DigitizationAlgorithm::execute(
         *digitizerItr);
   }
 
-  if (hitSmearingErrors > 0) {
-    ACTS_WARNING("Encountered " << hitSmearingErrors << " hit smearing errors");
-    ACTS_WARNING("-> avg pT: " << sumPt / hitSmearingErrors);
-    ACTS_WARNING("-> min pT: " << minPt);
-    ACTS_WARNING("-> max pT: " << maxPt);
+  if (skippedHits > 0) {
+    ACTS_WARNING(
+        skippedHits
+        << " skipped in Digitization. Enable DEBUG mode to see more details.");
   }
 
   m_sourceLinkWriteHandle(ctx, std::move(sourceLinks));

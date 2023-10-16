@@ -105,7 +105,16 @@ class CylindricalDetectorVolume:
 
 class CylindricalDetectorContainer:
     def __init__(
-        self, name, extent, volumes, layers=None, binning=[], loglevel=logging.INFO
+        self,
+        name,
+        extent,
+        volumes,
+        layers=None,
+        binning=[],
+        rootbuilder=None,
+        geoidgenerator=None,
+        reversegeoids=False,
+        loglevel=logging.INFO,
     ):
         """Create a cylindrical container builder from  volumes or layer definitions
 
@@ -114,6 +123,9 @@ class CylindricalDetectorContainer:
         :param volumes: list of volumes
         :param layers: list of layers [ [extent, provider, binnings, supports], ... ]
         :param binning: binning of surfces in this container
+        :param rootbuilder: root volume finder builder
+        :param geoidgenerator: geoid generator for setting geo ids
+        :param reversegeoids: reverse the geo id order
         :param loglevel: logging level
 
         """
@@ -122,6 +134,9 @@ class CylindricalDetectorContainer:
         self._layers = layers
         self._volumes = volumes
         self._binning = binning
+        self._rootbuilder = rootbuilder
+        self._geoidgenerator = geoidgenerator
+        self._reversegeoids = reversegeoids
         self._loglevel = loglevel
 
     def builder(self):
@@ -153,6 +168,7 @@ class CylindricalDetectorContainer:
                     ]
                 # Layer volume insertion
                 layer.prependName(self._name)
+
                 builders += [layer.builder()]
                 # Update reference and increment the counter
                 bReference = bRange[1]
@@ -179,5 +195,8 @@ class CylindricalDetectorContainer:
         containerConfig = CylindricalContainerBuilder.Config()
         containerConfig.builders = builders
         containerConfig.binning = [self._binning]
+        containerConfig.rootVolumeFinderBuilder = self._rootbuilder
+        containerConfig.geoIdGenerator = self._geoidgenerator
+        containerConfig.geoIdReverseGen = self._reversegeoids
         containerConfig.auxiliary = "Container[" + self._name + "]"
         return CylindricalContainerBuilder(containerConfig, self._name, self._loglevel)
