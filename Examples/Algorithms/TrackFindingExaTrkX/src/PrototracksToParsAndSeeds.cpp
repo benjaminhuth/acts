@@ -193,8 +193,8 @@ ProcessCode PrototracksToParsAndSeeds::execute(
   ACTS_DEBUG("Seeded " << seeds.size() << " out of " << prototracks.size()
                        << " prototracks");
 
-  m_outputSeeds(ctx, std::move(finalSeeds));
-  m_outputProtoTracks(ctx, std::move(finalTracks));
+  m_outputSeeds(ctx, std::move(seeds));
+  m_outputProtoTracks(ctx, std::move(seededTracks));
   m_outputParameters(ctx, std::move(parameters));
 
   return ProcessCode::SUCCESS;
