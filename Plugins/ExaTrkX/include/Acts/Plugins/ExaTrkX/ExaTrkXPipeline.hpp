@@ -11,13 +11,13 @@
 #include "Acts/Plugins/ExaTrkX/Stages.hpp"
 #include "Acts/Utilities/Logger.hpp"
 
-#include <boost/container/small_vector.hpp>
-
 #include <any>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <vector>
-#include <chrono>
+
+#include <boost/container/small_vector.hpp>
 
 namespace Acts {
 
@@ -47,7 +47,8 @@ class ExaTrkXPipeline {
   std::vector<std::vector<int>> run(std::vector<float> &features,
                                     std::vector<int> &spacepointIDs,
                                     int deviceHint = -1,
-                                    const ExaTrkXHook &hook = {}, ExaTrkXTiming* timing = nullptr) const;
+                                    const ExaTrkXHook &hook = {},
+                                    ExaTrkXTiming *timing = nullptr) const;
 
  private:
   std::unique_ptr<const Acts::Logger> m_logger;

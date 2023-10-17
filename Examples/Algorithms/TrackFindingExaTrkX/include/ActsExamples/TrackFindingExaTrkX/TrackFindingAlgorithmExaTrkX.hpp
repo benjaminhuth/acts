@@ -26,7 +26,6 @@
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics.hpp>
 
-
 class TruthGraph;
 
 namespace ActsExamples {
@@ -105,11 +104,8 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
   mutable std::mutex m_mutex;
 
   using Accumulator = boost::accumulators::accumulator_set<
-    float, boost::accumulators::features<
-      boost::accumulators::tag::mean,
-      boost::accumulators::tag::variance
-    >
-  >;
+      float, boost::accumulators::features<boost::accumulators::tag::mean,
+                                           boost::accumulators::tag::variance>>;
 
   mutable struct {
     Accumulator graphBuildingTime;

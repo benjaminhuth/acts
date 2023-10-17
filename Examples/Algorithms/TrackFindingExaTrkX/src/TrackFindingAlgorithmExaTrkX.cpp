@@ -12,12 +12,12 @@
 #include "Acts/Plugins/ExaTrkX/TorchGraphStoreHook.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
 #include "Acts/Plugins/ExaTrkX/detail/CudaInfo.hpp"
+#include "Acts/Utilities/Zip.hpp"
 #include "ActsExamples/EventData/Index.hpp"
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
-#include "Acts/Utilities/Zip.hpp"
 
 #include <mutex>
 #include <numeric>
@@ -172,7 +172,9 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   m_outputGraph.maybeInitialize(m_cfg.outputGraph);
 
   // reserve space for timing
-  m_timing.classifierTimes.resize(m_cfg.edgeClassifiers.size(), decltype(m_timing.classifierTimes)::value_type{0.f});
+  m_timing.classifierTimes.resize(
+      m_cfg.edgeClassifiers.size(),
+      decltype(m_timing.classifierTimes)::value_type{0.f});
 }
 
 /// Allow access to features with nice names
@@ -283,12 +285,14 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
     std::lock_guard<std::mutex> lock(m_mutex);
 
     Acts::ExaTrkXTiming timing;
-    auto res = m_pipeline.run(features, spacepointIDs, deviceHint, *hook, &timing);
+    auto res =
+        m_pipeline.run(features, spacepointIDs, deviceHint, *hook, &timing);
 
     m_timing.graphBuildingTime(timing.graphBuildingTime.count());
 
     assert(timing.classifierTimes.size() == m_timing.classifierTimes.size());
-    for(auto [aggr, a] : Acts::zip(m_timing.classifierTimes, timing.classifierTimes)) {
+    for (auto [aggr, a] :
+         Acts::zip(m_timing.classifierTimes, timing.classifierTimes)) {
       aggr(a.count());
     }
 
@@ -335,21 +339,23 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   return ActsExamples::ProcessCode::SUCCESS;
 }
 
-
 ActsExamples::ProcessCode TrackFindingAlgorithmExaTrkX::finalize() {
   namespace ba = boost::accumulators;
 
   ACTS_INFO("Exa.TrkX timing info");
   {
-    const auto &t = m_timing.graphBuildingTime;
-    ACTS_INFO("- graph building: " << ba::mean(t) << " +- " << std::sqrt(ba::variance(t)));
+    const auto& t = m_timing.graphBuildingTime;
+    ACTS_INFO("- graph building: " << ba::mean(t) << " +- "
+                                   << std::sqrt(ba::variance(t)));
   }
-  for(const auto &t : m_timing.classifierTimes) {
-    ACTS_INFO("- classifier:     " << ba::mean(t) << " +- " << std::sqrt(ba::variance(t)));
+  for (const auto& t : m_timing.classifierTimes) {
+    ACTS_INFO("- classifier:     " << ba::mean(t) << " +- "
+                                   << std::sqrt(ba::variance(t)));
   }
   {
-    const auto &t = m_timing.trackBuildingTime;
-    ACTS_INFO("- track building: " << ba::mean(t) << " +- " << std::sqrt(ba::variance(t)));
+    const auto& t = m_timing.trackBuildingTime;
+    ACTS_INFO("- track building: " << ba::mean(t) << " +- "
+                                   << std::sqrt(ba::variance(t)));
   }
 
   return {};

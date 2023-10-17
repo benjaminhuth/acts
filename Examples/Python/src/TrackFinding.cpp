@@ -23,12 +23,12 @@
 #include "ActsExamples/TrackFinding/SeedingOrthogonalAlgorithm.hpp"
 #include "ActsExamples/TrackFinding/SpacePointMaker.hpp"
 #include "ActsExamples/TrackFinding/TrackFindingAlgorithm.hpp"
+#include "ActsExamples/TrackFinding/TrackFindingFromPrototrackAlgorithm.hpp"
 #include "ActsExamples/TrackFinding/TrackParamsEstimationAlgorithm.hpp"
 #include "ActsExamples/Utilities/PrototracksToSeeds.hpp"
 #include "ActsExamples/Utilities/SeedsToPrototracks.hpp"
 #include "ActsExamples/Utilities/TracksToTrajectories.hpp"
 #include "ActsExamples/Utilities/TrajectoriesToPrototracks.hpp"
-#include "ActsExamples/TrackFinding/TrackFindingFromPrototrackAlgorithm.hpp"
 
 ////////////////////////////
 // For GNN+CKF Experiment //
