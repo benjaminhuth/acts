@@ -191,8 +191,9 @@ ProcessCode PrototracksToParsAndSeeds::execute(
     if (pars) {
       finalSeeds.emplace_back(std::move(seed));
       finalTracks.emplace_back(std::move(track));
-      parameters.push_back(Acts::BoundTrackParameters(surface.getSharedPtr(),
-                                                      *pars, m_covariance));
+      parameters.push_back(Acts::BoundTrackParameters(
+          surface.getSharedPtr(), *pars, m_covariance,
+          Acts::ParticleHypothesis::pion()));
     } else {
       ACTS_WARNING("Skip track because of bad params");
     }

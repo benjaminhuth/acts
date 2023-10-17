@@ -28,6 +28,7 @@
 #include "ActsExamples/Utilities/SeedsToPrototracks.hpp"
 #include "ActsExamples/Utilities/TracksToTrajectories.hpp"
 #include "ActsExamples/Utilities/TrajectoriesToPrototracks.hpp"
+#include "ActsExamples/TrackFinding/TrackFindingFromPrototrackAlgorithm.hpp"
 
 ////////////////////////////
 // For GNN+CKF Experiment //
@@ -35,7 +36,6 @@
 #include "ActsExamples/TrackFindingX/MeasurementMapSelectorAlgorithm.hpp"
 // #include "ActsExamples/TrackFindingX/ParameterFromTrajectoryAlgorithm.hpp"
 // #include "ActsExamples/TrackFindingX/SourceLinkSelectorAlgorithm.hpp"
-#include "ActsExamples/TrackFindingX/TrackFindingFromPrototrackAlgorithm.hpp"
 #include "ActsExamples/Utilities/MakeMeasurementParticlesMap.hpp"
 
 #include <array>
@@ -361,6 +361,13 @@ void addTrackFinding(Context& ctx) {
       ActsExamples::PrototracksToSeeds, mex, "PrototracksToSeeds",
       inputProtoTracks, inputSpacePoints, outputSeeds, outputProtoTracks);
 
+  ACTS_PYTHON_DECLARE_ALGORITHM(
+      ActsExamples::TrackFindingFromPrototrackAlgorithm, mex,
+      "TrackFindingFromPrototrackAlgorithm", inputProtoTracks,
+      inputMeasurements, inputSourceLinks, inputInitialTrackParameters,
+      outputTracks, measurementSelectorCfg, trackingGeometry, magneticField,
+      findTracks, tag);
+
   ////////////////////////////
   // For GNN+CKF Experiment //
   ////////////////////////////
@@ -375,13 +382,6 @@ void addTrackFinding(Context& ctx) {
     //     ActsExamples::ParameterFromTrajectoryAlgorithm, mex,
     //     "ParameterFromTrajectoryAlgorithm", inputTrajectories,
     //     outputParamters);
-
-    ACTS_PYTHON_DECLARE_ALGORITHM(
-        ActsExamples::TrackFindingFromPrototrackAlgorithm, mex,
-        "TrackFindingFromPrototrackAlgorithm", inputProtoTracks,
-        inputMeasurements, inputSourceLinks, inputInitialTrackParameters,
-        outputTracks, measurementSelectorCfg, trackingGeometry, magneticField,
-        findTracks, tag);
 
     ACTS_PYTHON_DECLARE_ALGORITHM(
         ActsExamples::MeasurementMapSelectorAlgorithm, mex,
