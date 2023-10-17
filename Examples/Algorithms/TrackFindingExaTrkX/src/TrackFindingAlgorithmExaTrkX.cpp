@@ -171,16 +171,6 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
 
   m_outputGraph.maybeInitialize(m_cfg.outputGraph);
 
-  /// Parallel GPUs
-  if (m_cfg.useGPUsParallel) {
-    for (auto i = 0ul; i < std::max(1ul, Acts::detail::cudaNumDevices()); ++i) {
-      m_mutexes.emplace_back(std::make_unique<std::mutex>());
-    }
-    ACTS_INFO("Use " << m_mutexes.size() << " GPUs in parallel");
-  } else {
-    m_mutexes.emplace_back(std::make_unique<std::mutex>());
-  }
-
   // reserve space for timing
   m_timing.classifierTimes.resize(m_cfg.edgeClassifiers.size(), decltype(m_timing.classifierTimes)::value_type{0.f});
 }
@@ -289,22 +279,8 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
 
   // Run the pipeline
   const auto trackCandidates = [&]() {
-    // Try to aquire mutex
-    int deviceHint = -1;
-    std::unique_lock<std::mutex> lock;
-
-    // Only use a mutex if the flag is set
-    if (m_cfg.useGPUsParallel && Acts::detail::cudaNumDevices() > 0) {
-      auto mutexIdx = ctx.eventNumber % m_mutexes.size();
-      deviceHint = mutexIdx;
-
-      // This should block until the mutex is free
-      lock = std::unique_lock<std::mutex>(*m_mutexes.at(mutexIdx));
-      ACTS_INFO("Event " << ctx.eventNumber << " locked mutex " << mutexIdx);
-    } else {
-      // This should block until the mutex is free
-      lock = std::unique_lock<std::mutex>(*m_mutexes.front());
-    }
+    const int deviceHint = -1;
+    std::lock_guard<std::mutex> lock(m_mutex);
 
     Acts::ExaTrkXTiming timing;
     auto res = m_pipeline.run(features, spacepointIDs, deviceHint, *hook, &timing);

@@ -182,8 +182,7 @@ void addExaTrkXTrackFinding(Context &ctx) {
       inputParticles, inputClusters, inputMeasurementSimhitsMap,
       outputProtoTracks, outputGraph, graphConstructor, edgeClassifiers,
       trackBuilder, rScale, phiScale, zScale, cellCountScale, cellSumScale,
-      clusterXScale, clusterYScale, targetMinHits, targetMinPT,
-      useGPUsParallel);
+      clusterXScale, clusterYScale, targetMinHits, targetMinPT);
 
   {
     auto cls =
