@@ -22,6 +22,7 @@
 #include "ActsExamples/TrackFindingExaTrkX/ProtoTrackEffPurPrinter.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/PrototracksToParsAndSeeds.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
+#include "ActsExamples/TrackFindingExaTrkX/TrackFindingFromPrototrackAlgorithm.hpp"
 
 #include <memory>
 
@@ -230,6 +231,13 @@ void addExaTrkXTrackFinding(Context &ctx) {
                                 "PrototracksToParsAndSeeds", inputProtoTracks,
                                 inputSpacePoints, outputSeeds, outputParameters,
                                 outputProtoTracks, geometry, buildTightSeeds);
+
+  ACTS_PYTHON_DECLARE_ALGORITHM(
+      ActsExamples::TrackFindingFromPrototrackAlgorithm, mex,
+      "TrackFindingFromPrototrackAlgorithm", inputProtoTracks,
+      inputMeasurements, inputSourceLinks, inputInitialTrackParameters,
+      outputTracks, measurementSelectorCfg, trackingGeometry, magneticField,
+      findTracks, tag);
 }
 
 }  // namespace Acts::Python

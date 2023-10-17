@@ -3,6 +3,7 @@ add_library(
   src/TrackFindingAlgorithmExaTrkX.cpp
   src/ProtoTrackEffPurPrinter.cpp
   src/PrototracksToParsAndSeeds.cpp
+  src/TrackFindingFromPrototrackAlgorithm.cpp
 )
 
 target_include_directories(
@@ -15,6 +16,7 @@ target_link_libraries(
   PUBLIC
     ActsPluginExaTrkX
     ActsExamplesFramework
+    ActsExamplesTrackFinding
   PRIVATE
     ${TORCH_LIBRARIES}
 )

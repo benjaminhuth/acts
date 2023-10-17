@@ -23,7 +23,6 @@
 #include "ActsExamples/TrackFinding/SeedingOrthogonalAlgorithm.hpp"
 #include "ActsExamples/TrackFinding/SpacePointMaker.hpp"
 #include "ActsExamples/TrackFinding/TrackFindingAlgorithm.hpp"
-#include "ActsExamples/TrackFinding/TrackFindingFromPrototrackAlgorithm.hpp"
 #include "ActsExamples/TrackFinding/TrackParamsEstimationAlgorithm.hpp"
 #include "ActsExamples/Utilities/PrototracksToSeeds.hpp"
 #include "ActsExamples/Utilities/SeedsToPrototracks.hpp"
@@ -360,13 +359,6 @@ void addTrackFinding(Context& ctx) {
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::PrototracksToSeeds, mex, "PrototracksToSeeds",
       inputProtoTracks, inputSpacePoints, outputSeeds, outputProtoTracks);
-
-  ACTS_PYTHON_DECLARE_ALGORITHM(
-      ActsExamples::TrackFindingFromPrototrackAlgorithm, mex,
-      "TrackFindingFromPrototrackAlgorithm", inputProtoTracks,
-      inputMeasurements, inputSourceLinks, inputInitialTrackParameters,
-      outputTracks, measurementSelectorCfg, trackingGeometry, magneticField,
-      findTracks, tag);
 
   ////////////////////////////
   // For GNN+CKF Experiment //
