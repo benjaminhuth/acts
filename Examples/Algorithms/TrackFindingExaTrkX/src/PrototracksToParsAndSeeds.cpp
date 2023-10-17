@@ -92,6 +92,9 @@ ProcessCode PrototracksToParsAndSeeds::execute(
   SimSeedContainer seeds;
   seeds.reserve(prototracks.size());
 
+  TrackParametersContainer parameters;
+  parameters.reserve(prototracks.size());
+
   // Loop over the prototracks to make seeds
   ProtoTrack tmpTrack;
   std::vector<const SimSpacePoint *> tmpSps;
@@ -155,48 +158,36 @@ ProcessCode PrototracksToParsAndSeeds::execute(
     const auto z_vertex = -t / m;
     const auto s = tmpSps.size();
 
-    if (m_cfg.buildTightSeeds) {
-      seeds.emplace_back(*tmpSps[0], *tmpSps[1], *tmpSps[2], z_vertex);
-    } else {
-      seeds.emplace_back(*tmpSps[0], *tmpSps[s / 2], *tmpSps[s - 1], z_vertex);
+    SimSeed seed =
+        m_cfg.buildTightSeeds
+            ? SimSeed(*tmpSps[0], *tmpSps[1], *tmpSps[2], z_vertex)
+            : SimSeed(*tmpSps[0], *tmpSps[s / 2], *tmpSps[s - 1], z_vertex);
+
+    // Compute parameters
+    const auto geoId = seed.sp()
+                    .front()
+                    ->sourceLinks()
+                    .front()
+                    .template get<IndexSourceLink>()
+                    .geometryId();
+    const auto &surface = *m_cfg.geometry->findSurface(geoId);
+
+    auto pars = Acts::estimateTrackParamsFromSeed(
+        {}, seed.sp().begin(), seed.sp().end(), surface, {0., 0., 2_T}, 0.0);
+
+    if( not pars ) {
+      ACTS_WARNING("Skip track because of bad params");
     }
+
     seededTracks.push_back(track);
+    seeds.emplace_back(std::move(seed));
+    parameters.push_back(Acts::BoundTrackParameters(
+        surface.getSharedPtr(), *pars, m_covariance,
+        Acts::ParticleHypothesis::pion()));
   }
 
   if (skippedTracks > 0) {
     ACTS_WARNING("Skipped seeding of " << skippedTracks);
-  }
-
-  ProtoTrackContainer finalTracks;
-  finalTracks.reserve(seeds.size());
-
-  SimSeedContainer finalSeeds;
-  finalSeeds.reserve(seeds.size());
-
-  TrackParametersContainer parameters;
-  parameters.reserve(seeds.size());
-
-  // Now make the parameters
-  for (auto [seed, track] : Acts::zip(seeds, seededTracks)) {
-    const auto geoId = seed.sp()
-                           .front()
-                           ->sourceLinks()
-                           .front()
-                           .template get<IndexSourceLink>()
-                           .geometryId();
-    const auto &surface = *m_cfg.geometry->findSurface(geoId);
-    auto pars = Acts::estimateTrackParamsFromSeed(
-        {}, seed.sp().begin(), seed.sp().end(), surface, {0., 0., 2_T}, 0.0);
-
-    if (pars) {
-      finalSeeds.emplace_back(std::move(seed));
-      finalTracks.emplace_back(std::move(track));
-      parameters.push_back(Acts::BoundTrackParameters(
-          surface.getSharedPtr(), *pars, m_covariance,
-          Acts::ParticleHypothesis::pion()));
-    } else {
-      ACTS_WARNING("Skip track because of bad params");
-    }
   }
 
   ACTS_DEBUG("Seeded " << seeds.size() << " out of " << prototracks.size()
