@@ -165,25 +165,25 @@ ProcessCode PrototracksToParsAndSeeds::execute(
 
     // Compute parameters
     const auto geoId = seed.sp()
-                    .front()
-                    ->sourceLinks()
-                    .front()
-                    .template get<IndexSourceLink>()
-                    .geometryId();
+                           .front()
+                           ->sourceLinks()
+                           .front()
+                           .template get<IndexSourceLink>()
+                           .geometryId();
     const auto &surface = *m_cfg.geometry->findSurface(geoId);
 
     auto pars = Acts::estimateTrackParamsFromSeed(
         {}, seed.sp().begin(), seed.sp().end(), surface, {0., 0., 2_T}, 0.0);
 
-    if( not pars ) {
+    if (not pars) {
       ACTS_WARNING("Skip track because of bad params");
     }
 
     seededTracks.push_back(track);
     seeds.emplace_back(std::move(seed));
-    parameters.push_back(Acts::BoundTrackParameters(
-        surface.getSharedPtr(), *pars, m_covariance,
-        Acts::ParticleHypothesis::pion()));
+    parameters.push_back(
+        Acts::BoundTrackParameters(surface.getSharedPtr(), *pars, m_covariance,
+                                   Acts::ParticleHypothesis::pion()));
   }
 
   if (skippedTracks > 0) {
