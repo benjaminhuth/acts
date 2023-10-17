@@ -23,7 +23,9 @@
 #include <string>
 #include <vector>
 
-#include <boost/multi_array.hpp>
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics.hpp>
+
 
 class TruthGraph;
 
@@ -94,6 +96,9 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
   ActsExamples::ProcessCode execute(
       const ActsExamples::AlgorithmContext& ctx) const final;
 
+  /// Finalize and print timing
+  ActsExamples::ProcessCode finalize() final;
+
   const Config& config() const { return m_cfg; }
 
  private:
@@ -101,6 +106,19 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
 
   Acts::ExaTrkXPipeline m_pipeline;
   mutable std::vector<std::unique_ptr<std::mutex>> m_mutexes;
+
+  using Accumulator = boost::accumulators::accumulator_set<
+    float, boost::accumulators::features<
+      boost::accumulators::tag::mean,
+      boost::accumulators::tag::variance
+    >
+  >;
+
+  mutable struct {
+    Accumulator graphBuildingTime;
+    std::vector<Accumulator> classifierTimes;
+    Accumulator trackBuildingTime;
+  } m_timing;
 
   ReadDataHandle<SimSpacePointContainer> m_inputSpacePoints{this,
                                                             "InputSpacePoints"};

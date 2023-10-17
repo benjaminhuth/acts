@@ -17,6 +17,7 @@
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
+#include "Acts/Utilities/Zip.hpp"
 
 #include <mutex>
 #include <numeric>
@@ -179,6 +180,9 @@ ActsExamples::TrackFindingAlgorithmExaTrkX::TrackFindingAlgorithmExaTrkX(
   } else {
     m_mutexes.emplace_back(std::make_unique<std::mutex>());
   }
+
+  // reserve space for timing
+  m_timing.classifierTimes.resize(m_cfg.edgeClassifiers.size(), decltype(m_timing.classifierTimes)::value_type{0.f});
 }
 
 /// Allow access to features with nice names
@@ -301,7 +305,20 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
       // This should block until the mutex is free
       lock = std::unique_lock<std::mutex>(*m_mutexes.front());
     }
-    return m_pipeline.run(features, spacepointIDs, deviceHint, *hook);
+
+    Acts::ExaTrkXTiming timing;
+    auto res = m_pipeline.run(features, spacepointIDs, deviceHint, *hook, &timing);
+
+    m_timing.graphBuildingTime(timing.graphBuildingTime.count());
+
+    assert(timing.classifierTimes.size() == m_timing.classifierTimes.size());
+    for(auto [aggr, a] : Acts::zip(m_timing.classifierTimes, timing.classifierTimes)) {
+      aggr(a.count());
+    }
+
+    m_timing.trackBuildingTime(timing.trackBuildingTime.count());
+
+    return res;
   }();
 
   ACTS_DEBUG("Done with pipeline, received " << trackCandidates.size()
@@ -340,4 +357,24 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   }
 
   return ActsExamples::ProcessCode::SUCCESS;
+}
+
+
+ActsExamples::ProcessCode TrackFindingAlgorithmExaTrkX::finalize() {
+  namespace ba = boost::accumulators;
+
+  ACTS_INFO("Exa.TrkX timing info");
+  {
+    const auto &t = m_timing.graphBuildingTime;
+    ACTS_INFO("- graph building: " << ba::mean(t) << " +- " << std::sqrt(ba::variance(t)));
+  }
+  for(const auto &t : m_timing.classifierTimes) {
+    ACTS_INFO("- classifier:     " << ba::mean(t) << " +- " << std::sqrt(ba::variance(t)));
+  }
+  {
+    const auto &t = m_timing.trackBuildingTime;
+    ACTS_INFO("- track building: " << ba::mean(t) << " +- " << std::sqrt(ba::variance(t)));
+  }
+
+  return {};
 }
