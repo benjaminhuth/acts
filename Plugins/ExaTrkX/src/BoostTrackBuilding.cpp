@@ -8,7 +8,6 @@
 
 #include "Acts/Plugins/ExaTrkX/BoostTrackBuilding.hpp"
 
-#include "Acts/Plugins/ExaTrkX/detail/BoostTrackBuildingUtils.hpp"
 #include "Acts/Utilities/Zip.hpp"
 
 #include <map>
@@ -90,25 +89,6 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
       boost::add_edge(col, row, EdgeProperty{weight}, g);
     }
   }
-
-  //   if (m_cfg.cleanSubgraphs) {
-  //     ACTS_VERBOSE("Clean subgraph");
-  //     detail::cleanSubgraphs(g, logger());
-  //   }
-  //
-  //   // Workaround over undirected
-  //   using UGraph =
-  //       boost::adjacency_list<boost::vecS,            // edge list
-  //                             boost::vecS,            // vertex list
-  //                             boost::undirectedS,     // directedness
-  //                             boost::no_property,     // property of vertices
-  //                             boost::no_property     // property of edges
-  //                             >;
-  //
-  //   UGraph ug(numSpacepoints);
-  //   for(auto ed : boost::make_iterator_range(boost::edges(g))) {
-  //     boost::add_edge(boost::source(ed, ug), boost::target(ed, ug), ug);
-  //   }
 
   // Make final connected components
   std::vector<vertex_t> trackLabels(numSpacepoints);
