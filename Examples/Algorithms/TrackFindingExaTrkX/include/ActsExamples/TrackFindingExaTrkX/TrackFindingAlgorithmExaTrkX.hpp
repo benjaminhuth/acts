@@ -20,13 +20,12 @@
 #include "ActsExamples/Framework/DataHandle.hpp"
 #include "ActsExamples/Framework/IAlgorithm.hpp"
 
+#include <mutex>
 #include <string>
 #include <vector>
 
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics.hpp>
-
-class TruthGraph;
 
 namespace ActsExamples {
 

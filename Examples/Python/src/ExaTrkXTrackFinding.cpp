@@ -212,8 +212,9 @@ void addExaTrkXTrackFinding(Context &ctx) {
                  py::arg("graphConstructor"), py::arg("edgeClassifiers"),
                  py::arg("trackBuilder"), py::arg("level"))
             .def("run", &ExaTrkXPipeline::run, py::arg("features"),
-                 py::arg("spacepoints"), py::arg("hook") = Acts::ExaTrkXHook{},
-                 py::arg("deviceHint") = -1, py::arg("timing") = nullptr);
+                 py::arg("spacepoints"), py::arg("deviceHint") = -1,
+                 py::arg("hook") = Acts::ExaTrkXHook{},
+                 py::arg("timing") = nullptr);
   }
 
   ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::ProtoTrackEffPurPrinter, mex,
