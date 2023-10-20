@@ -11,12 +11,16 @@
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Material/Interactions.hpp"
 
-#define SIMD_EIGEN
+// #define SIMD_EIGEN
+#define SIMD_STD_EXPERIMENTAL
 
 #ifdef SIMD_XSIMD
 #include <xsimd/xsimd.hpp>
 #endif
 
+#ifdef SIMD_STD_EXPERIMENTAL
+#include <experimental/simd>
+#endif
 /// This file contains functions overloads or wrappers, which allow common
 /// mathematical operations for normal Eigen types (based on ActsScalar which is
 /// probably double) and as well for nested Eigen types (e.g., Eigen::Matrix<
@@ -38,6 +42,11 @@ template <int N>
 using SimdType = xsimd::batch<ActsScalar, N>;
 #endif
 
+#ifdef SIMD_STD_EXPERIMENTAL
+template <int N>
+using SimdType = std::experimental::fixed_size_simd<ActsScalar, N>;
+#endif
+
 ////////////////////////////////////
 /////// SIMD HELPER FUNCTIONS //////
 ////////////////////////////////////
@@ -46,17 +55,25 @@ namespace SimdHelpers {
 
 #ifdef SIMD_XSIMD
 template <int N>
-auto sum(const SimdType<N>& a) {
+ActsScalar sum(const SimdType<N>& a) {
   return xsimd::hadd(a);
 }
 #endif
 
 #ifdef SIMD_EIGEN
 template <typename T>
-auto sum(const Eigen::ArrayBase<T>& a) {
+ActsScalar sum(const Eigen::ArrayBase<T>& a) {
   return a.sum();
 }
 #endif
+
+#ifdef SIMD_STD_EXPERIMENTAL
+template <typename T>
+ActsScalar sum(const SimdType<N>& a) {
+  return std::experimental::reduce(a);
+}
+#endif
+
 
 template <typename A, typename B>
 auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {

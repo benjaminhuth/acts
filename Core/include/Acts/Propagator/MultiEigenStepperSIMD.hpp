@@ -260,6 +260,9 @@ class MultiEigenStepperSIMD
     auto reducedPosition(const State& state) const {
       return MultiEigenStepperSIMD::Reducer::position(state);
     }
+    auto qOverP(const State &state) const {
+      return MultiEigenStepperSIMD::multiQOverP(state);
+    }
   };
 
   /// Proxy stepper which acts of a specific component
@@ -568,6 +571,10 @@ class MultiEigenStepperSIMD
 
   static SimdScalar multiMomentum(const State& state) {
     return state.q / state.pars[eFreeQOverP];
+  }
+  
+  static SimdScalar multiQOverP(const State &state) {
+    return state.pars[eFreeQOverP];
   }
 
   static double momentum(std::size_t i, const State& state) {
@@ -1038,36 +1045,36 @@ class MultiEigenStepperSIMD
     }
 
     // Now do stepsize estimate, use the minimum momentum component for this
-    auto estimated_h = [&]() {
-      Eigen::Index r, c;
-      multiMomentum(stepping).minCoeff(&r, &c);
-
-      const Vector3 k1{sd.k1[0][r], sd.k1[1][r], sd.k1[2][r]};
-      const ConstrainedStep h = stepping.stepSizes[r];
-
-      return estimate_step_size(state, navigator, k1, stepping.fieldCache,
-                                SingleProxyStepper{static_cast<std::size_t>(r)},
-                                h);
-    }();
-
-    if (!estimated_h.ok())
-      return estimated_h.error();
+    // auto estimated_h = [&]() {
+    //   Eigen::Index r, c;
+    //   multiMomentum(stepping).minCoeff(&r, &c);
+    // 
+    //   const Vector3 k1{sd.k1[0][r], sd.k1[1][r], sd.k1[2][r]};
+    //   const ConstrainedStep h = stepping.stepSizes[r];
+    // 
+    //   return estimate_step_size(state, navigator, k1, stepping.fieldCache,
+    //                             SingleProxyStepper{static_cast<std::size_t>(r)},
+    //                             h);
+    // }();
+    // 
+    // if (!estimated_h.ok())
+    //   return estimated_h.error();
 
     // Constant stepsize at the moment
-    const SimdScalar h = [&]() {
-      SimdScalar s = SimdScalar::Zero();
-
-      for (auto i = 0ul; i < stepping.numComponents; ++i) {
-        // h = 0 if surface not reachable, effectively suppress any progress
-        if (stepping.status[i] == Intersection3D::Status::reachable) {
-          // make sure we get the correct minimal stepsize
-          s[i] = std::min(*estimated_h,
-                          static_cast<ActsScalar>(stepping.stepSizes[i]));
-        }
-      }
-
-      return s;
-    }();
+    const SimdScalar h; // = [&]() {
+    //   SimdScalar s = SimdScalar::Zero();
+    // 
+    //   for (auto i = 0ul; i < stepping.numComponents; ++i) {
+    //     // h = 0 if surface not reachable, effectively suppress any progress
+    //     if (stepping.status[i] == Intersection3D::Status::reachable) {
+    //       // make sure we get the correct minimal stepsize
+    //       s[i] = std::min(*estimated_h,
+    //                       static_cast<ActsScalar>(stepping.stepSizes[i]));
+    //     }
+    //   }
+    // 
+    //   return s;
+    // }();
 
     // If everything is zero, nothing to do (TODO should this happen?)
     if (h.sum() == 0.0) {

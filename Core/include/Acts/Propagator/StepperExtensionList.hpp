@@ -49,6 +49,12 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
 
   // Vector of valid extensions for a step
   std::array<bool, nExtensions> validExtensions{};
+  
+  template<typename scalar_t>
+  using Vector3 = Eigen::Matrix<scalar_t, 3, 1>;
+  
+  template<typename scalar_t>
+  using FreeMatrix = Eigen::Matrix<scalar_t, eFreeSize, eFreeSize>;
 
  public:
   // Access to an extension
@@ -87,11 +93,11 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
   /// evaluation and passes them forward for evaluation and returns a boolean as
   /// indicator if the evaluation is valid.
   template <typename propagator_state_t, typename stepper_t,
-            typename navigator_t>
+            typename navigator_t, typename scalar_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
-         const navigator_t& navigator, Vector3& knew, const Vector3& bField,
-         std::array<double, 4>& kQoP, const int i, const double h = 0.,
-         const Vector3& kprev = Vector3::Zero()) {
+         const navigator_t& navigator, Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
+         std::array<scalar_t, 4>& kQoP, const int i, const scalar_t h = scalar_t{},
+         const Vector3<scalar_t>& kprev = Vector3<scalar_t>::Zero()) {
     // TODO replace with integer-templated lambda with C++20
     auto impl = [&, i, h](auto intType, auto& implRef) {
       constexpr int N = decltype(intType)::value;
@@ -123,10 +129,10 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
   /// passes them forward for evaluation and returns a boolean as indicator if
   /// the evaluation is valid.
   template <typename propagator_state_t, typename stepper_t,
-            typename navigator_t>
+            typename navigator_t, typename scalar_t>
   bool k1(const propagator_state_t& state, const stepper_t& stepper,
-          const navigator_t& navigator, Vector3& knew, const Vector3& bField,
-          std::array<double, 4>& kQoP) {
+          const navigator_t& navigator, Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
+          std::array<scalar_t, 4>& kQoP) {
     return k(state, stepper, navigator, knew, bField, kQoP, 0);
   }
 
@@ -134,10 +140,10 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
   /// all arguments and extensions and passes them forward for evaluation and
   /// returns a boolean as indicator if the evaluation is valid.
   template <typename propagator_state_t, typename stepper_t,
-            typename navigator_t>
+            typename navigator_t, typename scalar_t>
   bool k2(const propagator_state_t& state, const stepper_t& stepper,
-          const navigator_t& navigator, Vector3& knew, const Vector3& bField,
-          std::array<double, 4>& kQoP, const double h, const Vector3& kprev) {
+          const navigator_t& navigator, Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
+          std::array<scalar_t, 4>& kQoP, const scalar_t h, const Vector3<scalar_t>& kprev) {
     return k(state, stepper, navigator, knew, bField, kQoP, 1, h, kprev);
   }
 
@@ -145,10 +151,10 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
   /// all arguments and extensions and passes them forward for evaluation and
   /// returns a boolean as indicator if the evaluation is valid.
   template <typename propagator_state_t, typename stepper_t,
-            typename navigator_t>
+            typename navigator_t, typename scalar_t>
   bool k3(const propagator_state_t& state, const stepper_t& stepper,
-          const navigator_t& navigator, Vector3& knew, const Vector3& bField,
-          std::array<double, 4>& kQoP, const double h, const Vector3& kprev) {
+          const navigator_t& navigator, Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
+          std::array<scalar_t, 4>& kQoP, const scalar_t h, const Vector3<scalar_t>& kprev) {
     return k(state, stepper, navigator, knew, bField, kQoP, 2, h, kprev);
   }
 
@@ -156,10 +162,10 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
   /// all arguments and extensions and passes them forward for evaluation and
   /// returns a boolean as indicator if the evaluation is valid.
   template <typename propagator_state_t, typename stepper_t,
-            typename navigator_t>
+            typename navigator_t, typename scalar_t>
   bool k4(const propagator_state_t& state, const stepper_t& stepper,
-          const navigator_t& navigator, Vector3& knew, const Vector3& bField,
-          std::array<double, 4>& kQoP, const double h, const Vector3& kprev) {
+          const navigator_t& navigator, Vector3<scalar_t>& knew, const Vector3<scalar_t>& bField,
+          std::array<scalar_t, 4>& kQoP, const scalar_t h, const Vector3<scalar_t>& kprev) {
     return k(state, stepper, navigator, knew, bField, kQoP, 3, h, kprev);
   }
 
@@ -167,9 +173,9 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
   /// collects all extensions and arguments and passes them forward for
   /// evaluation and returns a boolean.
   template <typename propagator_state_t, typename stepper_t,
-            typename navigator_t>
+            typename navigator_t, typename scalar_t>
   bool finalize(propagator_state_t& state, const stepper_t& stepper,
-                const navigator_t& navigator, const double h, FreeMatrix& D) {
+                const navigator_t& navigator, const scalar_t h, FreeMatrix<scalar_t>& D) {
     // TODO replace with integer-templated lambda with C++20
     auto impl = [&, h](auto intType, auto& implRef) {
       constexpr int N = decltype(intType)::value;
@@ -199,9 +205,9 @@ struct StepperExtensionList : private detail::Extendable<extensions...> {
   /// collects all extensions and arguments and passes them forward for
   /// evaluation and returns a boolean.
   template <typename propagator_state_t, typename stepper_t,
-            typename navigator_t>
+            typename navigator_t, typename scalar_t>
   bool finalize(propagator_state_t& state, const stepper_t& stepper,
-                const navigator_t& navigator, const double h) {
+                const navigator_t& navigator, const scalar_t h) {
     // TODO replace with integer-templated lambda with C++20
     auto impl = [&, h](auto intType, auto& implRef) {
       constexpr int N = decltype(intType)::value;

@@ -61,7 +61,7 @@ struct GenericDefaultExtension {
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          const navigator_t& /*navigator*/, ThisVector3& knew,
          const Vector3& bField, std::array<Scalar, 4>& kQoP, const int i = 0,
-         const double h = 0., const ThisVector3& kprev = ThisVector3::Zero()) {
+         const Scalar h = 0., const ThisVector3& kprev = ThisVector3::Zero()) {
     auto qop = stepper.qOverP(state.stepping);
     // First step does not rely on previous data
     if (i == 0) {
@@ -90,7 +90,7 @@ struct GenericDefaultExtension {
   template <typename propagator_state_t, typename stepper_t,
             typename navigator_t>
   bool finalize(propagator_state_t& state, const stepper_t& stepper,
-                const navigator_t& navigator, const double h) const {
+                const navigator_t& navigator, const Scalar h) const {
     propagateTime(state, stepper, navigator, h);
     return true;
   }
@@ -112,7 +112,7 @@ struct GenericDefaultExtension {
   template <typename propagator_state_t, typename stepper_t,
             typename navigator_t>
   bool finalize(propagator_state_t& state, const stepper_t& stepper,
-                const navigator_t& navigator, const double h,
+                const navigator_t& navigator, const Scalar h,
                 FreeMatrix& D) const {
     propagateTime(state, stepper, navigator, h);
     return transportMatrix(state, stepper, navigator, h, D);
@@ -131,7 +131,7 @@ struct GenericDefaultExtension {
   template <typename propagator_state_t, typename stepper_t,
             typename navigator_t>
   void propagateTime(propagator_state_t& state, const stepper_t& stepper,
-                     const navigator_t& /*navigator*/, const double h) const {
+                     const navigator_t& /*navigator*/, const Scalar h) const {
     // using because of autodiff
     using std::hypot;
 
@@ -162,7 +162,7 @@ struct GenericDefaultExtension {
   template <typename propagator_state_t, typename stepper_t,
             typename navigator_t>
   bool transportMatrix(propagator_state_t& state, const stepper_t& stepper,
-                       const navigator_t& /*navigator*/, const double h,
+                       const navigator_t& /*navigator*/, const Scalar h,
                        FreeMatrix& D) const {
     /// The calculations are based on ATL-SOFT-PUB-2009-002. The update of the
     /// Jacobian matrix is requires only the calculation of eq. 17 and 18.
