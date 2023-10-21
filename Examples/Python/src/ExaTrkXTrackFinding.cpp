@@ -18,6 +18,7 @@
 #include "ActsExamples/TrackFindingExaTrkX/PrototracksToParameters.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingFromPrototrackAlgorithm.hpp"
+#include "ActsExamples/TrackFindingExaTrkX/ProtoTrackEffPurPrinter.hpp"
 
 #include <memory>
 
@@ -169,15 +170,9 @@ void addExaTrkXTrackFinding(Context &ctx) {
       ActsExamples::TrackFindingAlgorithmExaTrkX, mex,
       "TrackFindingAlgorithmExaTrkX", inputSpacePoints, inputSimHits,
       inputParticles, inputClusters, inputMeasurementSimhitsMap,
-<<<<<<< HEAD
       outputProtoTracks, outputGraph, graphConstructor, edgeClassifiers,
       trackBuilder, rScale, phiScale, zScale, cellCountScale, cellSumScale,
       clusterXScale, clusterYScale, targetMinHits, targetMinPT);
-=======
-      outputProtoTracks, graphConstructor, edgeClassifiers, trackBuilder,
-      rScale, phiScale, zScale, cellCountScale, cellSumScale, clusterXScale,
-      clusterYScale, targetMinHits, targetMinPT);
->>>>>>> main
 
   {
     auto cls =
@@ -218,17 +213,12 @@ void addExaTrkXTrackFinding(Context &ctx) {
                  py::arg("timing") = nullptr);
   }
 
-<<<<<<< HEAD
   ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::ProtoTrackEffPurPrinter, mex,
                                 "ProtoTrackEffPurPrinter", testProtoTracks,
                                 refProtoTracks);
 
-  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::PrototracksToParsAndSeeds, mex,
-                                "PrototracksToParsAndSeeds", inputProtoTracks,
-=======
   ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::PrototracksToParameters, mex,
                                 "PrototracksToParameters", inputProtoTracks,
->>>>>>> main
                                 inputSpacePoints, outputSeeds, outputParameters,
                                 outputProtoTracks, geometry, buildTightSeeds);
 
