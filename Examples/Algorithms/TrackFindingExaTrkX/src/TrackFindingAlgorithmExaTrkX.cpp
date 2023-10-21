@@ -11,10 +11,6 @@
 #include "Acts/Definitions/Units.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchGraphStoreHook.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
-<<<<<<< HEAD
-#include "Acts/Plugins/ExaTrkX/detail/CudaInfo.hpp"
-=======
->>>>>>> main
 #include "Acts/Utilities/Zip.hpp"
 #include "ActsExamples/EventData/Index.hpp"
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
