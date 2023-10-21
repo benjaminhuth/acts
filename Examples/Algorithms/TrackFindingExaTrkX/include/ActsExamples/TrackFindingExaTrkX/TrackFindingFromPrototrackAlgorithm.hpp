@@ -1,6 +1,6 @@
 // This file is part of the Acts project.
 //
-// Copyright (C) 2022 CERN for the benefit of the Acts project
+// Copyright (C) 2023 CERN for the benefit of the Acts project
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -31,6 +31,12 @@
 
 namespace ActsExamples {
 
+/// This algorithm starts a CKF of from a given prototrack.
+/// This means: If for any given surface there exists a measurements
+/// in the prototrack, this measurement is returned.
+/// Otherwise (typically after the end of the prototrack), the algorithm
+/// falls back to providing all possible measurements on the surface.
+///
 class TrackFindingFromPrototrackAlgorithm final : public IAlgorithm {
  public:
   struct Config {

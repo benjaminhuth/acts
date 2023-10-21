@@ -173,10 +173,11 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
               std::back_inserter(m_nTracksPerSeeds));
   }
 
-  // Compute shared hits from all the reconstructed tracks
-  // if (m_cfg.computeSharedHits) {
-  //   computeSharedHits(sourceLinks, tracks);
-  // }
+  // TODO The computeSharedHits function is still a member function of
+  // TrackFindingAlgorithm, but could also be a free function. Uncomment this
+  // once this is done.
+  // Compute shared hits from all the reconstructed tracks if
+  // (m_cfg.computeSharedHits) {
 
   ACTS_INFO("Event " << ctx.eventNumber << ": " << nFailed << " / " << nSeed
                      << " failed (" << ((100.f * nFailed) / nSeed) << "%)");
