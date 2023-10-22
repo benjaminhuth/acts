@@ -6,6 +6,18 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include <experimental/simd>
+
+// TODO where to put this so it is seen by Eigen???
+template<typename T, typename Abi>
+bool operator||(bool a, const std::experimental::simd_mask<T, Abi> &s) {
+  bool r = true;
+  for(std::size_t i=0; i<s.size(); ++i) {
+    r = r && (a || s[i]);
+  }
+  return r;
+}
+
 #include "Acts/Propagator/MultiEigenStepperSIMD.hpp"
 
 #include "MultiStepperTests.hpp"
@@ -17,6 +29,15 @@ using MultiStepper =
 
 
 BOOST_AUTO_TEST_SUITE(multistepper_simd_test)
+
+BOOST_AUTO_TEST_CASE(simd_cross_product_test) {
+  using Vector3 = Eigen::Matrix<Acts::SimdType<4>, 1, 3>;
+  
+  Vector3 a; 
+  Vector3 b;
+  Vector3 c = a.cross(b);
+  BOOST_CHECK(std::isfinite(c[0][0]));
+}
 
 //////////////////////////////////////////////////////
 /// Test the construction of the MultiStepper::State

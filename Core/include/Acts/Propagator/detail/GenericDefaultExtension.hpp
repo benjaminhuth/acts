@@ -24,6 +24,9 @@ struct GenericDefaultExtension {
   using Scalar = scalar_t;
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
+  using ThisFreeMatrix = Eigen::Matrix<Scalar, eFreeSize, eFreeSize>;
+  template<int R, int C>
+  using ThisMatrix = Eigen::Matrix<Scalar, R, C>;
 
   /// @brief Control function if the step evaluation would be valid
   ///
@@ -60,7 +63,7 @@ struct GenericDefaultExtension {
             typename navigator_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          const navigator_t& /*navigator*/, ThisVector3& knew,
-         const Vector3& bField, std::array<Scalar, 4>& kQoP, const int i = 0,
+         const ThisVector3& bField, std::array<Scalar, 4>& kQoP, const int i = 0,
          const Scalar h = 0., const ThisVector3& kprev = ThisVector3::Zero()) {
     auto qop = stepper.qOverP(state.stepping);
     // First step does not rely on previous data
@@ -113,7 +116,7 @@ struct GenericDefaultExtension {
             typename navigator_t>
   bool finalize(propagator_state_t& state, const stepper_t& stepper,
                 const navigator_t& navigator, const Scalar h,
-                FreeMatrix& D) const {
+                ThisFreeMatrix& D) const {
     propagateTime(state, stepper, navigator, h);
     return transportMatrix(state, stepper, navigator, h, D);
   }
@@ -163,7 +166,7 @@ struct GenericDefaultExtension {
             typename navigator_t>
   bool transportMatrix(propagator_state_t& state, const stepper_t& stepper,
                        const navigator_t& /*navigator*/, const Scalar h,
-                       FreeMatrix& D) const {
+                       ThisFreeMatrix& D) const {
     /// The calculations are based on ATL-SOFT-PUB-2009-002. The update of the
     /// Jacobian matrix is requires only the calculation of eq. 17 and 18.
     /// Since the terms of eq. 18 are currently 0, this matrix is not needed
@@ -193,26 +196,26 @@ struct GenericDefaultExtension {
     auto p = stepper.absoluteMomentum(state.stepping);
     auto dtds = hypot(1, m / p);
 
-    D = FreeMatrix::Identity();
+    D = ThisFreeMatrix::Identity();
 
-    double half_h = h * 0.5;
+    auto half_h = h * 0.5;
     // This sets the reference to the sub matrices
     // dFdx is already initialised as (3x3) idendity
-    auto dFdT = D.block<3, 3>(0, 4);
-    auto dFdL = D.block<3, 1>(0, 7);
+    auto dFdT = D.template block<3, 3>(0, 4);
+    auto dFdL = D.template block<3, 1>(0, 7);
     // dGdx is already initialised as (3x3) zero
-    auto dGdT = D.block<3, 3>(4, 4);
-    auto dGdL = D.block<3, 1>(4, 7);
+    auto dGdT = D.template block<3, 3>(4, 4);
+    auto dGdL = D.template block<3, 1>(4, 7);
 
-    ActsMatrix<3, 3> dk1dT = ActsMatrix<3, 3>::Zero();
-    ActsMatrix<3, 3> dk2dT = ActsMatrix<3, 3>::Identity();
-    ActsMatrix<3, 3> dk3dT = ActsMatrix<3, 3>::Identity();
-    ActsMatrix<3, 3> dk4dT = ActsMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk1dT = ThisMatrix<3, 3>::Zero();
+    ThisMatrix<3, 3> dk2dT = ThisMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk3dT = ThisMatrix<3, 3>::Identity();
+    ThisMatrix<3, 3> dk4dT = ThisMatrix<3, 3>::Identity();
 
-    Vector3 dk1dL = Vector3::Zero();
-    Vector3 dk2dL = Vector3::Zero();
-    Vector3 dk3dL = Vector3::Zero();
-    Vector3 dk4dL = Vector3::Zero();
+    ThisVector3 dk1dL = ThisVector3::Zero();
+    ThisVector3 dk2dL = ThisVector3::Zero();
+    ThisVector3 dk3dL = ThisVector3::Zero();
+    ThisVector3 dk4dL = ThisVector3::Zero();
 
     // For the case without energy loss
     dk1dL = dir.cross(sd.B_first);

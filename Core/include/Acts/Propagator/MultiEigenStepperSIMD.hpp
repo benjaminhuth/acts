@@ -78,7 +78,7 @@ struct WeightedComponentReducerSIMD {
   }
 
   template <typename stepper_state_t>
-  static ActsScalar momentum(const stepper_state_t& s) {
+  static ActsScalar absoluteMomentum(const stepper_state_t& s) {
     return SimdHelpers::sum((1 / (s.pars[eFreeQOverP] / s.q)) * s.weights);
   }
 
@@ -254,14 +254,17 @@ class MultiEigenStepperSIMD
     auto charge(const State& state) const {
       return MultiEigenStepperSIMD::charge_static(state);
     }
-    auto momentum(const State& state) const {
-      return MultiEigenStepperSIMD::multiMomentum(state);
+    auto absoluteMomentum(const State& state) const {
+      return MultiEigenStepperSIMD::multiAbsoluteMomentum(state);
     }
     auto reducedPosition(const State& state) const {
       return MultiEigenStepperSIMD::Reducer::position(state);
     }
     auto qOverP(const State &state) const {
       return MultiEigenStepperSIMD::multiQOverP(state);
+    }
+    const auto &particleHypothesis(const State &state) const {
+      return state.particleHypothesis;
     }
   };
 
@@ -281,8 +284,8 @@ class MultiEigenStepperSIMD
     auto charge(const State& state) const {
       return MultiEigenStepperSIMD::charge_static(state);
     }
-    auto momentum(const State& state) const {
-      return MultiEigenStepperSIMD::momentum(i, state);
+    auto absoluteMomentum(const State& state) const {
+      return MultiEigenStepperSIMD::absoluteMomentum(i, state);
     }
     auto overstepLimit(const State&) const { return minus_olimit; }
     void setStepSize(State& state, double stepSize,
@@ -306,24 +309,7 @@ class MultiEigenStepperSIMD
     state_t& m_state;
     const std::size_t m_i;
 
-    template <typename T>
-    static auto map(T& m, int i) {
-      constexpr int Rows = std::decay_t<decltype(m)>::RowsAtCompileTime;
-      constexpr int Cols = std::decay_t<decltype(m)>::ColsAtCompileTime;
-      static_assert(Rows != Eigen::Dynamic && Cols != Eigen::Dynamic);
-      constexpr int iStride = NComponents;
-      constexpr int oStride = iStride * Rows;
 
-      if constexpr (std::is_const_v<T>) {
-        return Eigen::Map<const Eigen::Matrix<ActsScalar, Rows, Cols>,
-                          Eigen::Unaligned, Eigen::Stride<oStride, iStride>>(
-            m(0, 0).data() + i);
-      } else {
-        return Eigen::Map<Eigen::Matrix<ActsScalar, Rows, Cols>,
-                          Eigen::Unaligned, Eigen::Stride<oStride, iStride>>(
-            m(0, 0).data() + i);
-      }
-    }
 
    public:
     ComponentProxyBase(state_t& s, std::size_t i) : m_state(s), m_i(i) {
@@ -334,9 +320,9 @@ class MultiEigenStepperSIMD
     auto charge() const { return m_state.q; }
     auto pathAccumulated() const { return m_state.pathAccumulated; }
     auto status() const { return m_state.status[m_i]; }
-    auto pars() const { return map(m_state.pars, m_i); }
-    auto derivative() const { return map(m_state.derivative, m_i); }
-    auto jacTransport() const { return map(m_state.jacTransport, m_i); }
+    auto pars() const { return extract(m_state.pars, m_i); }
+    auto derivative() const { return extract(m_state.derivative, m_i); }
+    auto jacTransport() const { return extract(m_state.jacTransport, m_i); }
     const auto& cov() const { return m_state.covs[m_i]; }
     const auto& jacobian() const { return m_state.jacobians[m_i]; }
     const auto& jacToGlobal() const { return m_state.jacToGlobals[m_i]; }
@@ -376,9 +362,9 @@ class MultiEigenStepperSIMD
     auto& charge() { return m_state.q; }
     auto& pathAccumulated() { return m_state.pathAccumulated; }
     auto& status() { return m_state.status[m_i]; }
-    auto pars() { return map(m_state.pars, m_i); }
-    auto derivative() { return map(m_state.derivative, m_i); }
-    auto jacTransport() { return map(m_state.jacTransport, m_i); }
+    auto pars() { return extract(m_state.pars, m_i); }
+    auto derivative() { return extract(m_state.derivative, m_i); }
+    auto jacTransport() { return extract(m_state.jacTransport, m_i); }
     auto& cov() { return m_state.covs[m_i]; }
     auto& jacobian() { return m_state.jacobians[m_i]; }
     auto& jacToGlobal() { return m_state.jacToGlobals[m_i]; }
@@ -567,18 +553,18 @@ class MultiEigenStepperSIMD
   /// Absolute momentum accessor
   ///
   /// @param state [in] The stepping state (thread-local cache)
-  double momentum(const State& state) const { return Reducer::momentum(state); }
+  double absoluteMomentum(const State& state) const { return Reducer::absoluteMomentum(state); }
 
-  static SimdScalar multiMomentum(const State& state) {
-    return state.q / state.pars[eFreeQOverP];
+  static SimdScalar multiAbsoluteMomentum(const State& state) {
+    return state.particleHypothesis.absoluteCharge() / state.pars[eFreeQOverP];
   }
   
   static SimdScalar multiQOverP(const State &state) {
     return state.pars[eFreeQOverP];
   }
 
-  static double momentum(std::size_t i, const State& state) {
-    return state.q / state.pars[eFreeQOverP][i];
+  static double absoluteMomentum(std::size_t i, const State& state) {
+    return state.particleHypothesis.absoluteCharge() / state.pars[eFreeQOverP][i];
   }
 
   /// Charge access
@@ -816,7 +802,7 @@ class MultiEigenStepperSIMD
       const auto& curvpars = std::get<CurvilinearTrackParameters>(*curvstate);
       pos += curvpars.fourPosition(state.geoContext);
       dir += curvpars.unitDirection();
-      p += curvpars.absoluteMomentum();
+      p += curvpars.absoluteabsoluteMomentum();
       pathlen += std::get<double>(*curvstate);
       jac += std::get<Jacobian>(*curvstate);
     }
@@ -1047,7 +1033,7 @@ class MultiEigenStepperSIMD
     // Now do stepsize estimate, use the minimum momentum component for this
     // auto estimated_h = [&]() {
     //   Eigen::Index r, c;
-    //   multiMomentum(stepping).minCoeff(&r, &c);
+    //   multiabsoluteMomentum(stepping).minCoeff(&r, &c);
     // 
     //   const Vector3 k1{sd.k1[0][r], sd.k1[1][r], sd.k1[2][r]};
     //   const ConstrainedStep h = stepping.stepSizes[r];
@@ -1061,7 +1047,7 @@ class MultiEigenStepperSIMD
     //   return estimated_h.error();
 
     // Constant stepsize at the moment
-    const SimdScalar h; // = [&]() {
+    SimdScalar h{}; // = [&]() {
     //   SimdScalar s = SimdScalar::Zero();
     // 
     //   for (auto i = 0ul; i < stepping.numComponents; ++i) {
@@ -1077,7 +1063,7 @@ class MultiEigenStepperSIMD
     // }();
 
     // If everything is zero, nothing to do (TODO should this happen?)
-    if (h.sum() == 0.0) {
+    if (SimdHelpers::sum(h) == 0.0) {
       return 0.0;
     }
 
@@ -1162,7 +1148,7 @@ class MultiEigenStepperSIMD
       assert(!stepping.pars[i].isNaN().any() && "free parameters contain nan");
 
     // Compute average step and return
-    const auto avg_step = h.sum() / NComponents;
+    const auto avg_step = SimdHelpers::sum(h) / NComponents;
 
     stepping.pathAccumulated += avg_step;
     return avg_step;

@@ -51,6 +51,41 @@ using SimdType = std::experimental::fixed_size_simd<ActsScalar, N>;
 /////// SIMD HELPER FUNCTIONS //////
 ////////////////////////////////////
 
+#ifdef SIMD_EIGEN
+template <typename T>
+auto extract(T& m, int i) {
+  constexpr int Rows = std::decay_t<decltype(m)>::RowsAtCompileTime;
+  constexpr int Cols = std::decay_t<decltype(m)>::ColsAtCompileTime;
+  static_assert(Rows != Eigen::Dynamic && Cols != Eigen::Dynamic);
+  constexpr int iStride = NComponents;
+  constexpr int oStride = iStride * Rows;
+
+  if constexpr (std::is_const_v<T>) {
+    return Eigen::Map<const Eigen::Matrix<ActsScalar, Rows, Cols>,
+                      Eigen::Unaligned, Eigen::Stride<oStride, iStride>>(
+        m(0, 0).data() + i);
+  } else {
+    return Eigen::Map<Eigen::Matrix<ActsScalar, Rows, Cols>,
+                      Eigen::Unaligned, Eigen::Stride<oStride, iStride>>(
+        m(0, 0).data() + i);
+  }
+}
+#endif
+
+#ifdef SIMD_STD_EXPERIMENTAL
+template <int N, int Rows, int Cols>
+auto extract(const Eigen::Matrix<SimdType<N>, Rows, Cols>& m, int i) {
+  Eigen::Matrix<ActsScalar, Rows, Cols> ret;
+  for(int j=0; j<Rows; ++j) {
+    for(int k=0; k<Cols; ++k) {
+      ret(j,k) = m(j,k)[i];
+    }
+  }
+  
+  return ret;
+}
+#endif
+
 namespace SimdHelpers {
 
 #ifdef SIMD_XSIMD
@@ -68,7 +103,7 @@ ActsScalar sum(const Eigen::ArrayBase<T>& a) {
 #endif
 
 #ifdef SIMD_STD_EXPERIMENTAL
-template <typename T>
+template <int N>
 ActsScalar sum(const SimdType<N>& a) {
   return std::experimental::reduce(a);
 }
@@ -181,3 +216,24 @@ auto extractFromSimd(const Eigen::Matrix<SimdType<N>, A, B>& s) {
 }  // namespace SimdHelpers
 
 }  // namespace Acts
+
+#ifdef SIMD_STD_EXPERIMENTAL
+namespace Eigen {
+
+template<int N>
+struct NumTraits<Acts::SimdType<N>> {
+  using T = Acts::SimdType<N>;
+  using Real = T;
+  using Literal = T;
+  using NonInteger = T;
+  constexpr static int IsInteger = 0;
+  constexpr static int IsSigned = 1;
+  constexpr static int IsComplex = 0;
+  constexpr static int RequireInitialization = 0;
+  constexpr static int ReadCost = Eigen::HugeCost;
+  constexpr static int AddCost = Eigen::HugeCost;
+  constexpr static int MulCost = Eigen::HugeCost;
+};
+
+}
+#endif
