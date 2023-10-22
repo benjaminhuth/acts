@@ -220,7 +220,7 @@ void addExaTrkXTrackFinding(Context &ctx) {
   ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::PrototracksToParameters, mex,
                                 "PrototracksToParameters", inputProtoTracks,
                                 inputSpacePoints, outputSeeds, outputParameters,
-                                outputProtoTracks, geometry, buildTightSeeds);
+                                outputProtoTracks, geometry, magneticField, buildTightSeeds);
 
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::TrackFindingFromPrototrackAlgorithm, mex,
