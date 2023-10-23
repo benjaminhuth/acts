@@ -360,6 +360,11 @@ void addTrackFinding(Context& ctx) {
       ActsExamples::PrototracksToSeeds, mex, "PrototracksToSeeds",
       inputProtoTracks, inputSpacePoints, outputSeeds, outputProtoTracks);
 
+  ACTS_PYTHON_DECLARE_ALGORITHM(
+      ActsExamples::MeasurementMapSelector, mex,
+      "MeasurementMapSelector", inputMeasurementParticleMap,
+      inputSourceLinks, outputMeasurementParticleMap, geometrySelection);
+
   ////////////////////////////
   // For GNN+CKF Experiment //
   ////////////////////////////
