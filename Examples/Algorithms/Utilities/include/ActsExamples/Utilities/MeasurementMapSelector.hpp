@@ -21,8 +21,12 @@
 
 namespace ActsExamples {
 
-class MeasurementMapSelectorAlgorithm final : public IAlgorithm {
-  using HitParticlesMap = IndexMultimap<ActsFatras::Barcode>;
+/// Simple algorithm, that allows to extract a subset of a 
+/// measurment-particles-map.
+/// This allows to conveniently work on subsets of the geometry.
+///
+class MeasurementMapSelector final : public IAlgorithm {
+  using Map = IndexMultimap<ActsFatras::Barcode>;
 
  public:
   struct Config {
@@ -43,14 +47,14 @@ class MeasurementMapSelectorAlgorithm final : public IAlgorithm {
   ///
   /// @param cfg is the config struct to configure the algorithm
   /// @param level is the logging level
-  MeasurementMapSelectorAlgorithm(Config cfg, Acts::Logging::Level lvl)
-      : IAlgorithm("SourceLinkSelection", lvl), m_cfg(cfg) {
+  MeasurementMapSelector(Config cfg, Acts::Logging::Level lvl)
+      : IAlgorithm("MeasurementMapSelector", lvl), m_cfg(cfg) {
     m_inputSourceLinks.initialize(m_cfg.inputSourceLinks);
     m_inputMap.initialize(m_cfg.inputMeasurementParticleMap);
     m_outputMap.initialize(m_cfg.outputMeasurementParticleMap);
   }
 
-  virtual ~MeasurementMapSelectorAlgorithm() {}
+  virtual ~MeasurementMapSelector() {}
 
   /// Filter the measurements
   ///
@@ -61,7 +65,7 @@ class MeasurementMapSelectorAlgorithm final : public IAlgorithm {
     const auto& inputSourceLinks = m_inputSourceLinks(ctx);
     const auto& inputMap = m_inputMap(ctx);
 
-    HitParticlesMap outputMap;
+    Map outputMap;
 
     for (const auto geoId : m_cfg.geometrySelection) {
       auto range = selectLowestNonZeroGeometryObject(inputSourceLinks, geoId);
@@ -84,10 +88,8 @@ class MeasurementMapSelectorAlgorithm final : public IAlgorithm {
 
   ReadDataHandle<IndexSourceLinkContainer> m_inputSourceLinks{
       this, "InputSourceLinks"};
-  ReadDataHandle<HitParticlesMap> m_inputMap{this,
-                                             "InputMeasurementParticleMap"};
-  WriteDataHandle<HitParticlesMap> m_outputMap{this,
-                                               "OutputMeasurementParticleMap"};
+  ReadDataHandle<Map> m_inputMap{this, "InputMeasurementParticleMap"};
+  WriteDataHandle<Map> m_outputMap{this, "OutputMeasurementParticleMap"};
 };
 
 }  // namespace ActsExamples

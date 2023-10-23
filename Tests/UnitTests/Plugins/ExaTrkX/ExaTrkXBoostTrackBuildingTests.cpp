@@ -49,7 +49,7 @@ BOOST_AUTO_TEST_CASE(test_track_building) {
 
   // Run Track building
   auto logger = Acts::getDefaultLogger("TestLogger", Acts::Logging::ERROR);
-  Acts::BoostTrackBuilding trackBuilder({}, std::move(logger));
+  Acts::BoostTrackBuilding trackBuilder(std::move(logger));
 
   auto testTracks =
       trackBuilder(nodes, edgeTensor, dummyWeights, spacepointIds);

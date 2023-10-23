@@ -128,7 +128,6 @@ void addTruthTracking(Context& ctx) {
     ACTS_PYTHON_MEMBER(ptMax);
     ACTS_PYTHON_MEMBER(measurementsMin);
     ACTS_PYTHON_MEMBER(measurementsMax);
-    ACTS_PYTHON_MEMBER(measurementGeometrySelection);
     ACTS_PYTHON_MEMBER(removeCharged);
     ACTS_PYTHON_MEMBER(removeNeutral);
     ACTS_PYTHON_MEMBER(removeSecondaries);

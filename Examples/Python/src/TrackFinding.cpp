@@ -28,11 +28,11 @@
 #include "ActsExamples/Utilities/SeedsToPrototracks.hpp"
 #include "ActsExamples/Utilities/TracksToTrajectories.hpp"
 #include "ActsExamples/Utilities/TrajectoriesToPrototracks.hpp"
+#include "ActsExamples/Utilities/MeasurementMapSelector.hpp"
 
 ////////////////////////////
 // For GNN+CKF Experiment //
 ////////////////////////////
-#include "ActsExamples/TrackFindingX/MeasurementMapSelectorAlgorithm.hpp"
 // #include "ActsExamples/TrackFindingX/ParameterFromTrajectoryAlgorithm.hpp"
 // #include "ActsExamples/TrackFindingX/SourceLinkSelectorAlgorithm.hpp"
 #include "ActsExamples/Utilities/MakeMeasurementParticlesMap.hpp"
@@ -374,11 +374,6 @@ void addTrackFinding(Context& ctx) {
     //     ActsExamples::ParameterFromTrajectoryAlgorithm, mex,
     //     "ParameterFromTrajectoryAlgorithm", inputTrajectories,
     //     outputParamters);
-
-    ACTS_PYTHON_DECLARE_ALGORITHM(
-        ActsExamples::MeasurementMapSelectorAlgorithm, mex,
-        "MeasurementMapSelectorAlgorithm", inputMeasurementParticleMap,
-        inputSourceLinks, outputMeasurementParticleMap, geometrySelection);
 
     ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::MakeMeasurementParticlesMap,
                                   mex, "MakeMeasurementParticlesMap",
