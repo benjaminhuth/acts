@@ -59,13 +59,6 @@ ActsExamples::ParticleSelector::ParticleSelector(const Config& config,
     m_inputMap.initialize(m_cfg.inputMeasurementParticlesMap);
     ACTS_DEBUG("selection particle number of measurments ["
                << m_cfg.measurementsMin << "," << m_cfg.measurementsMax << ")");
-
-    if (not m_cfg.measurementGeometrySelection.empty()) {
-      m_inputMeasurements.initialize(m_cfg.inputMeasurements);
-      ACTS_DEBUG("Select particles with measurments from "
-                 << m_cfg.measurementGeometrySelection.size()
-                 << " geometry constraints");
-    }
   }
 }
 
@@ -83,36 +76,8 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
     particlesMeasMap = invertIndexMultimap(m_inputMap(ctx));
   }
 
-  // Make constraint particles measurement maps if necessary
-  std::optional<boost::container::flat_map<Acts::GeometryIdentifier,
-                                           ParticlesMeasurmentMap>>
-      geoParticlesMeasMaps;
-  if (m_inputMap.isInitialized() && m_inputMeasurements.isInitialized()) {
-    geoParticlesMeasMaps.emplace();
-
-    // Fill measurements in geometry multi set
-    GeometryIdMultiset<Measurement> measurements(
-        m_inputMeasurements(ctx).begin(), m_inputMeasurements(ctx).end());
-
-    // Make a particle -> measurements map for each constraint
-    for (auto geoId : m_cfg.measurementGeometrySelection) {
-      auto r = selectLowestNonZeroGeometryObject(measurements, geoId);
-      std::decay_t<decltype(m_inputMap(ctx))> constraintMap;
-      for (const Measurement& meas : r) {
-        const auto& sl =
-            std::visit([](const auto& m) { return m.sourceLink(); }, meas)
-                .get<IndexSourceLink>();
-        auto [b, e] = m_inputMap(ctx).equal_range(sl.index());
-        constraintMap.insert(b, e);
-      }
-
-      (*geoParticlesMeasMaps)[geoId] = invertIndexMultimap(constraintMap);
-    }
-  }
-
   std::size_t nInvalidCharge = 0;
   std::size_t nInvalidMeasurementCount = 0;
-  std::size_t nInvalidMeasurementCountWithConstraint = 0;
 
   // helper functions to select tracks
   auto within = [](auto x, auto min, auto max) {
@@ -142,27 +107,6 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
 
       ACTS_VERBOSE("Found " << std::distance(b, e) << " measurements for "
                             << p.particleId());
-    }
-
-    // In this case, go through the measurements and check if the fullfill the
-    // geometry requirement
-    if (validMeasurementCount && geoParticlesMeasMaps) {
-      ACTS_VERBOSE("-> Check number of measurements in geometry constraint for "
-                   << p.particleId());
-      std::size_t count = 0;
-      for (const auto& [geoId, map] : *geoParticlesMeasMaps) {
-        auto [b, e] = map.equal_range(p.particleId());
-        ACTS_VERBOSE("-> Found " << std::distance(b, e) << " measurements in "
-                                 << geoId);
-        count += static_cast<std::size_t>(std::distance(b, e));
-      }
-
-      ACTS_VERBOSE("-> Total in constraint: " << count);
-
-      // Overwrite with the updated boolean
-      validMeasurementCount =
-          within(count, m_cfg.measurementsMin, m_cfg.measurementsMax);
-      nInvalidMeasurementCountWithConstraint += not validMeasurementCount;
     }
 
     nInvalidMeasurementCount += not validMeasurementCount;
@@ -197,8 +141,6 @@ ActsExamples::ProcessCode ActsExamples::ParticleSelector::execute(
   ACTS_DEBUG("filtered out because of charge: " << nInvalidCharge);
   ACTS_DEBUG("filtered out because of measurement count: "
              << nInvalidMeasurementCount);
-  ACTS_DEBUG("filtered out because of measurement count + geometry constraint: "
-             << nInvalidMeasurementCountWithConstraint);
 
   m_outputParticles(ctx, std::move(outputParticles));
   return ProcessCode::SUCCESS;

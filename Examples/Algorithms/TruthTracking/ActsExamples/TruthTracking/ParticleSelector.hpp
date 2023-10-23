@@ -64,7 +64,6 @@ class ParticleSelector final : public IAlgorithm {
     /// Measurement number cuts
     std::size_t measurementsMin = 0;
     std::size_t measurementsMax = std::numeric_limits<std::size_t>::max();
-    std::vector<Acts::GeometryIdentifier> measurementGeometrySelection;
     /// Remove charged particles.
     bool removeCharged = false;
     /// Remove neutral particles.
