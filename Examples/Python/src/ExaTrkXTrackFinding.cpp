@@ -217,10 +217,10 @@ void addExaTrkXTrackFinding(Context &ctx) {
                                 "ProtoTrackEffPurPrinter", testProtoTracks,
                                 refProtoTracks);
 
-  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::PrototracksToParameters, mex,
-                                "PrototracksToParameters", inputProtoTracks,
-                                inputSpacePoints, outputSeeds, outputParameters,
-                                outputProtoTracks, geometry, magneticField, buildTightSeeds);
+  ACTS_PYTHON_DECLARE_ALGORITHM(
+      ActsExamples::PrototracksToParameters, mex, "PrototracksToParameters",
+      inputProtoTracks, inputSpacePoints, outputSeeds, outputParameters,
+      outputProtoTracks, geometry, magneticField, buildTightSeeds);
 
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::TrackFindingFromPrototrackAlgorithm, mex,

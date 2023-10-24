@@ -21,7 +21,7 @@
 
 namespace ActsExamples {
 
-/// Simple algorithm, that allows to extract a subset of a 
+/// Simple algorithm, that allows to extract a subset of a
 /// measurment-particles-map.
 /// This allows to conveniently work on subsets of the geometry.
 ///
@@ -54,7 +54,7 @@ class MeasurementMapSelector final : public IAlgorithm {
     m_outputMap.initialize(m_cfg.outputMeasurementParticleMap);
   }
 
-  virtual ~MeasurementMapSelector() {}
+  virtual ~MeasurementMapSelector() = default;
 
   /// Filter the measurements
   ///

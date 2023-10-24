@@ -111,7 +111,7 @@ class ExamplesEdmHook : public Acts::ExaTrkXHook {
     m_graphStoreHook = std::make_unique<Acts::TorchGraphStoreHook>();
   }
 
-  ~ExamplesEdmHook(){};
+  ~ExamplesEdmHook() {}
 
   auto storedGraph() const { return m_graphStoreHook->storedGraph(); }
 
