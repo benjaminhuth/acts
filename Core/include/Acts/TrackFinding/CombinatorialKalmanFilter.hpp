@@ -312,7 +312,7 @@ class CombinatorialKalmanFilter {
         m_updaterLogger{m_logger->cloneWithSuffix("Updater")},
         m_smootherLogger{m_logger->cloneWithSuffix("Smoother")} {}
 
- private:
+ public:
   using KalmanNavigator = typename propagator_t::Navigator;
 
   /// The propagator for the transport and material update

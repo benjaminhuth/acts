@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <ostream>
@@ -68,6 +69,8 @@ ActsExamples::CKFPerformanceWriter::CKFPerformanceWriter(
   m_fakeRatePlotTool.book(m_fakeRatePlotCache);
   m_duplicationPlotTool.book(m_duplicationPlotCache);
   m_trackSummaryPlotTool.book(m_trackSummaryPlotCache);
+
+  m_particlesMatchedStream << "event,particle_id,matched\n";
 }
 
 ActsExamples::CKFPerformanceWriter::~CKFPerformanceWriter() {
@@ -130,6 +133,12 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::finalize() {
     write_float(duplicationRate_particle, "duplicaterate_particles");
     ACTS_INFO("Wrote performance plots to '" << m_outputFile->GetPath() << "'");
   }
+
+  const auto csvFileName =
+      m_cfg.filePath.substr(0, m_cfg.filePath.size() - 5) + ".csv";
+  std::ofstream outputFileParticlesMatched(csvFileName);
+  outputFileParticlesMatched << m_particlesMatchedStream.str();
+
   return ProcessCode::SUCCESS;
 }
 
@@ -316,6 +325,12 @@ ActsExamples::ProcessCode ActsExamples::CKFPerformanceWriter::writeT(
                             nFakeTracks);
     m_nTotalParticles += 1;
   }  // end all truth particles
+
+  for (const auto& p : particles) {
+    bool m = (matched.find(p.particleId()) != matched.end());
+    m_particlesMatchedStream << ctx.eventNumber << "," << p.particleId().value()
+                             << "," << m << "\n";
+  }
 
   return ProcessCode::SUCCESS;
 }

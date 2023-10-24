@@ -178,8 +178,6 @@ ActsExamples::ProcessCode TrackFindingFromPrototrackAlgorithm::execute(
   // once this is done.
   // Compute shared hits from all the reconstructed tracks if
   // (m_cfg.computeSharedHits) {
-  //   computeSharedHits(sourceLinks, tracks);
-  // }
 
   ACTS_INFO("Event " << ctx.eventNumber << ": " << nFailed << " / " << nSeed
                      << " failed (" << ((100.f * nFailed) / nSeed) << "%)");

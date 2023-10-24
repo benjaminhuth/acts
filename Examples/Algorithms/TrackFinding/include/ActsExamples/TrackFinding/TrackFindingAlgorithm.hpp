@@ -141,6 +141,10 @@ class TrackFindingAlgorithm final : public IAlgorithm {
   mutable std::atomic<size_t> m_nTotalSeeds{0};
   mutable std::atomic<size_t> m_nFailedSeeds{0};
 
+  mutable std::mutex m_mutex;
+  mutable std::vector<unsigned> m_nTracksPerSeeds;
+  mutable std::vector<unsigned> m_nSelTracksPerSeeds;
+
   mutable tbb::combinable<Acts::VectorMultiTrajectory::Statistics>
       m_memoryStatistics{[]() {
         auto mtj = std::make_shared<Acts::VectorMultiTrajectory>();

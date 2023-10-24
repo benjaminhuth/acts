@@ -18,9 +18,15 @@ set(ACTS_FRNN_GIT_TAG "3e370d8d9073d4e130363faf87d2370598b5fbf2"
 
 mark_as_advanced(ACTS_FRNN_GIT_REPOSITORY ACTS_FRNN_GIT_TAG)
 
+set(PATCH ${CMAKE_CURRENT_SOURCE_DIR}/thread_local.patch)
+
+# Here we apply a patch to add the thread_local keyword to some global variables.
+# This enables the use of the library in multi-threaded contexts (I hope).
+# Either apply the patch or check if the patch is already applied
 FetchContent_Declare(frnncontent
     GIT_REPOSITORY "${ACTS_FRNN_GIT_REPOSITORY}"
-    GIT_TAG "${ACTS_FRNN_GIT_TAG}" )
+    GIT_TAG "${ACTS_FRNN_GIT_TAG}"
+    PATCH_COMMAND git apply ${PATCH} || git apply --reverse --check ${PATCH})
 
 # FRNN does not provide a CMakeLists.txt, so we use a custom one. Because of this,
 # we have to implement the populate step manually

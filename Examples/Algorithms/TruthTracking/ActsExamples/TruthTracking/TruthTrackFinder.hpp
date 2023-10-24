@@ -43,6 +43,8 @@ class TruthTrackFinder final : public IAlgorithm {
     std::string inputMeasurementParticlesMap;
     /// The output proto tracks collection.
     std::string outputProtoTracks;
+    /// Minimum Hits
+    std::size_t minHits = 0;
   };
 
   TruthTrackFinder(const Config& config, Acts::Logging::Level level);

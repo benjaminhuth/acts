@@ -67,7 +67,7 @@ ActsExamples::TrackParamsEstimationAlgorithm::TrackParamsEstimationAlgorithm(
 ActsExamples::ProcessCode ActsExamples::TrackParamsEstimationAlgorithm::execute(
     const ActsExamples::AlgorithmContext& ctx) const {
   auto const& seeds = m_inputSeeds(ctx);
-  ACTS_VERBOSE("Read " << seeds.size() << " seeds");
+  ACTS_DEBUG("Read " << seeds.size() << " seeds");
 
   TrackParametersContainer trackParameters;
   trackParameters.reserve(seeds.size());
@@ -142,7 +142,7 @@ ActsExamples::ProcessCode ActsExamples::TrackParamsEstimationAlgorithm::execute(
     }
   }
 
-  ACTS_VERBOSE("Estimated " << trackParameters.size() << " track parameters");
+  ACTS_DEBUG("Estimated " << trackParameters.size() << " track parameters");
 
   m_outputTrackParameters(ctx, std::move(trackParameters));
   if (m_outputSeeds.isInitialized()) {

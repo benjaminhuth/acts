@@ -11,6 +11,8 @@
 #include <any>
 #include <vector>
 
+#include <boost/multi_array.hpp>
+
 namespace Acts {
 
 // TODO maybe replace std::any with some kind of variant<unique_ptr<torch>,

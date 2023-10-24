@@ -28,6 +28,7 @@
 #include <G4Track.hh>
 #include <G4UnitsTable.hh>
 #include <G4VPhysicalVolume.hh>
+#include <boost/describe.hpp>
 
 class G4PrimaryParticle;
 

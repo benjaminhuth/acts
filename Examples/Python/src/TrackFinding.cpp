@@ -31,6 +31,14 @@
 #include "ActsExamples/Utilities/SeedsToPrototracks.hpp"
 #include "ActsExamples/Utilities/TracksToTrajectories.hpp"
 #include "ActsExamples/Utilities/TrajectoriesToPrototracks.hpp"
+#include "ActsExamples/Utilities/MeasurementMapSelector.hpp"
+
+////////////////////////////
+// For GNN+CKF Experiment //
+////////////////////////////
+// #include "ActsExamples/TrackFindingX/ParameterFromTrajectoryAlgorithm.hpp"
+// #include "ActsExamples/TrackFindingX/SourceLinkSelectorAlgorithm.hpp"
+#include "ActsExamples/Utilities/MakeMeasurementParticlesMap.hpp"
 
 #include <array>
 #include <cstddef>
@@ -383,6 +391,27 @@ void addTrackFinding(Context& ctx) {
       ActsExamples::MeasurementMapSelector, mex, "MeasurementMapSelector",
       inputMeasurementParticleMap, inputSourceLinks,
       outputMeasurementParticleMap, geometrySelection);
+
+  ////////////////////////////
+  // For GNN+CKF Experiment //
+  ////////////////////////////
+  {
+    // ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::SourceLinkSelectorAlgorithm,
+    // mex,
+    //                               "SourceLinkSelectorAlgorithm",
+    //                               inputSourceLinks, outputSourceLinks,
+    //                               geometrySelection);
+    //
+    // ACTS_PYTHON_DECLARE_ALGORITHM(
+    //     ActsExamples::ParameterFromTrajectoryAlgorithm, mex,
+    //     "ParameterFromTrajectoryAlgorithm", inputTrajectories,
+    //     outputParamters);
+
+    ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::MakeMeasurementParticlesMap,
+                                  mex, "MakeMeasurementParticlesMap",
+                                  inputMeasurementSimhitMap, inputSimHits,
+                                  outputMeasurementParticlesMap);
+  }
 }
 
 }  // namespace Acts::Python

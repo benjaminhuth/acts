@@ -1,0 +1,17 @@
+diff --git a/frnn/csrc/grid/prefix_sum.cu b/frnn/csrc/grid/prefix_sum.cu
+index d67ced2..7d332ee 100644
+--- a/frnn/csrc/grid/prefix_sum.cu
++++ b/frnn/csrc/grid/prefix_sum.cu
+@@ -161,9 +161,9 @@ inline int floorPow2(int n) {
+ 
+ #define BLOCK_SIZE 256
+ 
+-int **g_scanBlockSumsInt = 0;
+-unsigned int g_numEltsAllocated = 0;
+-unsigned int g_numLevelsAllocated = 0;
++thread_local int **g_scanBlockSumsInt = 0;
++thread_local unsigned int g_numEltsAllocated = 0;
++thread_local unsigned int g_numLevelsAllocated = 0;
+ 
+ bool cudaCheck(cudaError_t status, const std::string &msg) {
+   if (status != cudaSuccess) {

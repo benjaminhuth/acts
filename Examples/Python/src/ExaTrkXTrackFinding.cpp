@@ -18,6 +18,7 @@
 #include "ActsExamples/TrackFindingExaTrkX/PrototracksToParameters.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingFromPrototrackAlgorithm.hpp"
+#include "ActsExamples/TrackFindingExaTrkX/ProtoTrackEffPurPrinter.hpp"
 
 #include <memory>
 
@@ -70,6 +71,7 @@ void addExaTrkXTrackFinding(Context &ctx) {
     ACTS_PYTHON_MEMBER(embeddingDim);
     ACTS_PYTHON_MEMBER(rVal);
     ACTS_PYTHON_MEMBER(knnVal);
+    ACTS_PYTHON_MEMBER(shuffleDirections);
     ACTS_PYTHON_STRUCT_END();
   }
   {
@@ -103,8 +105,7 @@ void addExaTrkXTrackFinding(Context &ctx) {
                    .def(py::init([](Logging::Level lvl) {
                           return std::make_shared<Alg>(
                               getDefaultLogger("EdgeClassifier", lvl));
-                        }),
-                        py::arg("level"));
+                        }), py::arg("level"));
   }
 #endif
 
@@ -169,9 +170,9 @@ void addExaTrkXTrackFinding(Context &ctx) {
       ActsExamples::TrackFindingAlgorithmExaTrkX, mex,
       "TrackFindingAlgorithmExaTrkX", inputSpacePoints, inputSimHits,
       inputParticles, inputClusters, inputMeasurementSimhitsMap,
-      outputProtoTracks, graphConstructor, edgeClassifiers, trackBuilder,
-      rScale, phiScale, zScale, cellCountScale, cellSumScale, clusterXScale,
-      clusterYScale, targetMinHits, targetMinPT);
+      outputProtoTracks, outputGraph, graphConstructor, edgeClassifiers,
+      trackBuilder, rScale, phiScale, zScale, cellCountScale, cellSumScale,
+      clusterXScale, clusterYScale, targetMinHits, targetMinPT);
 
   {
     auto cls =
@@ -211,6 +212,10 @@ void addExaTrkXTrackFinding(Context &ctx) {
                  py::arg("hook") = Acts::ExaTrkXHook{},
                  py::arg("timing") = nullptr);
   }
+
+  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::ProtoTrackEffPurPrinter, mex,
+                                "ProtoTrackEffPurPrinter", testProtoTracks,
+                                refProtoTracks);
 
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::PrototracksToParameters, mex, "PrototracksToParameters",

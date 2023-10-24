@@ -1389,11 +1389,13 @@ def addExaTrkX(
 
     filterConfig = {
         "level": customLogLevel(),
+        "numFeatures": 3,
         "cut": 0.01,
     }
 
     gnnConfig = {
         "level": customLogLevel(),
+        "numFeatures": 3,
         "cut": 0.5,
     }
 
