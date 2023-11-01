@@ -25,7 +25,7 @@ struct GenericDefaultExtension {
   /// @brief Vector3 replacement for the custom scalar type
   using ThisVector3 = Eigen::Matrix<Scalar, 3, 1>;
   using ThisFreeMatrix = Eigen::Matrix<Scalar, eFreeSize, eFreeSize>;
-  template<int R, int C>
+  template <int R, int C>
   using ThisMatrix = Eigen::Matrix<Scalar, R, C>;
 
   /// @brief Control function if the step evaluation would be valid
@@ -63,8 +63,9 @@ struct GenericDefaultExtension {
             typename navigator_t>
   bool k(const propagator_state_t& state, const stepper_t& stepper,
          const navigator_t& /*navigator*/, ThisVector3& knew,
-         const ThisVector3& bField, std::array<Scalar, 4>& kQoP, const int i = 0,
-         const Scalar h = 0., const ThisVector3& kprev = ThisVector3::Zero()) {
+         const ThisVector3& bField, std::array<Scalar, 4>& kQoP,
+         const int i = 0, const Scalar h = 0.,
+         const ThisVector3& kprev = ThisVector3::Zero()) {
     auto qop = stepper.qOverP(state.stepping);
     // First step does not rely on previous data
     if (i == 0) {

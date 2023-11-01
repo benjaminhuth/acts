@@ -182,8 +182,9 @@ inline double cast(const Vector3& position, BinningValue bval) {
 /// @param [in] m Matrix that will be used for cross products
 /// @param [in] v Vector for cross products
 /// @return Constructed matrix
-template<typename T>
-inline Eigen::Matrix<T, 3, 3> cross(const Eigen::Matrix<T, 3, 3>& m, const Eigen::Matrix<T, 3, 1>& v) {
+template <typename T>
+inline Eigen::Matrix<T, 3, 3> cross(const Eigen::Matrix<T, 3, 3>& m,
+                                    const Eigen::Matrix<T, 3, 1>& v) {
   Eigen::Matrix<T, 3, 3> r;
   r.col(0) = m.col(0).cross(v);
   r.col(1) = m.col(1).cross(v);

@@ -23,6 +23,29 @@ struct MultiStepperSurfaceReached;
 using namespace Acts;
 using namespace Acts::VectorHelpers;
 
+namespace helpers {
+
+template <typename T>
+concept Castable = requires(T a) {
+  { static_cast<double>(a) } -> std::convertible_to<double>;
+};
+
+template <typename T1, typename T2>
+void check_close(const Eigen::MatrixBase<T1> &a, const Eigen::MatrixBase<T2> &b,
+                 double eps) {
+  BOOST_CHECK(a.isApprox(b, eps));
+}
+
+template <typename T1, typename T2>
+requires Castable<T1> && Castable<T2>
+void check_close(const T1 &a, const T2 &b, double eps) {
+  auto aa = static_cast<double>(a);
+  auto bb = static_cast<double>(b);
+  BOOST_CHECK_CLOSE(aa, bb, eps);
+}
+
+}  // namespace helpers
+
 /////////////////////////////////////////////////////
 // Some useful global objects, typedefs and structs
 /////////////////////////////////////////////////////
@@ -229,6 +252,7 @@ void test_multi_stepper_vs_eigen_stepper() {
 ////////////////////////////////////////////////////
 // Test the modifying accessors to the components
 ////////////////////////////////////////////////////
+
 template <typename multi_stepper_t>
 void test_components_modifying_accessors() {
   using MultiState = typename multi_stepper_t::State;
@@ -272,16 +296,19 @@ void test_components_modifying_accessors() {
 
       using type = std::decay_t<decltype(projector(mstate_cmp))>;
 
-      if constexpr (std::is_arithmetic_v<type>) {
-        BOOST_CHECK_CLOSE(projector(mstate_cmp), 2.0 * projector(cstate_cmp),
-                          1.e-8);
-      } else if constexpr (std::is_enum_v<type>) {
+      if constexpr (std::is_enum_v<type>) {
         BOOST_CHECK_EQUAL(static_cast<int>(projector(mstate_cmp)),
                           1 + static_cast<int>(projector(cstate_cmp)));
       } else {
-        BOOST_CHECK(
-            projector(mstate_cmp).isApprox(2.0 * projector(cstate_cmp), 1.e-8));
+        helpers::check_close(projector(mstate_cmp), 2.0 * projector(cstate_cmp),
+                             1.e-8);
       }
+      // if constexpr (std::is_arithmetic_v<type>) {
+      // } else  else {
+      //   BOOST_CHECK(
+      //       projector(mstate_cmp).isApprox(2.0 *
+      //       projector(cstate_cmp), 1.e-8));
+      // }
     }
   };
 
@@ -592,13 +619,14 @@ void test_single_component_interface_function() {
     auto sstepper = cmp.singleStepper(multi_stepper);
     auto &sstepping = cmp.singleState(multi_prop_state).stepping;
 
-    BOOST_CHECK(sstepper.position(sstepping) ==
-                cmp.pars().template segment<3>(eFreePos0));
-    BOOST_CHECK(sstepper.direction(sstepping) ==
-                cmp.pars().template segment<3>(eFreeDir0));
-    BOOST_CHECK(sstepper.time(sstepping) == cmp.pars()[eFreeTime]);
-    BOOST_CHECK_CLOSE(sstepper.qOverP(sstepping), cmp.pars()[eFreeQOverP],
-                      1.e-8);
+    helpers::check_close(sstepper.position(sstepping),
+                         cmp.pars().template segment<3>(eFreePos0), 1.e-8);
+    helpers::check_close(sstepper.direction(sstepping),
+                         cmp.pars().template segment<3>(eFreeDir0), 1.e-8);
+    helpers::check_close(sstepper.time(sstepping), cmp.pars()[eFreeTime],
+                         1.e-8);
+    helpers::check_close(sstepper.qOverP(sstepping), cmp.pars()[eFreeQOverP],
+                         1.e-8);
   };
 
   for (const auto cmp : multi_stepper.constComponentIterable(multi_state)) {

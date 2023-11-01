@@ -9,10 +9,10 @@
 #include <experimental/simd>
 
 // TODO where to put this so it is seen by Eigen???
-template<typename T, typename Abi>
+template <typename T, typename Abi>
 bool operator||(bool a, const std::experimental::simd_mask<T, Abi> &s) {
   bool r = true;
-  for(std::size_t i=0; i<s.size(); ++i) {
+  for (std::size_t i = 0; i < s.size(); ++i) {
     r = r && (a || s[i]);
   }
   return r;
@@ -27,14 +27,13 @@ using SimdExtension = Acts::detail::GenericDefaultExtension<Acts::SimdType<4>>;
 using MultiStepper =
     MultiEigenStepperSIMD<4, StepperExtensionList<SimdExtension>>;
 
-
 BOOST_AUTO_TEST_SUITE(multistepper_simd_test)
 
 BOOST_AUTO_TEST_CASE(simd_cross_product_test) {
   using Vector3 = Eigen::Matrix<Acts::SimdType<4>, 1, 3>;
-  
-  Vector3 a; 
-  Vector3 b;
+
+  Vector3 a = Vector3::Ones();
+  Vector3 b = Vector3::Ones();
   Vector3 c = a.cross(b);
   BOOST_CHECK(std::isfinite(c[0][0]));
 }
@@ -68,51 +67,51 @@ BOOST_AUTO_TEST_CASE(multi_eigen_vs_single_eigen) {
 // TODO do this later, when we introduce the MultiEigenStepperSIMD, which there
 // needs new interfaces...
 
-////////////////////////////////////////////////////
+//////////////////////////////////////////////////
 // Test the modifying accessors to the components
-////////////////////////////////////////////////////
-// BOOST_AUTO_TEST_CASE(multi_eigen_component_iterable_with_modification) {
-//   test_components_modifying_accessors<MultiStepper>();
-// }
+//////////////////////////////////////////////////
+BOOST_AUTO_TEST_CASE(multi_eigen_component_iterable_with_modification) {
+  test_components_modifying_accessors<MultiStepper>();
+}
 
 /////////////////////////////////////////////
 // Test if the surface status update works
 /////////////////////////////////////////////
-// BOOST_AUTO_TEST_CASE(test_surface_status_and_cmpwise_bound_state) {
-//   test_multi_stepper_surface_status_update<MultiStepper>();
-// }
+BOOST_AUTO_TEST_CASE(test_surface_status_and_cmpwise_bound_state) {
+  test_multi_stepper_surface_status_update<MultiStepper>();
+}
 
 //////////////////////////////////
 // Test Bound state computations
 //////////////////////////////////
-// BOOST_AUTO_TEST_CASE(test_component_wise_bound_state) {
-//   test_component_bound_state<MultiStepper>();
-// }
-//
-// BOOST_AUTO_TEST_CASE(test_combined_bound_state) {
-//   test_combined_bound_state_function<MultiStepper>();
-// }
+BOOST_AUTO_TEST_CASE(test_component_wise_bound_state) {
+  test_component_bound_state<MultiStepper>();
+}
+
+BOOST_AUTO_TEST_CASE(test_combined_bound_state) {
+  test_combined_bound_state_function<MultiStepper>();
+}
 
 //////////////////////////////////////////////////
 // Test the combined curvilinear state function
 //////////////////////////////////////////////////
-// BOOST_AUTO_TEST_CASE(test_curvilinear_state) {
-//   test_combined_curvilinear_state_function<MultiStepper>();
-// }
+BOOST_AUTO_TEST_CASE(test_curvilinear_state) {
+  test_combined_curvilinear_state_function<MultiStepper>();
+}
 
 ////////////////////////////////////
 // Test single component interface
 ////////////////////////////////////
-// BOOST_AUTO_TEST_CASE(test_single_component_interface) {
-//   test_single_component_interface_function<MultiStepper>();
-// }
+BOOST_AUTO_TEST_CASE(test_single_component_interface) {
+  test_single_component_interface_function<MultiStepper>();
+}
 
 //////////////////////////////
 // Remove and add components
 //////////////////////////////
-// BOOST_AUTO_TEST_CASE(remove_add_components_test) {
-//   remove_add_components_function<MultiStepper>();
-// }
+BOOST_AUTO_TEST_CASE(remove_add_components_test) {
+  remove_add_components_function<MultiStepper>();
+}
 
 //////////////////////////////////////////////////
 // Instatiate a Propagator with the MultiStepper

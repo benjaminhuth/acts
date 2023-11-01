@@ -65,9 +65,8 @@ auto extract(T& m, int i) {
                       Eigen::Unaligned, Eigen::Stride<oStride, iStride>>(
         m(0, 0).data() + i);
   } else {
-    return Eigen::Map<Eigen::Matrix<ActsScalar, Rows, Cols>,
-                      Eigen::Unaligned, Eigen::Stride<oStride, iStride>>(
-        m(0, 0).data() + i);
+    return Eigen::Map<Eigen::Matrix<ActsScalar, Rows, Cols>, Eigen::Unaligned,
+                      Eigen::Stride<oStride, iStride>>(m(0, 0).data() + i);
   }
 }
 #endif
@@ -76,12 +75,12 @@ auto extract(T& m, int i) {
 template <int N, int Rows, int Cols>
 auto extract(const Eigen::Matrix<SimdType<N>, Rows, Cols>& m, int i) {
   Eigen::Matrix<ActsScalar, Rows, Cols> ret;
-  for(int j=0; j<Rows; ++j) {
-    for(int k=0; k<Cols; ++k) {
-      ret(j,k) = m(j,k)[i];
+  for (int j = 0; j < Rows; ++j) {
+    for (int k = 0; k < Cols; ++k) {
+      ret(j, k) = m(j, k)[i];
     }
   }
-  
+
   return ret;
 }
 #endif
@@ -108,7 +107,6 @@ ActsScalar sum(const SimdType<N>& a) {
   return std::experimental::reduce(a);
 }
 #endif
-
 
 template <typename A, typename B>
 auto cross(const Eigen::MatrixBase<A>& a, const Eigen::MatrixBase<B>& b) {
@@ -220,7 +218,7 @@ auto extractFromSimd(const Eigen::Matrix<SimdType<N>, A, B>& s) {
 #ifdef SIMD_STD_EXPERIMENTAL
 namespace Eigen {
 
-template<int N>
+template <int N>
 struct NumTraits<Acts::SimdType<N>> {
   using T = Acts::SimdType<N>;
   using Real = T;
@@ -235,5 +233,5 @@ struct NumTraits<Acts::SimdType<N>> {
   constexpr static int MulCost = Eigen::HugeCost;
 };
 
-}
+}  // namespace Eigen
 #endif
