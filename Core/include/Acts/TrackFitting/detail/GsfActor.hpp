@@ -496,13 +496,14 @@ struct GsfActor {
       const auto& [weight, pars, cov] = cache;
 
       cmp.weight() = weight;
-      cmp.pars() = detail::transformBoundToFreeParameters(surface, state.geoContext, pars);
+      cmp.pars() = detail::transformBoundToFreeParameters(
+          surface, state.geoContext, pars);
       cmp.cov() = cov;
       cmp.pathAccumulated() = state.stepping.pathAccumulated;
-      // cmp.jacToGlobal() = surface.boundToFreeJacobian(state.geoContext, pars);
-      // cmp.jacobian() = Acts::BoundMatrix::Identity();
-      // cmp.derivative() = Acts::FreeVector::Zero();
-      // cmp.jacTransport() = Acts::FreeMatrix::Identity();
+      // cmp.jacToGlobal() = surface.boundToFreeJacobian(state.geoContext,
+      // pars); cmp.jacobian() = Acts::BoundMatrix::Identity(); cmp.derivative()
+      // = Acts::FreeVector::Zero(); cmp.jacTransport() =
+      // Acts::FreeMatrix::Identity();
     };
 
     // Clear components before adding new ones

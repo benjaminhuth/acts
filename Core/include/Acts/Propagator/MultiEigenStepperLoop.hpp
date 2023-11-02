@@ -606,14 +606,14 @@ class MultiEigenStepperLoop
   template <typename iterator_t, typename copy_t>
   void update(State& state, const Surface& surface, iterator_t begin,
               iterator_t end, const copy_t& copy) const {
-    auto &cmps = state.components;
-                
+    auto& cmps = state.components;
+
     auto it = begin;
     for (auto cmp : componentIterable(state)) {
-      if( it == end ) {
+      if (it == end) {
         break;
       }
-      
+
       copy(*it, cmp);
       ++it;
     }

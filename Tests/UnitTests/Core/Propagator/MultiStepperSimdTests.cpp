@@ -109,9 +109,9 @@ BOOST_AUTO_TEST_CASE(test_single_component_interface) {
 //////////////////////////////
 // Remove and add components
 //////////////////////////////
-// BOOST_AUTO_TEST_CASE(remove_add_components_test) {
-//   remove_add_components_function<MultiStepper>();
-// }
+BOOST_AUTO_TEST_CASE(remove_add_components_test) {
+  remove_add_components_function<MultiStepper>();
+}
 
 //////////////////////////////////////////////////
 // Instatiate a Propagator with the MultiStepper

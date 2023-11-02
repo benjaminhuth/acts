@@ -654,39 +654,40 @@ void remove_add_components_function() {
                          defaultStepSize);
 
   MultiStepper multi_stepper(defaultBField);
-  
+
   auto copy = [&](auto from, auto to) {
     const auto &[w, p, c] = from;
-    
+
     to.weight() = w;
-    to.pars() = Acts::detail::transformBoundToFreeParameters(surface, multi_state.geoContext, p);
+    to.pars() = Acts::detail::transformBoundToFreeParameters(
+        surface, multi_state.geoContext, p);
     to.cov() = *c;
   };
 
   // Effectively add components
   {
     const auto new_pars = makeDefaultBoundPars(6);
-    
+
     const auto &cmps = new_pars.components();
     multi_stepper.update(multi_state, surface, cmps.begin(), cmps.end(), copy);
     BOOST_CHECK_EQUAL(multi_stepper.numberComponents(multi_state), 6);
   }
 
-
   // Effectively remove components
   {
     const auto new_pars = makeDefaultBoundPars(2);
-    
+
     const auto &cmps = new_pars.components();
     multi_stepper.update(multi_state, surface, cmps.begin(), cmps.end(), copy);
     BOOST_CHECK_EQUAL(multi_stepper.numberComponents(multi_state), 2);
   }
-  
+
   // Clear
   {
     std::vector<int> empty;
     auto dummyCopy = [](auto /*from*/, auto /*to*/) {};
-    multi_stepper.update(multi_state, surface, empty.begin(), empty.end(), dummyCopy);
+    multi_stepper.update(multi_state, surface, empty.begin(), empty.end(),
+                         dummyCopy);
     BOOST_CHECK_EQUAL(multi_stepper.numberComponents(multi_state), 0);
   }
 }
