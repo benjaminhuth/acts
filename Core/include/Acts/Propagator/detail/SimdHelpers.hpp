@@ -83,6 +83,16 @@ auto extract(const Eigen::Matrix<SimdType<N>, Rows, Cols>& m, int i) {
 
   return ret;
 }
+
+template<int N>
+std::ostream &operator<<(std::ostream &os, const SimdType<N> &s) {
+  os << "Simd[ ";
+  for(int i=0; i<N; ++i) {
+    os << s[i] << " ";
+  }
+  os << "]";
+  return os;
+}
 #endif
 
 namespace SimdHelpers {

@@ -7,6 +7,58 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 namespace Acts {
+  
+
+template <int N, typename AA, typename BB, typename CC, typename DD>
+  void MultiEigenStepperSIMD<N, AA, BB, CC, DD>::transportCovarianceToBound(
+      State& state, const Surface& surface,
+      const FreeToBoundCorrection& freeToBoundCorrection) const {
+    auto components = componentIterable(state);
+    for (auto cmp : components) {
+      FreeVector pars = cmp.pars();
+      FreeVector derivative = cmp.derivative();
+      BoundSquareMatrix cov = cmp.cov();
+      BoundSquareMatrix jacobian = cmp.jacobian();
+      BoundToFreeMatrix jacToGlobal = cmp.jacToGlobal();
+      FreeMatrix jacTransport = cmp.jacTransport();
+
+      detail::transportCovarianceToBound(state.geoContext, cov, jacobian,
+                                         jacTransport, derivative, jacToGlobal,
+                                         pars, surface, freeToBoundCorrection);
+
+      cmp.pars() = pars;
+      cmp.derivative() = derivative;
+      cmp.cov() = cov;
+      cmp.jacobian() = jacobian;
+      cmp.jacToGlobal() = jacToGlobal;
+      cmp.jacTransport() = jacTransport;
+      cmp.derivative() = derivative;
+    }
+  }
+  
+template <int N, typename AA, typename BB, typename CC, typename DD>
+  void MultiEigenStepperSIMD<N, AA, BB, CC, DD>::transportCovarianceToCurvilinear(State& state) const {
+    auto components = componentIterable(state);
+    for (auto cmp : components) {
+      FreeVector derivative = cmp.derivative();
+      BoundSquareMatrix cov = cmp.cov();
+      BoundSquareMatrix jacobian = cmp.jacobian();
+      BoundToFreeMatrix jacToGlobal = cmp.jacToGlobal();
+      FreeMatrix jacTransport = cmp.jacTransport();
+
+      auto singleStepper = cmp.singleStepper(*this);
+      detail::transportCovarianceToCurvilinear(cov, jacobian, jacTransport,
+                                               derivative, jacToGlobal,
+                                               singleStepper.direction(state));
+
+      cmp.derivative() = derivative;
+      cmp.cov() = cov;
+      cmp.jacobian() = jacobian;
+      cmp.jacToGlobal() = jacToGlobal;
+      cmp.jacTransport() = jacTransport;
+      cmp.derivative() = derivative;
+    }
+  }
 
 // Seperated stepsize estimate from Single eigen stepper
 /// TODO state should be constant, but then magne
@@ -152,7 +204,7 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
   //   return estimated_h.error();
 
   // Constant stepsize at the moment
-  SimdScalar h{};  // = [&]() {
+  // SimdScalar h = [&]() {
   //   SimdScalar s = SimdScalar::Zero();
   //
   //   for (auto i = 0ul; i < stepping.numComponents; ++i) {
@@ -166,11 +218,20 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
   //
   //   return s;
   // }();
+  
+  SimdScalar h = 0;
+  for(int i=0; i<stepping.stepSizes.size(); ++i) {
+    h[i] = stepping.stepSizes[i].value();
+  }
+  
+  std::cout << "Perform step with h=" << h << std::endl;
 
   // If everything is zero, nothing to do (TODO should this happen?)
   if (SimdHelpers::sum(h) == 0.0) {
     return 0.0;
   }
+  
+  
 
   const SimdScalar h2 = h * h;
   const SimdScalar half_h = h * SimdScalar(0.5);

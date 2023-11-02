@@ -145,9 +145,9 @@ class MultiEigenStepperSIMD
     std::size_t numComponents;
 
     /// SIMD objects parameters
-    SimdScalar weights;
-    SimdFreeVector pars;
-    SimdFreeVector derivative;
+    SimdScalar weights = 0;
+    SimdFreeVector pars = SimdFreeVector::Zero();
+    SimdFreeVector derivative = SimdFreeVector::Zero();
     SimdFreeMatrix jacTransport = SimdFreeMatrix::Identity();
 
     /// Scalar objects in arrays TODO should they also be SIMD?
@@ -157,7 +157,7 @@ class MultiEigenStepperSIMD
     std::array<BoundToFreeMatrix, NComponents> jacToGlobals;
 
     // no std::array, because ConstrainedStep is not default constructable.
-    // TODO solve this later
+    // TODO boost::static_vector for rescue
     std::vector<ConstrainedStep> stepSizes;
 
     /// Particle hypothesis
@@ -180,8 +180,8 @@ class MultiEigenStepperSIMD
 
     // TODO Why is this here and not function-scope-local?
     struct {
-      SimdVector3 B_first, B_middle, B_last;
-      SimdVector3 k1, k2, k3, k4;
+      SimdVector3 B_first = SimdVector3::Zero(), B_middle = SimdVector3::Zero(), B_last = SimdVector3::Zero();
+      SimdVector3 k1 = SimdVector3::Zero(), k2 = SimdVector3::Zero(), k3 = SimdVector3::Zero(), k4 = SimdVector3::Zero();
       std::array<SimdScalar, 4> kQoP;
     } stepData;
 
@@ -345,6 +345,31 @@ class MultiEigenStepperSIMD
                   double stolerance = s_onSurfaceTolerance) const {
     return State(gctx, SingleStepper::m_bField->makeCache(mctx), par, ndir,
                  ssize, stolerance);
+  }
+
+  /// Updates the components in the multistepper
+  ///
+  /// @param [in,out] state  The stepping state (thread-local cache)
+  /// @param [in] surface The surface we are on
+  /// @param [in] begin New components iterable begin
+  /// @param [in] end New components iterable end
+  /// @param [in] copy function with signature copy(from, to) to copy
+  /// from the iterators to the component proxy
+  ///
+  /// @note: It is not ensured that the weights are normalized afterwards
+  template <typename iterator_t, typename copy_t>
+  void update(State& state, const Surface& /*surface*/, iterator_t begin,
+              iterator_t end, const copy_t& copy) const {
+    assert(std::distance(begin, end) <= NComponents);
+
+    std::size_t i = 0;
+    auto it = begin;
+    for (; it != end; ++i, ++it) {
+      auto proxy = ComponentProxy{state, i};
+      copy(*it, proxy);
+    }
+
+    state.numComponents = i;
   }
 
   /// Constructor
@@ -689,53 +714,6 @@ class MultiEigenStepperSIMD
     //                         pathlen};
   }
 
-  /// Method to update a stepper state to the some parameters
-  ///
-  /// @param [in,out] state State object that will be updated
-  /// @param [in] pars Parameters that will be written into @p state
-  /// TODO is this function useful for a MultiStepper?
-  void update(State& /*state*/, const FreeVector& /*parameters*/,
-              const Covariance& /*covariance*/) const {
-    throw std::runtime_error("'update' not yet implemented correctely");
-  }
-
-  /// Method to update momentum, direction and p
-  ///
-  /// @param [in,out] state State object that will be updated
-  /// @param [in] uposition the updated position
-  /// @param [in] udirection the updated direction
-  /// @param [in] up the updated momentum value
-  /// TODO is this function useful for a MultiStepper?
-  void update(State& /*state*/, const Vector3& /*uposition*/,
-              const Vector3& /*udirection*/, double /*up*/,
-              double /*time*/) const {
-    throw std::runtime_error("'update' not yet implemented correctely");
-  }
-
-  /// Method to update the components individually
-  template <typename component_rep_t>
-  void updateComponents(State& state, const std::vector<component_rep_t>& cmps,
-                        const Surface&) const {
-    assert(cmps.size() <= NComponents &&
-           "tried to create more components than possible");
-
-    state.numComponents = cmps.size();
-
-    for (auto i = 0ul; i < cmps.size(); ++i) {
-      ComponentProxy proxy(state, i);
-
-      proxy.pars() = cmps[i].trackStateProxy->filtered();
-      if (state.covTransport) {
-        proxy.cov() = cmps[i].trackStateProxy->filteredCovariance();
-      }
-      proxy.jacobian() = cmps[i].jacobian;
-      proxy.jacToGlobal() = cmps[i].jacToGlobal;
-      proxy.derivative() = cmps[i].derivative;
-      proxy.jacTransport() = cmps[i].jacTransport;
-      proxy.weight() = cmps[i].weight;
-    }
-  }
-
   /// Method for on-demand transport of the covariance
   /// to a new curvilinear frame at current  position,
   /// or direction of the state
@@ -743,10 +721,7 @@ class MultiEigenStepperSIMD
   /// @param [in,out] state State of the stepper
   ///
   /// @return the full transport jacobian
-  void transportCovarianceToCurvilinear(State& /*state*/) const {
-    throw std::runtime_error(
-        "'transportCovarianceToCurvilinear' not yet implemented correctely");
-  }
+  void transportCovarianceToCurvilinear(State& state) const;
 
   /// Method for on-demand transport of the covariance
   /// to a new curvilinear frame at current position,
@@ -759,13 +734,12 @@ class MultiEigenStepperSIMD
   /// to
   /// @note no check is done if the position is actually on the surface
   void transportCovarianceToBound(
-      State& /*state*/, const Surface& /*surface*/,
-      const FreeToBoundCorrection& /*freeToBoundCorrection*/
-      = FreeToBoundCorrection(false)) const {
-    throw std::runtime_error(
-        "'transportCovarianceToBound' not yet implemented correctely");
-  }
+      State& state, const Surface& surface,
+      const FreeToBoundCorrection& freeToBoundCorrection =
+          FreeToBoundCorrection(false)) const;
 
+  /// Helper method to do stepping
+  ///
   template <typename propagator_state_t, typename navigator_t>
   Result<double> estimate_step_size(const propagator_state_t& state,
                                     const navigator_t& navigator,
