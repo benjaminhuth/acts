@@ -15,7 +15,7 @@
 #include "Acts/Definitions/Direction.hpp"
 #include "Acts/Definitions/TrackParametrization.hpp"
 #include "Acts/Definitions/Units.hpp"
-#include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
+#include "Acts/EventData/MultiComponentTrackParameters.hpp"
 #include "Acts/EventData/TrackParameters.hpp"
 #include "Acts/EventData/detail/CorrectedTransformationFreeToBound.hpp"
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
@@ -223,10 +223,6 @@ class MultiEigenStepperLoop
   /// surface
   std::size_t m_stepLimitAfterFirstComponentOnSurface = 50;
 
-  /// How to extract a single component state when calling .boundState() or
-  /// .curvilinearState()
-  MixtureReductionMethod m_finalReductionMethod = MixtureReductionMethod::eMean;
-
   /// The logger (used if no logger is provided by caller of methods)
   std::unique_ptr<const Acts::Logger> m_logger;
 
@@ -243,10 +239,16 @@ class MultiEigenStepperLoop
   using SingleState = typename SingleStepper::State;
 
   /// @brief Use the definitions from the Single-stepper
-  using typename SingleStepper::BoundState;
   using typename SingleStepper::Covariance;
-  using typename SingleStepper::CurvilinearState;
   using typename SingleStepper::Jacobian;
+
+  /// @brief Define an own bound state
+  using BoundState =
+      std::tuple<MultiComponentBoundTrackParameters, Jacobian, ActsScalar>;
+
+  /// @brief Define an own curvilinear state
+  using CurvilinearState = std::tuple<MultiComponentCurvilinearTrackParameters,
+                                      Jacobian, ActsScalar>;
 
   /// @brief The reducer type
   using Reducer = component_reducer_t;
@@ -256,12 +258,9 @@ class MultiEigenStepperLoop
 
   /// Constructor from a magnetic field and a optionally provided Logger
   MultiEigenStepperLoop(std::shared_ptr<const MagneticFieldProvider> bField,
-                        MixtureReductionMethod finalReductionMethod =
-                            MixtureReductionMethod::eMean,
                         std::unique_ptr<const Logger> logger =
                             getDefaultLogger("GSF", Logging::INFO))
       : EigenStepper<extensionlist_t, auctioneer_t>(std::move(bField)),
-        m_finalReductionMethod(finalReductionMethod),
         m_logger(std::move(logger)) {}
 
   struct State {
@@ -469,7 +468,7 @@ class MultiEigenStepperLoop
           cmp.state, state.navigation, state.options, state.geoContext);
     }
 
-    Result<BoundState> boundState(
+    Result<typename SingleStepper::BoundState> boundState(
         const Surface& surface, bool transportCov,
         const FreeToBoundCorrection& freeToBoundCorrection) {
       return detail::boundState(
@@ -709,23 +708,24 @@ class MultiEigenStepperLoop
   ///
   /// @param [in,out] state The stepping state (thread-local cache)
   /// @param [in] surface The surface provided
+  /// @param [in] index The surface intersection index
   /// @param [in] navDir The navigation direction
   /// @param [in] bcheck The boundary check for this status update
   /// @param [in] surfaceTolerance Surface tolerance used for intersection
   /// @param [in] logger A @c Logger instance
   Intersection3D::Status updateSurfaceStatus(
-      State& state, const Surface& surface, Direction navDir,
-      const BoundaryCheck& bcheck,
+      State& state, const Surface& surface, std::uint8_t index,
+      Direction navDir, const BoundaryCheck& bcheck,
       ActsScalar surfaceTolerance = s_onSurfaceTolerance,
       const Logger& logger = getDummyLogger()) const {
     using Status = Intersection3D::Status;
 
-    std::array<int, 4> counts = {0, 0, 0, 0};
+    std::array<int, 3> counts = {0, 0, 0};
 
     for (auto& component : state.components) {
       component.status = detail::updateSingleSurfaceStatus<SingleStepper>(
-          *this, component.state, surface, navDir, bcheck, surfaceTolerance,
-          logger);
+          *this, component.state, surface, index, navDir, bcheck,
+          surfaceTolerance, logger);
       ++counts[static_cast<std::size_t>(component.status)];
     }
 

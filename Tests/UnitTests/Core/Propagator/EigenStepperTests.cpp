@@ -458,7 +458,8 @@ BOOST_AUTO_TEST_CASE(eigen_stepper_test) {
   // Test the intersection in the context of a surface
   auto targetSurface =
       Surface::makeShared<PlaneSurface>(pos + navDir * 2. * dir, dir);
-  es.updateSurfaceStatus(esState, *targetSurface, navDir, BoundaryCheck(false));
+  es.updateSurfaceStatus(esState, *targetSurface, 0, navDir,
+                         BoundaryCheck(false));
   CHECK_CLOSE_ABS(esState.stepSize.value(ConstrainedStep::actor), navDir * 2.,
                   eps);
 
@@ -470,7 +471,7 @@ BOOST_AUTO_TEST_CASE(eigen_stepper_test) {
                         .closest(),
                     navDir, false);
   CHECK_CLOSE_ABS(esState.stepSize.value(), 2., eps);
-  esState.stepSize.setValue(navDir * stepSize);
+  esState.stepSize.setUser(navDir * stepSize);
   es.updateStepSize(esState,
                     targetSurface
                         ->intersect(esState.geoContext, es.position(esState),
