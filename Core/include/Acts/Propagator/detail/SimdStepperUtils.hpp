@@ -41,38 +41,41 @@ struct MultiProxyStepper {
 
 /// Proxy stepper which acts of a specific component
 template <typename simd_stepper_t>
-struct SingleProxyStepper {
+class SingleProxyStepper {
+  const std::size_t m_i = 0;
+  const double m_olimit = 0.0;
+  
+public:
   using Stepper = simd_stepper_t;
   using State = typename Stepper::State;
-
-  const std::size_t i = 0;
-  const double minus_olimit = 0.0;
+  
+  SingleProxyStepper(std::size_t i, double olimit) : m_i(i), m_olimit(olimit) {}
 
   auto direction(const State& state) const {
-    return Stepper::direction(i, state);
+    return Stepper::direction(m_i, state);
   }
   auto position(const State& state) const {
-    return Stepper::position(i, state);
+    return Stepper::position(m_i, state);
   }
   auto charge(const State& state) const {
     return Stepper::charge_static(state);
   }
   auto absoluteMomentum(const State& state) const {
-    return Stepper::absoluteMomentum(i, state);
+    return Stepper::absoluteMomentum(m_i, state);
   }
-  auto qOverP(const State& state) const { return Stepper::qOverP(i, state); }
-  auto time(const State& state) const { return Stepper::time(i, state); }
-  auto overstepLimit(const State&) const { return minus_olimit; }
+  auto qOverP(const State& state) const { return Stepper::qOverP(m_i, state); }
+  auto time(const State& state) const { return Stepper::time(m_i, state); }
+  auto overstepLimit(const State&) const { return m_olimit; }
   void setStepSize(State& state, double stepSize,
                    ConstrainedStep::Type stype = ConstrainedStep::actor,
-                   bool /*release*/ = true) const {
-    state.stepSizes[i].update(stepSize, stype, true);
+                   bool release = true) const {
+    state.stepSizes[m_i].update(stepSize, stype, release);
   }
   void releaseStepSize(State& state) const {
-    state.stepSizes[i].release(ConstrainedStep::actor);
+    state.stepSizes[m_i].release(ConstrainedStep::actor);
   };
   auto getStepSize(const State& state, ConstrainedStep::Type stype) const {
-    return state.stepSizes[i].value(stype);
+    return state.stepSizes[m_i].value(stype);
   };
 };
 
@@ -106,8 +109,9 @@ struct SimdComponentProxyBase {
     return state;
   }
 
-  auto singleStepper(const simd_stepper_t& /*stepper*/) const {
-    return SingleProxyStepper<simd_stepper_t>{};
+  auto singleStepper(const simd_stepper_t& stepper) const {
+    // the stepper returns -olimit, so we invert sign again
+    return SingleProxyStepper<simd_stepper_t>(m_i, -stepper.overstepLimit(m_state));
   }
 };
 
@@ -162,28 +166,42 @@ struct SimdComponentProxy : SimdComponentProxyBase<state_t, simd_stepper_t> {
 
     // TODO template detail::bounState(...) on Eigen::MatrixBase<T> to allow
     // the Map types to go in directely
-    auto jacTransportMap = jacTransport();
-    auto derivativeMap = derivative();
-    auto parsMap = pars();
-
-    Acts::FreeMatrix jacTransport(jacTransportMap);
-    Acts::FreeVector derivative(derivativeMap);
-    Acts::FreeVector pars(parsMap);
+    Acts::FreeMatrix jacTransport = this->jacTransport();
+    Acts::FreeVector derivative = this->derivative();
+    Acts::FreeVector pars = this->pars();
 
     auto bs = detail::boundState(m_state.geoContext, cov(), jacobian(),
                                  jacTransport, derivative, jacToGlobal(), pars,
-                                 m_state.particleHypothesis, transportCov,
+                                 m_state.particleHypothesis, m_state.covTransport && transportCov,
                                  m_state.pathAccumulated, surface, ftbc);
 
-    jacTransportMap = jacTransport;
-    derivativeMap = derivative;
-    parsMap = pars;
+    this->jacTransport() = jacTransport;
+    this->derivative() = derivative;
+    this->pars() = pars;
 
     if (!bs.ok()) {
       return R{bs.error()};
     }
 
     return R{std::move(bs.value())};
+  }
+  
+
+  auto curvilinearState(bool transportCov) {
+    Acts::FreeMatrix jacTransport = this->jacTransport();
+    Acts::FreeVector derivative = this->derivative();
+    Acts::FreeVector pars = this->pars();
+
+    auto bs = detail::curvilinearState(
+        cov(), jacobian(), jacTransport, derivative, jacToGlobal(), pars,
+        m_state.particleHypothesis, m_state.covTransport && transportCov,
+        m_state.pathAccumulated);
+
+    this->jacTransport() = jacTransport;
+    this->derivative() = derivative;
+    this->pars() = pars;
+
+    return bs;
   }
 };
 

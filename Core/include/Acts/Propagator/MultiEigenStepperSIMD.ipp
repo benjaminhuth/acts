@@ -7,6 +7,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include "Acts/Utilities/Zip.hpp"
+#include "Acts/Propagator/detail/MultiStepperUtils.hpp"
 
 namespace Acts {
 
@@ -65,8 +66,8 @@ void MultiEigenStepperSIMD<N, AA, BB, CC, DD>::transportCovarianceToCurvilinear(
 template <int N, typename AA, typename BB, typename CC, typename DD>
 Intersection3D::Status
 MultiEigenStepperSIMD<N, AA, BB, CC, DD>::updateSurfaceStatus(
-    State& state, const Surface& surface, Direction navDir,
-    const BoundaryCheck& bcheck, const Logger& l) const {
+    State& state, const Surface& surface, std::uint8_t index, Direction navDir,
+    const BoundaryCheck& bcheck, const Logger& /*l*/) const {
   ACTS_DEBUG("MultiEigenStepperSIMD::updateSurfaceStatus");
 
   std::array<int, 4> counts = {0, 0, 0, 0};
@@ -80,7 +81,7 @@ MultiEigenStepperSIMD<N, AA, BB, CC, DD>::updateSurfaceStatus(
     const auto prevStatus = cmp.status();
     
     cmp.status() = detail::updateSingleSurfaceStatus<SingleProxyStepper>(
-        cmp.singleStepper(*this), state, surface, navDir, bcheck,
+        cmp.singleStepper(*this), state, surface, index, navDir, bcheck,
         s_onSurfaceTolerance, logger()  /*Acts::getDummyLogger()*/);
     
     ACTS_VERBOSE("  cmp" << cmp.index() << ": " << prevStatus << " -> " << cmp.status());
@@ -101,6 +102,21 @@ MultiEigenStepperSIMD<N, AA, BB, CC, DD>::updateSurfaceStatus(
     return Status::unreachable;
   else
     return Status::missed;
+}
+
+template <int N, typename AA, typename BB, typename CC, typename DD>
+auto MultiEigenStepperSIMD<N, AA, BB, CC, DD>::boundState(
+      State& state, const Surface& surface,
+      bool transportCov,
+      const FreeToBoundCorrection& freeToBoundCorrection) const -> Result<BoundState> {
+  return detail::multiComponentBoundState(*this, state, surface, transportCov, freeToBoundCorrection);
+}
+
+template <int N, typename AA, typename BB, typename CC, typename DD>
+auto MultiEigenStepperSIMD<N, AA, BB, CC, DD>::curvilinearState(
+      State& state, 
+      bool transportCov) const -> CurvilinearState {
+  return detail::multiComponentCurvilinearState(*this, state, transportCov);
 }
 
 // Seperated stepsize estimate from Single eigen stepper
@@ -184,7 +200,7 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::estimate_step_size(
                                          0.25)),
                  4.);
 
-    current_estimate.setValue(current_estimate.value() * stepSizeScaling);
+    current_estimate.update(current_estimate.value() * stepSizeScaling, ConstrainedStep::actor);
 
     // If step size becomes too small the particle remains at the initial
     // place
@@ -219,9 +235,15 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
   const auto dir = multiDirection(stepping);
 
   ACTS_VERBOSE("Pos before step:");
-  ACTS_VERBOSE("  x = " << multiPosition(stepping)[0]);
-  ACTS_VERBOSE("  y = " << multiPosition(stepping)[1]);
-  ACTS_VERBOSE("  z = " << multiPosition(stepping)[2]);
+  ACTS_VERBOSE("  x = " << pos[0]);
+  ACTS_VERBOSE("  y = " << pos[1]);
+  ACTS_VERBOSE("  z = " << pos[2]);
+  
+  
+  ACTS_VERBOSE("Dir before step:");
+  ACTS_VERBOSE("  dx = " << dir[0]);
+  ACTS_VERBOSE("  dy = " << dir[1]);
+  ACTS_VERBOSE("  dz = " << dir[2]);
 
   // First Runge-Kutta point
   sd.B_first = getMultiField(stepping, pos);
@@ -270,7 +292,7 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
   // }();
 
   SimdScalar h = 0;
-  for (int i = 0; i < stepping.stepSizes.size(); ++i) {
+  for (auto i = 0ul; i < stepping.stepSizes.size(); ++i) {
     h[i] = stepping.stepSizes[i].value();
   }
 
@@ -285,13 +307,23 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
   const SimdScalar half_h = h * SimdScalar(0.5);
 
   // Second Runge-Kutta point
-  const SimdVector3 pos1 = pos + half_h * dir + h2 * 0.125 * sd.k1;
+  const SimdVector3 pos1 = pos + half_h * dir + h2 * SimdScalar(0.125) * sd.k1;
   sd.B_middle = getMultiField(stepping, pos1);
+  
+  ACTS_VERBOSE("Runge-Kutta k1:");
+  ACTS_VERBOSE("  x = " << sd.k1[0]);
+  ACTS_VERBOSE("  y = " << sd.k1[1]);
+  ACTS_VERBOSE("  z = " << sd.k1[2]);
 
   if (!stepping.extension.k2(state, MultiProxyStepper{}, navigator, sd.k2,
                              sd.B_middle, sd.kQoP, half_h, sd.k1)) {
     return EigenStepperError::StepInvalid;
   }
+  
+  ACTS_VERBOSE("Runge-Kutta k2:");
+  ACTS_VERBOSE("  x = " << sd.k2[0]);
+  ACTS_VERBOSE("  y = " << sd.k2[1]);
+  ACTS_VERBOSE("  z = " << sd.k2[2]);
 
   // check for nan
   for (int i = 0; i < 3; ++i) {
@@ -312,12 +344,22 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
   // Last Runge-Kutta point
   const SimdVector3 pos2 = pos + h * dir + h2 * 0.5 * sd.k3;
   sd.B_last = getMultiField(stepping, pos2);
+  
+  ACTS_VERBOSE("Runge-Kutta k3:");
+  ACTS_VERBOSE("  x = " << sd.k3[0]);
+  ACTS_VERBOSE("  y = " << sd.k3[1]);
+  ACTS_VERBOSE("  z = " << sd.k3[2]);
 
   if (!stepping.extension.k4(state, MultiProxyStepper{}, navigator, sd.k4,
                              sd.B_last, sd.kQoP, h, sd.k3)) {
     return EigenStepperError::StepInvalid;
   }
-
+  
+  ACTS_VERBOSE("Runge-Kutta k4:");
+  ACTS_VERBOSE("  x = " << sd.k4[0]);
+  ACTS_VERBOSE("  y = " << sd.k4[1]);
+  ACTS_VERBOSE("  z = " << sd.k4[2]);
+  
   // check for nan
   for (int i = 0; i < 3; ++i) {
     assert(!sd.k4[i].isNaN().any() && "k4 contains nan");

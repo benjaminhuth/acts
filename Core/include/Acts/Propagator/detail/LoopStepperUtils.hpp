@@ -133,6 +133,13 @@ struct LoopComponentProxy
         surface, freeToBoundCorrection);
   }
 
+  typename SingleStepper::CurvilinearState curvilinearState(bool transportCov) {
+    return detail::curvilinearState(
+        cov(), jacobian(), jacTransport(), derivative(), jacToGlobal(), pars(),
+        all_state.particleHypothesis, all_state.covTransport && transportCov,
+        cmp.state.pathAccumulated);
+  }
+
   void update(const FreeVector& freeParams, const BoundVector& boundParams,
               const Covariance& covariance, const Surface& surface) {
     cmp.state.pars = freeParams;

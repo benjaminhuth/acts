@@ -26,6 +26,7 @@
 #include "Acts/Propagator/detail/LoopStepperUtils.hpp"
 #include "Acts/Surfaces/Surface.hpp"
 #include "Acts/Utilities/GaussianMixtureReduction.hpp"
+#include "Acts/Propagator/detail/MultiStepperUtils.hpp"
 #include "Acts/Utilities/Intersection.hpp"
 #include "Acts/Utilities/Result.hpp"
 
@@ -478,7 +479,7 @@ class MultiEigenStepperLoop
     }
   }
 
-  /// Updates the components in the multistepper
+ /// Updates the components in the multistepper
   ///
   /// @param [in,out] state  The stepping state (thread-local cache)
   /// @param [in] surface The surface we are on

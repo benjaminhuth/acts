@@ -123,14 +123,14 @@ struct MultiStepperTester {
   const MagneticFieldContext magCtx;
   const GeometryContext geoCtx;
 
-  const double defaultStepSize = 123.;
+  const double defaultStepSize = 12.3;
   const Direction defaultNDir = Direction::Backward;
   const ParticleHypothesis particleHypothesis = ParticleHypothesis::pion();
 
   const std::shared_ptr<MagneticFieldProvider> defaultBField =
-      std::make_shared<ConstantBField>(Vector3(1., 2.5, 33.33));
+      std::make_shared<ConstantBField>(Vector3(1.0, 2.5, 2.0));
   const std::shared_ptr<MagneticFieldProvider> defaultNullBField =
-      std::make_shared<NullBField>();
+      std::make_shared<ConstantBField>(Vector3(0.0, 0.0, 0.0));
 
   double epsilon = 1.e-8;
   
@@ -216,9 +216,9 @@ struct MultiStepperTester {
                                                   particleHypothesis);
     BoundTrackParameters single_pars(surface, pars, cov, particleHypothesis);
 
-    MultiState multi_state(geoCtx, magCtx, defaultBField, multi_pars,
+    MultiState multi_state(geoCtx, magCtx, defaultNullBField, multi_pars,
                            defaultStepSize);
-    SingleStepper::State single_state(geoCtx, defaultBField->makeCache(magCtx),
+    SingleStepper::State single_state(geoCtx, defaultNullBField->makeCache(magCtx),
                                       single_pars, defaultStepSize);
 
     MultiStepper multi_stepper(defaultBField);
@@ -395,7 +395,7 @@ struct MultiStepperTester {
     // Update surface status and check
     {
       auto status = multi_stepper.updateSurfaceStatus(
-          multi_state, *right_surface, Direction::Forward, false);
+          multi_state, *right_surface, 0, Direction::Forward, false);
 
       BOOST_CHECK(status == Intersection3D::Status::reachable);
 
@@ -420,7 +420,7 @@ struct MultiStepperTester {
     // Update surface status and check again
     {
       auto status = multi_stepper.updateSurfaceStatus(
-          multi_state, *right_surface, Direction::Forward, false);
+          multi_state, *right_surface, 0, Direction::Forward, false);
 
       BOOST_CHECK(status == Intersection3D::Status::onSurface);
 
@@ -435,7 +435,7 @@ struct MultiStepperTester {
     // Start surface should be unreachable
     {
       auto status = multi_stepper.updateSurfaceStatus(
-          multi_state, *start_surface, Direction::Forward, false);
+          multi_state, *start_surface, 0, Direction::Forward, false);
 
       BOOST_CHECK(status == Intersection3D::Status::unreachable);
 
@@ -491,13 +491,13 @@ struct MultiStepperTester {
 
     // Step forward now
     {
-      multi_stepper.updateSurfaceStatus(multi_state, *right_surface,
+      multi_stepper.updateSurfaceStatus(multi_state, *right_surface, 0,
                                         Direction::Forward, false);
       auto multi_prop_state = DummyPropState(Direction::Forward, multi_state);
       multi_stepper.step(multi_prop_state, mockNavigator);
 
       // Single stepper
-      single_stepper.updateSurfaceStatus(single_state, *right_surface,
+      single_stepper.updateSurfaceStatus(single_state, *right_surface, 0,
                                          Direction::Forward, false);
       auto single_prop_state = DummyPropState(Direction::Forward, single_state);
       single_stepper.step(single_prop_state, mockNavigator);
@@ -669,7 +669,7 @@ struct MultiStepperTester {
     using MultiState = typename multi_stepper_t::State;
     using MultiStepper = multi_stepper_t;
 
-    const auto multi_pars = makeDefaultBoundPars(4);
+    const auto multi_pars = makeDefaultBoundPars(true, 4);
     const auto &surface = multi_pars.referenceSurface();
 
     MultiState multi_state(geoCtx, magCtx, defaultBField, multi_pars,
@@ -688,7 +688,7 @@ struct MultiStepperTester {
 
     // Effectively add components
     {
-      const auto new_pars = makeDefaultBoundPars(6);
+      const auto new_pars = makeDefaultBoundPars(true, 6);
 
       const auto &cmps = new_pars.components();
       multi_stepper.update(multi_state, surface, cmps.begin(), cmps.end(),
@@ -698,7 +698,7 @@ struct MultiStepperTester {
 
     // Effectively remove components
     {
-      const auto new_pars = makeDefaultBoundPars(2);
+      const auto new_pars = makeDefaultBoundPars(true, 2);
 
       const auto &cmps = new_pars.components();
       multi_stepper.update(multi_state, surface, cmps.begin(), cmps.end(),

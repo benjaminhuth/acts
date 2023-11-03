@@ -14,7 +14,7 @@
 #include "Acts/Propagator/detail/SimdHelpers.hpp"
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Definitions/Units.hpp"
-#include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
+#include "Acts/EventData/MultiComponentTrackParameters.hpp"
 #include "Acts/EventData/TrackParameters.hpp"
 #include "Acts/MagneticField/MagneticFieldProvider.hpp"
 #include "Acts/Propagator/DefaultExtension.hpp"
@@ -27,6 +27,7 @@
 #include "Acts/Propagator/detail/SimdHelpers.hpp"
 #include "Acts/Propagator/detail/SimdStepperUtils.hpp"
 #include "Acts/Propagator/detail/SteppingHelper.hpp"
+#include "Acts/Propagator/detail/MultiStepperUtils.hpp"
 #include "Acts/Utilities/Intersection.hpp"
 #include "Acts/Utilities/Result.hpp"
 
@@ -124,9 +125,7 @@ class MultiEigenStepperSIMD
   using SingleState = typename SingleStepper::State;
 
   /// @brief Use the definitions from the Single-stepper
-  using typename SingleStepper::BoundState;
   using typename SingleStepper::Covariance;
-  using typename SingleStepper::CurvilinearState;
   using typename SingleStepper::Jacobian;
 
   /// @brief The reducer type
@@ -134,6 +133,9 @@ class MultiEigenStepperSIMD
 
   /// @brief How many components can this stepper manage?
   static constexpr int maxComponents = NComponents;
+  
+  using BoundState = detail::MultiStepperBoundState;
+  using CurvilinearState = detail::MultiStepperCurvilinearState;
 
   /// @brief SIMD typedefs
   using SimdScalar = SimdType<NComponents>;
@@ -369,11 +371,13 @@ class MultiEigenStepperSIMD
   void update(State& state, const Surface& /*surface*/, iterator_t begin,
               iterator_t end, const copy_t& copy) const {
     assert(std::distance(begin, end) <= NComponents);
+    ACTS_VERBOSE("distance " << std::distance(begin, end));
 
     std::size_t i = 0;
     auto it = begin;
     for (; it != end; ++i, ++it) {
       auto proxy = ComponentProxy{state, i};
+      ACTS_VERBOSE("copy to component " << i);
       copy(*it, proxy);
     }
 
@@ -499,9 +503,9 @@ class MultiEigenStepperSIMD
   /// @param surface [in] The surface provided
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
-      State& state, const Surface& /*surface*/, Direction /*navDir*/,
-      const BoundaryCheck& /*bcheck*/,
-      const Logger& /*logger*/ = getDummyLogger()) const;
+      State& state, const Surface& surface, std::uint8_t index, Direction navDir,
+      const BoundaryCheck& bcheck,
+      const Logger& logger = getDummyLogger()) const;
 
   /// Update step size
   ///
@@ -608,13 +612,10 @@ class MultiEigenStepperSIMD
   ///   - the stepwise jacobian towards it (from last bound)
   ///   - and the path length (from start - for ordering)
   Result<BoundState> boundState(
-      State& /*state*/, const Surface& /*surface*/,
-      bool /*transportCov*/ = true,
-      const FreeToBoundCorrection& /*freeToBoundCorrection*/ =
-          FreeToBoundCorrection(false)) const {
-    throw std::runtime_error(
-        "'boundState' not yet implemented for MultiEigenStepper");
-  }
+      State& state, const Surface& surface,
+      bool transportCov = true,
+      const FreeToBoundCorrection& freeToBoundCorrection =
+          FreeToBoundCorrection(false)) const;
 
   /// Create and return a curvilinear state at the current position
   ///
@@ -630,57 +631,7 @@ class MultiEigenStepperSIMD
   ///   - and the path length (from start - for ordering)
   /// TODO reformulate with reducer functions
   CurvilinearState curvilinearState(State& /*state*/,
-                                    bool /*transportCov*/ = true) const {
-    throw std::runtime_error("not implemented in Multi Stepper");
-    // // std optional because CurvilinearState is not default constructable
-    // std::array<std::optional<CurvilinearState>, NComponents> states;
-    //
-    // // Compute all states
-    // for (auto i = 0ul; i < NComponents; ++i) {
-    //   FreeVector pars, derivative;
-    //   FreeMatrix jacTransport;
-    //
-    //   for (auto j = 0ul; j < eFreeSize; ++j) {
-    //     pars[j] = state.pars[j][i];
-    //   }
-    //
-    //   for (auto j = 0ul; j < eFreeSize; ++j)
-    //     for (auto k = 0ul; k < eFreeSize; ++k) {
-    //       jacTransport(j, k) = state.jacTransport(j, k)[i];
-    //     }
-    //
-    //   states[i] = detail::curvilinearState(
-    //       state.covs[i], state.jacobians[i], jacTransport, derivative,
-    //       state.jacToGlobals[i], pars, state.covTransport && transportCov,
-    //       state.pathAccumulated);
-    // }
-    //
-    // // Sum everything up
-    // Vector4 pos = Vector4::Zero();
-    // Vector3 dir = Vector3::Zero();
-    // double p = 0., pathlen = 0.;
-    // Jacobian jac = Jacobian::Zero();
-    //
-    // for (const auto& curvstate : states) {
-    //   const auto& curvpars =
-    //   std::get<CurvilinearTrackParameters>(*curvstate); pos +=
-    //   curvpars.fourPosition(state.geoContext); dir +=
-    //   curvpars.unitDirection(); p += curvpars.absoluteabsoluteMomentum();
-    //   pathlen += std::get<double>(*curvstate);
-    //   jac += std::get<Jacobian>(*curvstate);
-    // }
-    //
-    // // Average over all
-    // double q = std::get<double>(*states.front());
-    // pos /= NComponents;
-    // dir.normalize();
-    // p /= NComponents;
-    // pathlen /= NComponents;
-    // jac /= NComponents;
-    //
-    // return CurvilinearState{CurvilinearTrackParameters(pos, dir, p, q), jac,
-    //                         pathlen};
-  }
+                                    bool /*transportCov*/ = true) const;
 
   /// Method for on-demand transport of the covariance
   /// to a new curvilinear frame at current  position,
