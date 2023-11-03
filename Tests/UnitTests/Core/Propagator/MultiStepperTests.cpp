@@ -10,6 +10,8 @@
 
 using MultiStepper =
     MultiEigenStepperLoop<StepperExtensionList<DefaultExtension>>;
+    
+const MultiStepperTester t;
 
 BOOST_AUTO_TEST_SUITE(multistepper_loop_test)
 
@@ -17,26 +19,26 @@ BOOST_AUTO_TEST_SUITE(multistepper_loop_test)
 /// Test the construction of the MultiStepper::State
 //////////////////////////////////////////////////////
 BOOST_AUTO_TEST_CASE(multi_stepper_state_charged_no_cov) {
-  test_multi_stepper_state<MultiStepper, false>();
+  t.test_multi_stepper_state<MultiStepper, false>();
 }
 
 BOOST_AUTO_TEST_CASE(multi_stepper_state_neutral_no_cov) {
-  test_multi_stepper_state<MultiStepper, false>();
+  t.test_multi_stepper_state<MultiStepper, false>();
 }
 
 BOOST_AUTO_TEST_CASE(multi_stepper_state_charged_cov) {
-  test_multi_stepper_state<MultiStepper, true>();
+  t.test_multi_stepper_state<MultiStepper, true>();
 }
 
 BOOST_AUTO_TEST_CASE(multi_eigen_stepper_state_invalid) {
-  test_multi_stepper_state_invalid<MultiStepper>();
+  t.test_multi_stepper_state_invalid<MultiStepper>();
 }
 
 ////////////////////////////////////////////////////////////////////////
 // Compare the Multi-Stepper against the Eigen-Stepper for consistency
 ////////////////////////////////////////////////////////////////////////
 BOOST_AUTO_TEST_CASE(multi_eigen_vs_single_eigen) {
-  test_multi_stepper_vs_eigen_stepper<MultiStepper>();
+  t.test_multi_stepper_vs_eigen_stepper<MultiStepper>();
 }
 
 /////////////////////////////
@@ -50,53 +52,53 @@ BOOST_AUTO_TEST_CASE(multi_eigen_vs_single_eigen) {
 // Test the modifying accessors to the components
 ////////////////////////////////////////////////////
 BOOST_AUTO_TEST_CASE(multi_eigen_component_iterable_with_modification) {
-  test_components_modifying_accessors<MultiStepper>();
+  t.test_components_modifying_accessors<MultiStepper>();
 }
 
 /////////////////////////////////////////////
 // Test if the surface status update works
 /////////////////////////////////////////////
 BOOST_AUTO_TEST_CASE(test_surface_status_and_cmpwise_bound_state) {
-  test_multi_stepper_surface_status_update<MultiStepper>();
+  t.test_multi_stepper_surface_status_update<MultiStepper>();
 }
 
 //////////////////////////////////
 // Test Bound state computations
 //////////////////////////////////
 BOOST_AUTO_TEST_CASE(test_component_wise_bound_state) {
-  test_component_bound_state<MultiStepper>();
+  t.test_component_bound_state<MultiStepper>();
 }
 
 BOOST_AUTO_TEST_CASE(test_combined_bound_state) {
-  test_combined_bound_state_function<MultiStepper>();
+  t.test_combined_bound_state_function<MultiStepper>();
 }
 
 //////////////////////////////////////////////////
 // Test the combined curvilinear state function
 //////////////////////////////////////////////////
 BOOST_AUTO_TEST_CASE(test_curvilinear_state) {
-  test_combined_curvilinear_state_function<MultiStepper>();
+  t.test_combined_curvilinear_state_function<MultiStepper>();
 }
 
 ////////////////////////////////////
 // Test single component interface
 ////////////////////////////////////
 BOOST_AUTO_TEST_CASE(test_single_component_interface) {
-  test_single_component_interface_function<MultiStepper>();
+  t.test_single_component_interface_function<MultiStepper>();
 }
 
 //////////////////////////////
 // Remove and add components
 //////////////////////////////
 BOOST_AUTO_TEST_CASE(remove_add_components_test) {
-  remove_add_components_function<MultiStepper>();
+  t.remove_add_components_function<MultiStepper>();
 }
 
 //////////////////////////////////////////////////
 // Instatiate a Propagator with the MultiStepper
 //////////////////////////////////////////////////
 BOOST_AUTO_TEST_CASE(propagator_instatiation_test) {
-  propagator_instatiation_test_function<MultiStepper>();
+  t.propagator_instatiation_test_function<MultiStepper>();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

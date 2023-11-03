@@ -241,6 +241,8 @@ struct NumTraits<Acts::SimdType<N>> {
   constexpr static int ReadCost = Eigen::HugeCost;
   constexpr static int AddCost = Eigen::HugeCost;
   constexpr static int MulCost = Eigen::HugeCost;
+  
+  static int digits10() { return 5; }
 };
 
 }  // namespace Eigen

@@ -11,6 +11,7 @@
 // Workaround for building on clang+libstdc++
 #include "Acts/Utilities/detail/ReferenceWrapperAnyCompat.hpp"
 
+#include "Acts/Propagator/detail/SimdHelpers.hpp"
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Definitions/Units.hpp"
 #include "Acts/EventData/MultiComponentBoundTrackParameters.hpp"
@@ -139,6 +140,10 @@ class MultiEigenStepperSIMD
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
   using SimdFreeMatrix = Eigen::Matrix<SimdScalar, eFreeSize, eFreeSize>;
+  
+  std::unique_ptr<const Acts::Logger> m_logger;
+  
+  const Acts::Logger &logger() const { return *m_logger; }
 
   struct State {
     /// Number of current active components
@@ -159,6 +164,9 @@ class MultiEigenStepperSIMD
     // no std::array, because ConstrainedStep is not default constructable.
     // TODO boost::static_vector for rescue
     std::vector<ConstrainedStep> stepSizes;
+    
+    // TODO this is quite a ugly hack to interface with updateSingleSurfaceStatus
+    ConstrainedStep stepSize;
 
     /// Particle hypothesis
     ParticleHypothesis particleHypothesis = ParticleHypothesis::pion();
@@ -289,7 +297,7 @@ class MultiEigenStepperSIMD
 
       // clang-format off
       auto begin() { return Iterator{s, 0ul}; }
-      auto end() { return Iterator{s, NComponents}; }
+      auto end() { return Iterator{s, s.numComponents}; }
       // clang-format on
     };
 
@@ -325,7 +333,7 @@ class MultiEigenStepperSIMD
 
       // clang-format off
       auto begin() const { return ConstIterator{s, 0}; }
-      auto end() const { return ConstIterator{s, NComponents}; }
+      auto end() const { return ConstIterator{s, s.numComponents}; }
       // clang-format on
     };
 
@@ -373,8 +381,9 @@ class MultiEigenStepperSIMD
   }
 
   /// Constructor
-  MultiEigenStepperSIMD(std::shared_ptr<const MagneticFieldProvider> bField)
-      : SingleStepper(bField) {}
+  MultiEigenStepperSIMD(std::shared_ptr<const MagneticFieldProvider> bField, std::unique_ptr<const Logger> logger =
+                            getDefaultLogger("SIMDStepper", Logging::VERBOSE))
+      : SingleStepper(bField), m_logger(std::move(logger)) {}
 
   /// Get the field for the stepping, it checks first if the access is still
   /// within the Cell, and updates the cell if necessary.
@@ -492,46 +501,7 @@ class MultiEigenStepperSIMD
   Intersection3D::Status updateSurfaceStatus(
       State& state, const Surface& /*surface*/, Direction /*navDir*/,
       const BoundaryCheck& /*bcheck*/,
-      const Logger& /*logger*/ = getDummyLogger()) const {
-    // std::cout << "BEFORE updateSurfaceStatus(...): " <<
-    // outputStepSize(state)
-    // << std::endl;
-
-    std::array<int, 4> counts = {0, 0, 0, 0};
-
-    for (auto i = 0ul; i < NComponents; ++i) {
-      assert(false);
-      // state.status[i] =
-      // detail::updateSingleSurfaceStatus<SingleProxyStepper>(
-      //     SingleProxyStepper{i, overstepLimit(state)}, state, surface,
-      //     bcheck, logger);
-      ++counts[static_cast<std::size_t>(state.status[i])];
-    }
-
-    // std::cout << "COMPONENTS STATUS: ";
-    // for (auto i = 0ul; i < NComponents; ++i) {
-    //     std::cout << static_cast<std::size_t>(state.status[i]) << ", ";
-    // }
-    // std::cout << std::endl;
-
-    // std::cout << "AFTER updateSurfaceStatus(...): " <<
-    // outputStepSize(state)
-    // << std::endl;
-
-    // This is a 'any_of' criterium. As long as any of the components has a
-    // certain state, this determines the total state (in the order of a
-    // somewhat importance)
-    using Status = Intersection3D::Status;
-
-    if (counts[static_cast<std::size_t>(Status::reachable)] > 0)
-      return Status::reachable;
-    else if (counts[static_cast<std::size_t>(Status::onSurface)] > 0)
-      return Status::onSurface;
-    else if (counts[static_cast<std::size_t>(Status::unreachable)] > 0)
-      return Status::unreachable;
-    else
-      return Status::missed;
-  }
+      const Logger& /*logger*/ = getDummyLogger()) const;
 
   /// Update step size
   ///
@@ -546,19 +516,15 @@ class MultiEigenStepperSIMD
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
-    // std::cout << "BEFORE updateStepSize(...): " << outputStepSize(state) <<
-    // std::endl;
+    ACTS_DEBUG("MultiEigenStepperSIMD::updateStepSize");
 
-    for (auto i = 0ul; i < NComponents; ++i) {
+    for (auto i = 0ul; i < state.numComponents; ++i) {
       const auto intersection = oIntersection.representation->intersect(
           state.geoContext, position(i, state),
           state.navDir * direction(i, state), false);
 
       detail::updateSingleStepSize(state.stepSizes[i], intersection, release);
     }
-
-    // std::cout << "AFTER updateStepSize(...): " << outputStepSize(state) <<
-    // std::endl;
   }
 
   /// Set Step size - explicitely with a double
@@ -569,12 +535,13 @@ class MultiEigenStepperSIMD
   void setStepSize(State& state, double stepSize,
                    ConstrainedStep::Type stype = ConstrainedStep::actor,
                    bool /*release*/ = true) const {
-    //     state.previousStepSize = state.stepSize;
+    ACTS_DEBUG("MultiEigenStepperSIMD::setStepSize");
     for (auto& ss : state.stepSizes)
       ss.update(stepSize, stype, true);
   }
 
   double getStepSize(const State& state, ConstrainedStep::Type stype) const {
+    ACTS_DEBUG("MultiEigenStepperSIMD::getStepSize");
     return std::min_element(begin(state.stepSizes), end(state.stepSizes),
                             [stype](const auto& a, const auto& b) {
                               return a.value(stype) < b.value(stype);
@@ -586,6 +553,7 @@ class MultiEigenStepperSIMD
   ///
   /// @param state [in,out] The stepping state (thread-local cache)
   void releaseStepSize(State& state) const {
+    ACTS_DEBUG("MultiEigenStepperSIMD::releaseStepSize");
     for (auto& ss : state.stepSizes)
       ss.release(ConstrainedStep::actor);
   }

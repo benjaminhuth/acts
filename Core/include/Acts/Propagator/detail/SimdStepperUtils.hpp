@@ -89,6 +89,7 @@ struct SimdComponentProxyBase {
     // assert(i < NComponents && "Cannot create proxy: out of range");
   }
 
+  auto index() const { return m_i; }
   auto weight() const { return m_state.weights[m_i]; }
   auto charge() const { return m_state.q; }
   auto pathAccumulated() const { return m_state.pathAccumulated; }

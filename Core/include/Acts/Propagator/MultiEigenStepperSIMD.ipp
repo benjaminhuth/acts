@@ -6,59 +6,102 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+#include "Acts/Utilities/Zip.hpp"
+
 namespace Acts {
-  
 
 template <int N, typename AA, typename BB, typename CC, typename DD>
-  void MultiEigenStepperSIMD<N, AA, BB, CC, DD>::transportCovarianceToBound(
-      State& state, const Surface& surface,
-      const FreeToBoundCorrection& freeToBoundCorrection) const {
-    auto components = componentIterable(state);
-    for (auto cmp : components) {
-      FreeVector pars = cmp.pars();
-      FreeVector derivative = cmp.derivative();
-      BoundSquareMatrix cov = cmp.cov();
-      BoundSquareMatrix jacobian = cmp.jacobian();
-      BoundToFreeMatrix jacToGlobal = cmp.jacToGlobal();
-      FreeMatrix jacTransport = cmp.jacTransport();
+void MultiEigenStepperSIMD<N, AA, BB, CC, DD>::transportCovarianceToBound(
+    State& state, const Surface& surface,
+    const FreeToBoundCorrection& freeToBoundCorrection) const {
+  auto components = componentIterable(state);
+  for (auto cmp : components) {
+    FreeVector pars = cmp.pars();
+    FreeVector derivative = cmp.derivative();
+    BoundSquareMatrix cov = cmp.cov();
+    BoundSquareMatrix jacobian = cmp.jacobian();
+    BoundToFreeMatrix jacToGlobal = cmp.jacToGlobal();
+    FreeMatrix jacTransport = cmp.jacTransport();
 
-      detail::transportCovarianceToBound(state.geoContext, cov, jacobian,
-                                         jacTransport, derivative, jacToGlobal,
-                                         pars, surface, freeToBoundCorrection);
+    detail::transportCovarianceToBound(state.geoContext, cov, jacobian,
+                                       jacTransport, derivative, jacToGlobal,
+                                       pars, surface, freeToBoundCorrection);
 
-      cmp.pars() = pars;
-      cmp.derivative() = derivative;
-      cmp.cov() = cov;
-      cmp.jacobian() = jacobian;
-      cmp.jacToGlobal() = jacToGlobal;
-      cmp.jacTransport() = jacTransport;
-      cmp.derivative() = derivative;
-    }
+    cmp.pars() = pars;
+    cmp.derivative() = derivative;
+    cmp.cov() = cov;
+    cmp.jacobian() = jacobian;
+    cmp.jacToGlobal() = jacToGlobal;
+    cmp.jacTransport() = jacTransport;
+    cmp.derivative() = derivative;
   }
-  
+}
+
 template <int N, typename AA, typename BB, typename CC, typename DD>
-  void MultiEigenStepperSIMD<N, AA, BB, CC, DD>::transportCovarianceToCurvilinear(State& state) const {
-    auto components = componentIterable(state);
-    for (auto cmp : components) {
-      FreeVector derivative = cmp.derivative();
-      BoundSquareMatrix cov = cmp.cov();
-      BoundSquareMatrix jacobian = cmp.jacobian();
-      BoundToFreeMatrix jacToGlobal = cmp.jacToGlobal();
-      FreeMatrix jacTransport = cmp.jacTransport();
+void MultiEigenStepperSIMD<N, AA, BB, CC, DD>::transportCovarianceToCurvilinear(
+    State& state) const {
+  auto components = componentIterable(state);
+  for (auto cmp : components) {
+    FreeVector derivative = cmp.derivative();
+    BoundSquareMatrix cov = cmp.cov();
+    BoundSquareMatrix jacobian = cmp.jacobian();
+    BoundToFreeMatrix jacToGlobal = cmp.jacToGlobal();
+    FreeMatrix jacTransport = cmp.jacTransport();
 
-      auto singleStepper = cmp.singleStepper(*this);
-      detail::transportCovarianceToCurvilinear(cov, jacobian, jacTransport,
-                                               derivative, jacToGlobal,
-                                               singleStepper.direction(state));
+    auto singleStepper = cmp.singleStepper(*this);
+    detail::transportCovarianceToCurvilinear(cov, jacobian, jacTransport,
+                                             derivative, jacToGlobal,
+                                             singleStepper.direction(state));
 
-      cmp.derivative() = derivative;
-      cmp.cov() = cov;
-      cmp.jacobian() = jacobian;
-      cmp.jacToGlobal() = jacToGlobal;
-      cmp.jacTransport() = jacTransport;
-      cmp.derivative() = derivative;
-    }
+    cmp.derivative() = derivative;
+    cmp.cov() = cov;
+    cmp.jacobian() = jacobian;
+    cmp.jacToGlobal() = jacToGlobal;
+    cmp.jacTransport() = jacTransport;
+    cmp.derivative() = derivative;
   }
+}
+
+template <int N, typename AA, typename BB, typename CC, typename DD>
+Intersection3D::Status
+MultiEigenStepperSIMD<N, AA, BB, CC, DD>::updateSurfaceStatus(
+    State& state, const Surface& surface, Direction navDir,
+    const BoundaryCheck& bcheck, const Logger& l) const {
+  ACTS_DEBUG("MultiEigenStepperSIMD::updateSurfaceStatus");
+
+  std::array<int, 4> counts = {0, 0, 0, 0};
+
+  auto components = componentIterable(state);
+  for (auto [cmp, stepSize] : Acts::zip(components, state.stepSizes)) {
+    // TODO part of the hack: set the stepsize to the correct value before
+    // calling updateSingleSurfaceStatus
+    state.stepSize = stepSize;
+    
+    const auto prevStatus = cmp.status();
+    
+    cmp.status() = detail::updateSingleSurfaceStatus<SingleProxyStepper>(
+        cmp.singleStepper(*this), state, surface, navDir, bcheck,
+        s_onSurfaceTolerance, logger()  /*Acts::getDummyLogger()*/);
+    
+    ACTS_VERBOSE("  cmp" << cmp.index() << ": " << prevStatus << " -> " << cmp.status());
+    
+    ++counts[static_cast<std::size_t>(cmp.status())];
+  }
+
+  // This is a 'any_of' criterium. As long as any of the components has a
+  // certain state, this determines the total state (in the order of a
+  // somewhat importance)
+  using Status = Intersection3D::Status;
+
+  if (counts[static_cast<std::size_t>(Status::reachable)] > 0)
+    return Status::reachable;
+  else if (counts[static_cast<std::size_t>(Status::onSurface)] > 0)
+    return Status::onSurface;
+  else if (counts[static_cast<std::size_t>(Status::unreachable)] > 0)
+    return Status::unreachable;
+  else
+    return Status::missed;
+}
 
 // Seperated stepsize estimate from Single eigen stepper
 /// TODO state should be constant, but then magne
@@ -167,11 +210,18 @@ template <int N, typename AA, typename BB, typename CC, typename DD>
 template <typename propagator_state_t, typename navigator_t>
 Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
     propagator_state_t& state, const navigator_t& navigator) const {
+  ACTS_DEBUG("MultiEigenStepperSIMD::step");
+
   auto& sd = state.stepping.stepData;
   auto& stepping = state.stepping;
 
   const auto pos = multiPosition(stepping);
   const auto dir = multiDirection(stepping);
+
+  ACTS_VERBOSE("Pos before step:");
+  ACTS_VERBOSE("  x = " << multiPosition(stepping)[0]);
+  ACTS_VERBOSE("  y = " << multiPosition(stepping)[1]);
+  ACTS_VERBOSE("  z = " << multiPosition(stepping)[2]);
 
   // First Runge-Kutta point
   sd.B_first = getMultiField(stepping, pos);
@@ -218,20 +268,18 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
   //
   //   return s;
   // }();
-  
+
   SimdScalar h = 0;
-  for(int i=0; i<stepping.stepSizes.size(); ++i) {
+  for (int i = 0; i < stepping.stepSizes.size(); ++i) {
     h[i] = stepping.stepSizes[i].value();
   }
-  
-  std::cout << "Perform step with h=" << h << std::endl;
+
+  ACTS_VERBOSE("Perform step with h=" << h);
 
   // If everything is zero, nothing to do (TODO should this happen?)
   if (SimdHelpers::sum(h) == 0.0) {
     return 0.0;
   }
-  
-  
 
   const SimdScalar h2 = h * h;
   const SimdScalar half_h = h * SimdScalar(0.5);
@@ -310,6 +358,11 @@ Result<double> MultiEigenStepperSIMD<N, AA, BB, CC, DD>::step(
     stepping.pars[eFreeDir1][i] = d[1];
     stepping.pars[eFreeDir2][i] = d[2];
   }
+
+  ACTS_VERBOSE("Pos after step:");
+  ACTS_VERBOSE("  x = " << multiPosition(stepping)[0]);
+  ACTS_VERBOSE("  y = " << multiPosition(stepping)[1]);
+  ACTS_VERBOSE("  z = " << multiPosition(stepping)[2]);
 
   // check for nan
   for (auto i = 0ul; i < eFreeSize; ++i)
