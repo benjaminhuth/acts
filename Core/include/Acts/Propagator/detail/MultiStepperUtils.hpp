@@ -31,7 +31,7 @@ Acts::Result<MultiStepperBoundState> multiComponentBoundState(
   std::vector<std::tuple<double, BoundVector, BoundSquareMatrix>> cmps;
   cmps.reserve(stepper.numberComponents(state));
   double accumulatedPathLength = 0.0;
-  
+
   using R = Acts::Result<MultiStepperBoundState>;
 
   auto components = stepper.componentIterable(state);
@@ -94,8 +94,8 @@ MultiStepperCurvilinearState multiComponentCurvilinearState(
 
   MultiComponentCurvilinearTrackParameters mcctp(cmps,
                                                  state.particleHypothesis);
-  return MultiStepperCurvilinearState{std::move(mcctp), BoundSquareMatrix::Zero(),
-                                      accumulatedPathLength};
+  return MultiStepperCurvilinearState{
+      std::move(mcctp), BoundSquareMatrix::Zero(), accumulatedPathLength};
 }
 
 }  // namespace Acts::detail

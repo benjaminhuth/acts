@@ -245,14 +245,15 @@ struct GenericDefaultExtension {
     dk4dT = qop * VectorHelpers::cross(dk4dT, sd.B_last);
 
     dFdT.setIdentity();
-    dFdT += h / 6. * (dk1dT + dk2dT + dk3dT);
+    dFdT += h * Scalar{1. / 6.} * (dk1dT + dk2dT + dk3dT);
     dFdT *= h;
 
-    dFdL = (h * h) / 6. * (dk1dL + dk2dL + dk3dL);
+    dFdL = (h * h * Scalar{1. / 6.}) * (dk1dL + dk2dL + dk3dL);
 
-    dGdT += h / 6. * (dk1dT + 2. * (dk2dT + dk3dT) + dk4dT);
+    dGdT +=
+        h * Scalar{1. / 6.} * (dk1dT + Scalar{2.} * (dk2dT + dk3dT) + dk4dT);
 
-    dGdL = h / 6. * (dk1dL + 2. * (dk2dL + dk3dL) + dk4dL);
+    dGdL = h * Scalar{1. / 6.} * (dk1dL + Scalar{2.} * (dk2dL + dk3dL) + dk4dL);
 
     D(3, 7) = h * m * m * qop / dtds;
     return true;

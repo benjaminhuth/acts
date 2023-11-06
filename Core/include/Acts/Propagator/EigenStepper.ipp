@@ -240,9 +240,6 @@ Acts::Result<double> Acts::EigenStepper<E, A>::step(
       return EigenStepperError::StepInvalid;
     }
   }
-  
-  std::cout << "EigenStepper initial h: " << initialH << "\n";
-  std::cout << "EigenStepper h: " << h << "\n";
 
   // Update the track parameters according to the equations of motion
   state.stepping.pars.template segment<3>(eFreePos0) +=

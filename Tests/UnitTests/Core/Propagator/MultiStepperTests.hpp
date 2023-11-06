@@ -23,28 +23,28 @@ struct MultiStepperSurfaceReached;
 using namespace Acts;
 using namespace Acts::VectorHelpers;
 
-namespace helpers {
-
 template <typename T>
 concept Castable = requires(T a) {
-                     { static_cast<double>(a) } -> std::convertible_to<double>;
-                   };
+  { static_cast<double>(a) } -> std::convertible_to<double>;
+};
 
-template <typename T1, typename T2>
-void check_close(const Eigen::MatrixBase<T1> &a, const Eigen::MatrixBase<T2> &b,
-                 double eps) {
-  BOOST_CHECK(a.isApprox(b, eps));
-}
+template <typename T>
+concept Eigenable = requires(T &a) {
+  { a } -> std::convertible_to<Eigen::MatrixBase<T> &>;
+};
 
-template <typename T1, typename T2>
-  requires Castable<T1> && Castable<T2>
-void check_close(const T1 &a, const T2 &b, double eps) {
-  auto aa = static_cast<double>(a);
-  auto bb = static_cast<double>(b);
-  BOOST_CHECK_CLOSE(aa, bb, eps);
-}
-
-}  // namespace helpers
+#define CHECK_CLOSE_GENERIC(arg1, arg2, eps)             \
+  do {                                                   \
+    using T1 = decltype(arg1);                           \
+    using T2 = decltype(arg2);                           \
+    if constexpr (Eigenable<T1> && Eigenable<T2>) {      \
+      BOOST_CHECK(arg1.isApprox(arg2, eps));             \
+    } else if constexpr (Castable<T1> && Castable<T2>) { \
+      auto a = static_cast<double>(arg1);                \
+      auto b = static_cast<double>(arg2);                \
+      BOOST_CHECK_CLOSE(a, b, eps);                      \
+    }                                                    \
+  } while (false)
 
 #define CHECK_EIGEN_CLOSE(a, b, e) \
   do {                             \
@@ -60,8 +60,12 @@ using components_t = typename T::components;
 
 using SingleStepper = EigenStepper<StepperExtensionList<DefaultExtension>>;
 
-struct MockNavigator { MockNavigator() = default; };
-struct Navigation { Navigation() = default; };
+struct MockNavigator {
+  MockNavigator() = default;
+};
+struct Navigation {
+  Navigation() = default;
+};
 
 struct Options {
   double tolerance = 1e-4;
@@ -133,8 +137,8 @@ struct MultiStepperTester {
       std::make_shared<ConstantBField>(Vector3(0.0, 0.0, 0.0));
 
   double epsilon = 1.e-8;
-  
-  MultiStepperTester(double e=1.e-8) : epsilon(e) {}
+
+  MultiStepperTester(double e = 1.e-8) : epsilon(e) {}
 
   //////////////////////////////////////////////////////
   /// Test the construction of the MultiStepper::State
@@ -194,72 +198,6 @@ struct MultiStepperTester {
         std::invalid_argument);
   }
 
-  ////////////////////////////////////////////////////////////////////////
-  // Compare the Multi-Stepper against the Eigen-Stepper for consistency
-  ////////////////////////////////////////////////////////////////////////
-  template <typename multi_stepper_t>
-  void test_multi_stepper_vs_eigen_stepper() const {
-    using MultiState = typename multi_stepper_t::State;
-    using MultiStepper = multi_stepper_t;
-
-    const BoundVector pars = BoundVector::Ones();
-    const BoundSquareMatrix cov = BoundSquareMatrix::Identity();
-
-    std::vector<
-        std::tuple<double, BoundVector, std::optional<BoundSquareMatrix>>>
-        cmps(4, {0.25, pars, cov});
-
-    auto surface = Acts::Surface::makeShared<Acts::PlaneSurface>(
-        Vector3::Zero(), Vector3::Ones().normalized());
-
-    MultiComponentBoundTrackParameters multi_pars(surface, cmps,
-                                                  particleHypothesis);
-    BoundTrackParameters single_pars(surface, pars, cov, particleHypothesis);
-
-    MultiState multi_state(geoCtx, magCtx, defaultNullBField, multi_pars,
-                           defaultStepSize);
-    SingleStepper::State single_state(geoCtx, defaultNullBField->makeCache(magCtx),
-                                      single_pars, defaultStepSize);
-
-    MultiStepper multi_stepper(defaultBField);
-    SingleStepper single_stepper(defaultBField);
-
-    for (auto cmp : multi_stepper.componentIterable(multi_state)) {
-      cmp.status() = Acts::Intersection3D::Status::reachable;
-    }
-
-    // Do some steps and check that the results match
-    for (int i = 0; i < 10; ++i) {
-      // Single stepper
-      auto single_prop_state = DummyPropState(defaultNDir, single_state);
-      auto single_result =
-          single_stepper.step(single_prop_state, mockNavigator);
-      single_stepper.transportCovarianceToCurvilinear(single_state);
-
-      // Multi stepper;
-      auto multi_prop_state = DummyPropState(defaultNDir, multi_state);
-      auto multi_result = multi_stepper.step(multi_prop_state, mockNavigator);
-      multi_stepper.transportCovarianceToCurvilinear(multi_state);
-
-      // Check equality
-      BOOST_REQUIRE(multi_result.ok() == true);
-      BOOST_REQUIRE(multi_result.ok() == single_result.ok());
-
-      BOOST_CHECK_CLOSE(*single_result, *multi_result, epsilon);
-
-      for (const auto cmp : multi_stepper.constComponentIterable(multi_state)) {
-        CHECK_EIGEN_CLOSE(cmp.pars(), single_state.pars, epsilon);
-        CHECK_EIGEN_CLOSE(cmp.cov(), single_state.cov, epsilon);
-        CHECK_EIGEN_CLOSE(cmp.jacTransport(), single_state.jacTransport,
-                          epsilon);
-        CHECK_EIGEN_CLOSE(cmp.jacToGlobal(), single_state.jacToGlobal, epsilon);
-        CHECK_EIGEN_CLOSE(cmp.derivative(), single_state.derivative, epsilon);
-        BOOST_CHECK_CLOSE(cmp.pathAccumulated(), single_state.pathAccumulated,
-                          epsilon);
-      }
-    }
-  }
-
   /////////////////////////////
   // Test stepsize accessors
   /////////////////////////////
@@ -285,70 +223,51 @@ struct MultiStepperTester {
 
     MultiStepper multi_stepper(defaultBField);
 
-    auto modify = [&](const auto &projector) {
-      // Here test the mutable overloads of the mutable iterable
-      for (auto cmp : multi_stepper.componentIterable(mutable_multi_state)) {
-        using type = std::decay_t<decltype(projector(cmp))>;
-        if constexpr (std::is_enum_v<type>) {
-          projector(cmp) =
-              static_cast<type>(static_cast<int>(projector(cmp)) + 1);
-        } else {
-          projector(cmp) *= 2.0;
-        }
-      }
-    };
+    // Here test the mutable overloads of the mutable iterable
+    auto components = multi_stepper.componentIterable(mutable_multi_state);
+    for (auto cmp : components) {
+      cmp.status() = static_cast<Intersection3D::Status>(
+          static_cast<int>(cmp.status()) + 1);
+      cmp.pathAccumulated() *= 2.0;
+      cmp.weight() *= 2.0;
+      cmp.pars() *= 2.0;
+      cmp.cov() *= 2.0;
+      cmp.jacTransport() *= 2.0;
+      cmp.derivative() *= 2.0;
+      cmp.jacobian() *= 2.0;
+      cmp.jacToGlobal() *= 2.0;
+    }
 
-    auto check = [&](const auto &projector) {
-      // Here test the const-member functions of the mutable iterable
-      auto mutable_state_iterable =
-          multi_stepper.componentIterable(mutable_multi_state);
-      // Here test the const iterable
-      auto const_state_iterable =
-          multi_stepper.constComponentIterable(const_multi_state);
+    auto mutable_state_iterable =
+        multi_stepper.componentIterable(mutable_multi_state);
+    // Here test the const iterable
+    auto const_state_iterable =
+        multi_stepper.constComponentIterable(const_multi_state);
 
-      auto mstate_it = mutable_state_iterable.begin();
-      auto cstate_it = const_state_iterable.begin();
-      for (; cstate_it != const_state_iterable.end();
-           ++mstate_it, ++cstate_it) {
-        const auto mstate_cmp = *mstate_it;
-        auto cstate_cmp = *cstate_it;
+    auto mstate_it = mutable_state_iterable.begin();
+    auto cstate_it = const_state_iterable.begin();
+    for (; cstate_it != const_state_iterable.end(); ++mstate_it, ++cstate_it) {
+      const auto mstate_cmp = *mstate_it;
+      auto cstate_cmp = *cstate_it;
 
-        using type = std::decay_t<decltype(projector(mstate_cmp))>;
+      BOOST_CHECK_EQUAL(static_cast<int>(mstate_cmp.status()),
+                        1 + static_cast<int>(cstate_cmp.status()));
 
-        if constexpr (std::is_enum_v<type>) {
-          BOOST_CHECK_EQUAL(static_cast<int>(projector(mstate_cmp)),
-                            1 + static_cast<int>(projector(cstate_cmp)));
-        } else {
-          helpers::check_close(projector(mstate_cmp),
-                               2.0 * projector(cstate_cmp), epsilon);
-        }
-        // if constexpr (std::is_arithmetic_v<type>) {
-        // } else  else {
-        //   BOOST_CHECK(
-        //       projector(mstate_cmp).isApprox(2.0 *
-        //       projector(cstate_cmp), epsilon));
-        // }
-      }
-    };
-
-    const auto projectors = std::make_tuple(
-        [](auto &cmp) -> decltype(auto) { return cmp.status(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.pathAccumulated(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.weight(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.pars(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.cov(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.jacTransport(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.derivative(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.jacobian(); },
-        [](auto &cmp) -> decltype(auto) { return cmp.jacToGlobal(); });
-
-    std::apply(
-        [&](const auto &...projs) {
-          // clang-format off
-        ( [&]() { modify(projs); check(projs); }(), ...);
-          // clang-format on
-        },
-        projectors);
+      CHECK_CLOSE_GENERIC(mstate_cmp.pathAccumulated(),
+                          2.0 * cstate_cmp.pathAccumulated(), epsilon);
+      CHECK_CLOSE_GENERIC(mstate_cmp.weight(), 2.0 * cstate_cmp.weight(),
+                          epsilon);
+      CHECK_CLOSE_GENERIC(mstate_cmp.pars(), 2.0 * cstate_cmp.pars(), epsilon);
+      CHECK_CLOSE_GENERIC(mstate_cmp.cov(), 2.0 * cstate_cmp.cov(), epsilon);
+      CHECK_CLOSE_GENERIC(mstate_cmp.jacTransport(),
+                          2.0 * cstate_cmp.jacTransport(), epsilon);
+      CHECK_CLOSE_GENERIC(mstate_cmp.derivative(),
+                          2.0 * cstate_cmp.derivative(), epsilon);
+      CHECK_CLOSE_GENERIC(mstate_cmp.jacobian(), 2.0 * cstate_cmp.jacobian(),
+                          epsilon);
+      CHECK_CLOSE_GENERIC(mstate_cmp.jacToGlobal(),
+                          2.0 * cstate_cmp.jacToGlobal(), epsilon);
+    }
   }
 
   /////////////////////////////////////////////
@@ -503,6 +422,17 @@ struct MultiStepperTester {
       single_stepper.step(single_prop_state, mockNavigator);
     }
 
+    // Check if on surface
+    {
+      auto sstatus = single_stepper.updateSurfaceStatus(
+          single_state, *right_surface, 0, Direction::Forward, false);
+      BOOST_CHECK(sstatus == Acts::Intersection3D::Status::onSurface);
+
+      auto mstatus = multi_stepper.updateSurfaceStatus(
+          multi_state, *right_surface, 0, Direction::Forward, false);
+      BOOST_CHECK(mstatus == Acts::Intersection3D::Status::onSurface);
+    }
+
     // Check component-wise bound-state
     {
       auto single_bound_state = single_stepper.boundState(
@@ -515,7 +445,13 @@ struct MultiStepperTester {
           (*cmp_iterable.begin())
               .boundState(*right_surface, true, FreeToBoundCorrection(false));
       BOOST_REQUIRE(ok_bound_state.ok());
-      BOOST_CHECK(*single_bound_state == *ok_bound_state);
+
+      const auto &[spars, sjac, spl] = *single_bound_state;
+      const auto &[mpars, mjac, mpl] = *ok_bound_state;
+
+      BOOST_CHECK(spars.parameters().isApprox(mpars.parameters(), epsilon));
+      BOOST_CHECK(spars.covariance() == std::nullopt);
+      BOOST_CHECK(mpars.covariance() == std::nullopt);
 
       auto failed_bound_state =
           (*(++cmp_iterable.begin()))
@@ -641,14 +577,14 @@ struct MultiStepperTester {
       auto sstepper = cmp.singleStepper(multi_stepper);
       auto &sstepping = cmp.singleState(multi_prop_state).stepping;
 
-      helpers::check_close(sstepper.position(sstepping),
-                           cmp.pars().template segment<3>(eFreePos0), epsilon);
-      helpers::check_close(sstepper.direction(sstepping),
-                           cmp.pars().template segment<3>(eFreeDir0), epsilon);
-      helpers::check_close(sstepper.time(sstepping), cmp.pars()[eFreeTime],
-                           epsilon);
-      helpers::check_close(sstepper.qOverP(sstepping), cmp.pars()[eFreeQOverP],
-                           epsilon);
+      CHECK_CLOSE_GENERIC(sstepper.position(sstepping),
+                          cmp.pars().template segment<3>(eFreePos0), epsilon);
+      CHECK_CLOSE_GENERIC(sstepper.direction(sstepping),
+                          cmp.pars().template segment<3>(eFreeDir0), epsilon);
+      CHECK_CLOSE_GENERIC(sstepper.time(sstepping), cmp.pars()[eFreeTime],
+                          epsilon);
+      CHECK_CLOSE_GENERIC(sstepper.qOverP(sstepping), cmp.pars()[eFreeQOverP],
+                          epsilon);
     };
 
     for (const auto cmp : multi_stepper.constComponentIterable(multi_state)) {
@@ -713,6 +649,73 @@ struct MultiStepperTester {
       multi_stepper.update(multi_state, surface, empty.begin(), empty.end(),
                            dummyCopy);
       BOOST_CHECK_EQUAL(multi_stepper.numberComponents(multi_state), 0);
+    }
+  }
+
+  ////////////////////////////////////////////////////////////////////////
+  // Compare the Multi-Stepper against the Eigen-Stepper for consistency
+  ////////////////////////////////////////////////////////////////////////
+  template <typename multi_stepper_t>
+  void test_multi_stepper_vs_eigen_stepper() const {
+    using MultiState = typename multi_stepper_t::State;
+    using MultiStepper = multi_stepper_t;
+
+    const BoundVector pars = BoundVector::Ones();
+    const BoundSquareMatrix cov = BoundSquareMatrix::Identity();
+
+    std::vector<
+        std::tuple<double, BoundVector, std::optional<BoundSquareMatrix>>>
+        cmps(4, {0.25, pars, cov});
+
+    auto surface = Acts::Surface::makeShared<Acts::PlaneSurface>(
+        Vector3::Zero(), Vector3::Ones().normalized());
+
+    MultiComponentBoundTrackParameters multi_pars(surface, cmps,
+                                                  particleHypothesis);
+    BoundTrackParameters single_pars(surface, pars, cov, particleHypothesis);
+
+    MultiState multi_state(geoCtx, magCtx, defaultNullBField, multi_pars,
+                           defaultStepSize);
+    SingleStepper::State single_state(geoCtx,
+                                      defaultNullBField->makeCache(magCtx),
+                                      single_pars, defaultStepSize);
+
+    MultiStepper multi_stepper(defaultBField);
+    SingleStepper single_stepper(defaultBField);
+
+    for (auto cmp : multi_stepper.componentIterable(multi_state)) {
+      cmp.status() = Acts::Intersection3D::Status::reachable;
+    }
+
+    // Do some steps and check that the results match
+    for (int i = 0; i < 10; ++i) {
+      // Single stepper
+      auto single_prop_state = DummyPropState(defaultNDir, single_state);
+      auto single_result =
+          single_stepper.step(single_prop_state, mockNavigator);
+      single_stepper.transportCovarianceToCurvilinear(single_state);
+
+      // Multi stepper;
+      auto multi_prop_state = DummyPropState(defaultNDir, multi_state);
+      auto multi_result = multi_stepper.step(multi_prop_state, mockNavigator);
+      multi_stepper.transportCovarianceToCurvilinear(multi_state);
+
+      // Check equality
+      BOOST_REQUIRE(multi_result.ok() == true);
+      BOOST_REQUIRE(multi_result.ok() == single_result.ok());
+
+      BOOST_CHECK_CLOSE(*single_result, *multi_result, epsilon);
+
+      for (const auto cmp : multi_stepper.constComponentIterable(multi_state)) {
+        CHECK_EIGEN_CLOSE(cmp.pars(), single_state.pars, epsilon);
+        CHECK_EIGEN_CLOSE(cmp.cov(), single_state.cov, epsilon);
+        CHECK_EIGEN_CLOSE(cmp.jacTransport(), single_state.jacTransport,
+                          epsilon);
+        CHECK_EIGEN_CLOSE(cmp.jacToGlobal(), single_state.jacToGlobal, epsilon);
+        CHECK_EIGEN_CLOSE(cmp.derivative(), single_state.derivative, epsilon);
+        BOOST_CHECK_CLOSE(cmp.pathAccumulated(), single_state.pathAccumulated,
+                          epsilon);
+      }
     }
   }
 

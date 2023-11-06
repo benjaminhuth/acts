@@ -173,7 +173,7 @@ struct SurfaceReached {
     }
 
     const double pLimit =
-        state.stepping.stepSize.value(ConstrainedStep::aborter);
+        stepper.getStepSize(state.stepping, ConstrainedStep::aborter);
     // not using the stepper overstep limit here because it does not always work
     // for perigee surfaces
     const double oLimit =

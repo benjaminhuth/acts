@@ -10,7 +10,7 @@
 
 using MultiStepper =
     MultiEigenStepperLoop<StepperExtensionList<DefaultExtension>>;
-    
+
 const MultiStepperTester t;
 
 BOOST_AUTO_TEST_SUITE(multistepper_loop_test)

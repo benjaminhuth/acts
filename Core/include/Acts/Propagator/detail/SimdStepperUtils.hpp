@@ -44,11 +44,11 @@ template <typename simd_stepper_t>
 class SingleProxyStepper {
   const std::size_t m_i = 0;
   const double m_olimit = 0.0;
-  
-public:
+
+ public:
   using Stepper = simd_stepper_t;
   using State = typename Stepper::State;
-  
+
   SingleProxyStepper(std::size_t i, double olimit) : m_i(i), m_olimit(olimit) {}
 
   auto direction(const State& state) const {
@@ -111,7 +111,8 @@ struct SimdComponentProxyBase {
 
   auto singleStepper(const simd_stepper_t& stepper) const {
     // the stepper returns -olimit, so we invert sign again
-    return SingleProxyStepper<simd_stepper_t>(m_i, -stepper.overstepLimit(m_state));
+    return SingleProxyStepper<simd_stepper_t>(m_i,
+                                              -stepper.overstepLimit(m_state));
   }
 };
 
@@ -140,16 +141,42 @@ struct SimdComponentProxy : SimdComponentProxyBase<state_t, simd_stepper_t> {
 
   SimdComponentProxy(state_t& s, std::size_t i) : Base(s, i) {}
 
-  auto weight() { return m_state.weights[m_i]; }
-  auto& charge() { return m_state.q; }
-  auto& pathAccumulated() { return m_state.pathAccumulated; }
-  auto& status() { return m_state.status[m_i]; }
-  auto pars() { return extract(m_state.pars, m_i); }
-  auto derivative() { return extract(m_state.derivative, m_i); }
-  auto jacTransport() { return extract(m_state.jacTransport, m_i); }
-  auto& cov() { return m_state.covs[m_i]; }
-  auto& jacobian() { return m_state.jacobians[m_i]; }
-  auto& jacToGlobal() { return m_state.jacToGlobals[m_i]; }
+#ifdef ACTS_SIMD_PLAIN_ARRAY
+  auto& weight() {
+    return m_state.weights[m_i];
+  }
+#else
+  auto weight() {
+    return m_state.weights[m_i];
+  }
+#endif
+  decltype(auto) charge() {
+    return m_state.q;
+  }
+  auto& pathAccumulated() {
+    return m_state.pathAccumulated;
+  }
+  decltype(auto) status() {
+    return m_state.status[m_i];
+  }
+  decltype(auto) pars() {
+    return extract(m_state.pars, m_i);
+  }
+  decltype(auto) derivative() {
+    return extract(m_state.derivative, m_i);
+  }
+  decltype(auto) jacTransport() {
+    return extract(m_state.jacTransport, m_i);
+  }
+  decltype(auto) cov() {
+    return m_state.covs[m_i];
+  }
+  decltype(auto) jacobian() {
+    return m_state.jacobians[m_i];
+  }
+  decltype(auto) jacToGlobal() {
+    return m_state.jacToGlobals[m_i];
+  }
 
   template <typename propagator_state_t>
   auto& singleState(propagator_state_t& state) {
@@ -160,10 +187,6 @@ struct SimdComponentProxy : SimdComponentProxyBase<state_t, simd_stepper_t> {
                   const FreeToBoundCorrection& ftbc) {
     using R = Result<std::tuple<BoundTrackParameters, BoundMatrix, double>>;
 
-    if (status() != Intersection3D::Status::onSurface) {
-      return R{MultiStepperError::ComponentNotOnSurface};
-    }
-
     // TODO template detail::bounState(...) on Eigen::MatrixBase<T> to allow
     // the Map types to go in directely
     Acts::FreeMatrix jacTransport = this->jacTransport();
@@ -172,7 +195,8 @@ struct SimdComponentProxy : SimdComponentProxyBase<state_t, simd_stepper_t> {
 
     auto bs = detail::boundState(m_state.geoContext, cov(), jacobian(),
                                  jacTransport, derivative, jacToGlobal(), pars,
-                                 m_state.particleHypothesis, m_state.covTransport && transportCov,
+                                 m_state.particleHypothesis,
+                                 m_state.covTransport && transportCov,
                                  m_state.pathAccumulated, surface, ftbc);
 
     this->jacTransport() = jacTransport;
@@ -180,12 +204,13 @@ struct SimdComponentProxy : SimdComponentProxyBase<state_t, simd_stepper_t> {
     this->pars() = pars;
 
     if (!bs.ok()) {
+      std::cout << "MultiStepperSIMD boundstate not ok!" << bs.error().message()
+                << "\n";
       return R{bs.error()};
     }
 
     return R{std::move(bs.value())};
   }
-  
 
   auto curvilinearState(bool transportCov) {
     Acts::FreeMatrix jacTransport = this->jacTransport();

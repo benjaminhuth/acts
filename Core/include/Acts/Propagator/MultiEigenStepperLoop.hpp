@@ -22,11 +22,12 @@
 #include "Acts/Propagator/ConstrainedStep.hpp"
 #include "Acts/Propagator/EigenStepper.hpp"
 #include "Acts/Propagator/EigenStepperError.hpp"
+#include "Acts/Propagator/MultiStepperError.hpp"
 #include "Acts/Propagator/Propagator.hpp"
 #include "Acts/Propagator/detail/LoopStepperUtils.hpp"
+#include "Acts/Propagator/detail/MultiStepperUtils.hpp"
 #include "Acts/Surfaces/Surface.hpp"
 #include "Acts/Utilities/GaussianMixtureReduction.hpp"
-#include "Acts/Propagator/detail/MultiStepperUtils.hpp"
 #include "Acts/Utilities/Intersection.hpp"
 #include "Acts/Utilities/Result.hpp"
 
@@ -40,8 +41,6 @@
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
-
-#include "MultiStepperError.hpp"
 
 namespace Acts {
 
@@ -479,7 +478,7 @@ class MultiEigenStepperLoop
     }
   }
 
- /// Updates the components in the multistepper
+  /// Updates the components in the multistepper
   ///
   /// @param [in,out] state  The stepping state (thread-local cache)
   /// @param [in] surface The surface we are on

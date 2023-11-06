@@ -7,8 +7,8 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 #include "Acts/Propagator/MultiEigenStepperLoop.hpp"
-#include "Acts/Utilities/Logger.hpp"
 #include "Acts/Propagator/detail/MultiStepperUtils.hpp"
+#include "Acts/Utilities/Logger.hpp"
 
 namespace Acts {
 
@@ -18,7 +18,8 @@ auto MultiEigenStepperLoop<E, R, A>::boundState(
     const FreeToBoundCorrection& freeToBoundCorrection) const
     -> Result<BoundState> {
   assert(!state.components.empty());
-  return detail::multiComponentBoundState(*this, state, surface, transportCov, freeToBoundCorrection);
+  return detail::multiComponentBoundState(*this, state, surface, transportCov,
+                                          freeToBoundCorrection);
 }
 
 template <typename E, typename R, typename A>
@@ -77,7 +78,7 @@ Result<double> MultiEigenStepperLoop<E, R, A>::step(
   // If at least one component is on a surface, we can remove all missed
   // components before the step. If not, we must keep them for the case that all
   // components miss and we need to retarget
-  const auto cmpsOnSurface =
+  const std::size_t cmpsOnSurface =
       std::count_if(components.cbegin(), components.cend(), [&](auto& cmp) {
         return cmp.status == Intersection3D::Status::onSurface;
       });
@@ -99,10 +100,12 @@ Result<double> MultiEigenStepperLoop<E, R, A>::step(
                               decltype(state.options),
                               decltype(state.geoContext)>;
 
+  const auto allOnSurface = (cmpsOnSurface == numberComponents(stepping));
+
   // Lambda that performs the step for a component and returns false if the step
   // went ok and true if there was an error
   auto errorInStep = [&](auto& component) {
-    if (component.status == Status::onSurface) {
+    if (!allOnSurface && (component.status == Status::onSurface)) {
       // We need to add these, so the propagation does not fail if we have only
       // components on surfaces and failing states
       results.emplace_back(std::nullopt);

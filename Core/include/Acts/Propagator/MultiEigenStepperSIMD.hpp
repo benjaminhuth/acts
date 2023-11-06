@@ -11,7 +11,9 @@
 // Workaround for building on clang+libstdc++
 #include "Acts/Utilities/detail/ReferenceWrapperAnyCompat.hpp"
 
-#include "Acts/Propagator/detail/SimdHelpers.hpp"
+#include "Acts/Propagator/detail/SimdStd.hpp"
+// #include "Acts/Propagator/detail/SimdArray.hpp"
+
 #include "Acts/Definitions/Algebra.hpp"
 #include "Acts/Definitions/Units.hpp"
 #include "Acts/EventData/MultiComponentTrackParameters.hpp"
@@ -24,10 +26,9 @@
 #include "Acts/Propagator/MultiStepperError.hpp"
 #include "Acts/Propagator/StepperExtensionList.hpp"
 #include "Acts/Propagator/detail/Auctioneer.hpp"
-#include "Acts/Propagator/detail/SimdHelpers.hpp"
+#include "Acts/Propagator/detail/MultiStepperUtils.hpp"
 #include "Acts/Propagator/detail/SimdStepperUtils.hpp"
 #include "Acts/Propagator/detail/SteppingHelper.hpp"
-#include "Acts/Propagator/detail/MultiStepperUtils.hpp"
 #include "Acts/Utilities/Intersection.hpp"
 #include "Acts/Utilities/Result.hpp"
 
@@ -37,6 +38,8 @@
 #include <limits>
 #include <numeric>
 #include <vector>
+
+#include <boost/container/static_vector.hpp>
 
 namespace Acts {
 
@@ -60,11 +63,11 @@ struct WeightedComponentReducerSIMD {
 
     static_assert(std::is_same_v<typename T::Scalar, SimdType<N>>);
 
-    Eigen::Matrix<typename SimdType<N>::Scalar, R, C> ret;
+    Eigen::Matrix<double, R, C> ret;
 
     for (int c = 0; c < C; ++c)
       for (int r = 0; r < R; ++r)
-        ret(r, c) = SimdHelpers::sum(m(r, c) * w);
+        ret(r, c) = sum(m(r, c) * w);
 
     return ret;
   }
@@ -82,12 +85,13 @@ struct WeightedComponentReducerSIMD {
 
   template <typename stepper_state_t>
   static ActsScalar absoluteMomentum(const stepper_state_t& s) {
-    return SimdHelpers::sum((1 / (s.pars[eFreeQOverP] / s.q)) * s.weights);
+    return sum((s.particleHypothesis.absoluteCharge() / (s.pars[eFreeQOverP])) *
+               s.weights);
   }
 
   template <typename stepper_state_t>
   static ActsScalar time(const stepper_state_t& s) {
-    return SimdHelpers::sum(s.pars[eFreeTime] * s.weights);
+    return sum(s.pars[eFreeTime] * s.weights);
   }
 
   template <typename stepper_state_t>
@@ -133,7 +137,7 @@ class MultiEigenStepperSIMD
 
   /// @brief How many components can this stepper manage?
   static constexpr int maxComponents = NComponents;
-  
+
   using BoundState = detail::MultiStepperBoundState;
   using CurvilinearState = detail::MultiStepperCurvilinearState;
 
@@ -142,32 +146,31 @@ class MultiEigenStepperSIMD
   using SimdVector3 = Eigen::Matrix<SimdScalar, 3, 1>;
   using SimdFreeVector = Eigen::Matrix<SimdScalar, eFreeSize, 1>;
   using SimdFreeMatrix = Eigen::Matrix<SimdScalar, eFreeSize, eFreeSize>;
-  
+
   std::unique_ptr<const Acts::Logger> m_logger;
-  
-  const Acts::Logger &logger() const { return *m_logger; }
+
+  const Acts::Logger& logger() const { return *m_logger; }
 
   struct State {
     /// Number of current active components
-    std::size_t numComponents;
+    std::size_t numComponents = 0;
 
     /// SIMD objects parameters
-    SimdScalar weights = 0;
+    SimdScalar weights = SimdScalar{0};
     SimdFreeVector pars = SimdFreeVector::Zero();
     SimdFreeVector derivative = SimdFreeVector::Zero();
     SimdFreeMatrix jacTransport = SimdFreeMatrix::Identity();
 
-    /// Scalar objects in arrays TODO should they also be SIMD?
+    /// Scalar objects in arrays
+    /// TODO should they also be SIMD?
     std::array<Intersection3D::Status, NComponents> status;
     std::array<Covariance, NComponents> covs;
     std::array<Jacobian, NComponents> jacobians;
     std::array<BoundToFreeMatrix, NComponents> jacToGlobals;
+    boost::container::static_vector<ConstrainedStep, NComponents> stepSizes;
 
-    // no std::array, because ConstrainedStep is not default constructable.
-    // TODO boost::static_vector for rescue
-    std::vector<ConstrainedStep> stepSizes;
-    
-    // TODO this is quite a ugly hack to interface with updateSingleSurfaceStatus
+    // TODO this is quite a ugly hack to interface with
+    // updateSingleSurfaceStatus
     ConstrainedStep stepSize;
 
     /// Particle hypothesis
@@ -190,8 +193,10 @@ class MultiEigenStepperSIMD
 
     // TODO Why is this here and not function-scope-local?
     struct {
-      SimdVector3 B_first = SimdVector3::Zero(), B_middle = SimdVector3::Zero(), B_last = SimdVector3::Zero();
-      SimdVector3 k1 = SimdVector3::Zero(), k2 = SimdVector3::Zero(), k3 = SimdVector3::Zero(), k4 = SimdVector3::Zero();
+      SimdVector3 B_first = SimdVector3::Zero(), B_middle = SimdVector3::Zero(),
+                  B_last = SimdVector3::Zero();
+      SimdVector3 k1 = SimdVector3::Zero(), k2 = SimdVector3::Zero(),
+                  k3 = SimdVector3::Zero(), k4 = SimdVector3::Zero();
       std::array<SimdScalar, 4> kQoP;
     } stepData;
 
@@ -217,9 +222,12 @@ class MultiEigenStepperSIMD
         : particleHypothesis(multipars.particleHypothesis()),
           fieldCache(bfield->makeCache(mctx)),
           geoContext(gctx) {
-      assert(!multipars.components().empty() && "empty cmps");
-      assert(multipars.components().size() <= NComponents &&
-             "mismatching cmp number");
+      if (multipars.components().empty()) {
+        throw std::invalid_argument(
+            "Cannot construct MultiEigenStepperLoop::State with empty "
+            "multi-component parameters");
+      }
+      assert(multipars.components().size() <= NComponents);
 
       numComponents = multipars.components().size();
 
@@ -243,10 +251,13 @@ class MultiEigenStepperSIMD
           covs[i] = BoundSquareMatrix(*cov);
           jacToGlobals[i] =
               multipars.referenceSurface().boundToFreeJacobian(gctx, bound);
+        } else {
+          covTransport = false;
+          covs[i] = BoundSquareMatrix::Zero();
+          jacToGlobals[i] = BoundToFreeMatrix::Zero();
         }
       }
 
-      // TODO Smater initialization when moving to std::array...
       for (auto i = 0ul; i < NComponents; ++i) {
         stepSizes.push_back(ConstrainedStep(ssize));
         status[i] = Intersection3D::Status::reachable;
@@ -350,11 +361,8 @@ class MultiEigenStepperSIMD
   State makeState(std::reference_wrapper<const GeometryContext> gctx,
                   std::reference_wrapper<const MagneticFieldContext> mctx,
                   const MultiComponentBoundTrackParameters& par,
-                  Direction ndir = Direction::Forward,
-                  double ssize = std::numeric_limits<double>::max(),
-                  double stolerance = s_onSurfaceTolerance) const {
-    return State(gctx, SingleStepper::m_bField->makeCache(mctx), par, ndir,
-                 ssize, stolerance);
+                  double ssize = std::numeric_limits<double>::max()) const {
+    return State(gctx, mctx, SingleStepper::m_bField, par, ssize);
   }
 
   /// Updates the components in the multistepper
@@ -385,7 +393,8 @@ class MultiEigenStepperSIMD
   }
 
   /// Constructor
-  MultiEigenStepperSIMD(std::shared_ptr<const MagneticFieldProvider> bField, std::unique_ptr<const Logger> logger =
+  MultiEigenStepperSIMD(std::shared_ptr<const MagneticFieldProvider> bField,
+                        std::unique_ptr<const Logger> logger =
                             getDefaultLogger("SIMDStepper", Logging::VERBOSE))
       : SingleStepper(bField), m_logger(std::move(logger)) {}
 
@@ -503,8 +512,8 @@ class MultiEigenStepperSIMD
   /// @param surface [in] The surface provided
   /// @param bcheck [in] The boundary check for this status update
   Intersection3D::Status updateSurfaceStatus(
-      State& state, const Surface& surface, std::uint8_t index, Direction navDir,
-      const BoundaryCheck& bcheck,
+      State& state, const Surface& surface, std::uint8_t index,
+      Direction navDir, const BoundaryCheck& bcheck,
       const Logger& logger = getDummyLogger()) const;
 
   /// Update step size
@@ -520,8 +529,6 @@ class MultiEigenStepperSIMD
   template <typename object_intersection_t>
   void updateStepSize(State& state, const object_intersection_t& oIntersection,
                       bool release = true) const {
-    ACTS_DEBUG("MultiEigenStepperSIMD::updateStepSize");
-
     for (auto i = 0ul; i < state.numComponents; ++i) {
       const auto intersection = oIntersection.representation->intersect(
           state.geoContext, position(i, state),
@@ -539,13 +546,11 @@ class MultiEigenStepperSIMD
   void setStepSize(State& state, double stepSize,
                    ConstrainedStep::Type stype = ConstrainedStep::actor,
                    bool /*release*/ = true) const {
-    ACTS_DEBUG("MultiEigenStepperSIMD::setStepSize");
     for (auto& ss : state.stepSizes)
       ss.update(stepSize, stype, true);
   }
 
   double getStepSize(const State& state, ConstrainedStep::Type stype) const {
-    ACTS_DEBUG("MultiEigenStepperSIMD::getStepSize");
     return std::min_element(begin(state.stepSizes), end(state.stepSizes),
                             [stype](const auto& a, const auto& b) {
                               return a.value(stype) < b.value(stype);
@@ -557,7 +562,6 @@ class MultiEigenStepperSIMD
   ///
   /// @param state [in,out] The stepping state (thread-local cache)
   void releaseStepSize(State& state) const {
-    ACTS_DEBUG("MultiEigenStepperSIMD::releaseStepSize");
     for (auto& ss : state.stepSizes)
       ss.release(ConstrainedStep::actor);
   }
@@ -612,8 +616,7 @@ class MultiEigenStepperSIMD
   ///   - the stepwise jacobian towards it (from last bound)
   ///   - and the path length (from start - for ordering)
   Result<BoundState> boundState(
-      State& state, const Surface& surface,
-      bool transportCov = true,
+      State& state, const Surface& surface, bool transportCov = true,
       const FreeToBoundCorrection& freeToBoundCorrection =
           FreeToBoundCorrection(false)) const;
 
