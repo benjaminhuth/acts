@@ -108,7 +108,6 @@ void addTruthTracking(Context& ctx) {
     ACTS_PYTHON_STRUCT_BEGIN(c, Config);
     ACTS_PYTHON_MEMBER(inputParticles);
     ACTS_PYTHON_MEMBER(inputMeasurementParticlesMap);
-    ACTS_PYTHON_MEMBER(inputMeasurements);
     ACTS_PYTHON_MEMBER(outputParticles);
     ACTS_PYTHON_MEMBER(rhoMin);
     ACTS_PYTHON_MEMBER(rhoMax);
@@ -189,10 +188,9 @@ void addTruthTracking(Context& ctx) {
       ActsExamples::TruthVertexFinder, mex, "TruthVertexFinder", inputParticles,
       outputProtoVertices, excludeSecondaries, separateSecondaries);
 
-  ACTS_PYTHON_DECLARE_ALGORITHM(
-      ActsExamples::TrackModifier, mex, "TrackModifier", inputTrajectories,
-      inputTrackParameters, outputTrajectories, outputTrackParameters,
-      dropCovariance, covScale, killTime);
+  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::TrackModifier, mex,
+                                "TrackModifier", inputTracks, outputTracks,
+                                dropCovariance, covScale, killTime);
 
   ACTS_PYTHON_DECLARE_ALGORITHM(
       ActsExamples::TruthSeedingAlgorithm, mex, "TruthSeedingAlgorithm",
