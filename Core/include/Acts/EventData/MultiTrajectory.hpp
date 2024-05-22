@@ -633,8 +633,8 @@ class MultiTrajectory {
 
   template <bool RO = ReadOnly, typename = std::enable_if_t<!RO>>
   void setReferenceSurface(IndexType istate,
-                           std::shared_ptr<const Surface> surface) {
-    self().setReferenceSurface_impl(istate, std::move(surface));
+                           const Surface &surface) {
+    self().setReferenceSurface_impl(istate, surface);
   }
 
  private:

@@ -335,7 +335,8 @@ BOOST_AUTO_TEST_CASE(RoundTripTests) {
       ts.smoothedCovariance() = cov;
       Vector3 pos;
       pos << 1000 * f(rng), 1000 * f(rng), 3000 * f(rng);
-      ts.setReferenceSurface(Acts::Surface::makeShared<PerigeeSurface>(pos));
+      auto s = Acts::Surface::makeShared<PerigeeSurface>(pos);
+      ts.setReferenceSurface(*s);
     }
 
     calculateTrackQuantities(track);

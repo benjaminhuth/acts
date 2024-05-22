@@ -31,14 +31,49 @@
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 #include <boost/histogram.hpp>
+
 
 namespace Acts {
 class Surface;
 template <typename T>
 struct IsReadOnlyMultiTrajectory;
+
+namespace detail {
+
+// Hash object for both surface and shared-ptr-surface
+// Equivalence garantueeded: https://en.cppreference.com/w/cpp/memory/shared_ptr/hash
+struct SurfaceHash {
+  constexpr static bool is_transparent = true;
+
+  auto operator()(const Surface *s) const {
+    return std::hash<const Surface *>{}(s);
+  }
+
+  auto operator()(const std::shared_ptr<const Surface> &s) const {
+    return std::hash<const Surface *>{}(s.get());
+  }
+};
+
+struct SurfaceEqualTo {
+  constexpr static bool is_transparent = true;
+
+  template<typename S1, typename S2>
+  auto operator()(const S1 &s1, const S2 &s2) const {
+    const Surface *s1ptr = s1;
+    const Surface *s2ptr = s2;
+    return std::equal_to<const Surface *>{}(s1ptr, s2ptr);
+  }
+
+  auto operator()(const std::shared_ptr<const Surface> &s) {
+    return std::hash<const Surface *>{}(s.get());
+  }
+};
+
+}
 
 namespace detail_vmt {
 
@@ -161,6 +196,8 @@ class VectorMultiTrajectoryBase {
     IndexType measdim = kInvalid;
 
     TrackStatePropMask allocMask = TrackStatePropMask::None;
+
+    const Surface *refSurface = nullptr;
   };
 
   VectorMultiTrajectoryBase() = default;
@@ -307,7 +344,7 @@ class VectorMultiTrajectoryBase {
   }
 
   const Surface* referenceSurface_impl(IndexType istate) const {
-    return m_referenceSurfaces[istate].get();
+    return m_index[istate].refSurface;
   }
 
  protected:
@@ -332,7 +369,14 @@ class VectorMultiTrajectoryBase {
   // This might be problematic when appending a large number of surfaces
   // trackstates, because vector has to reallocated and thus copy. This might
   // be handled in a smart way by moving but not sure.
-  std::vector<std::shared_ptr<const Surface>> m_referenceSurfaces;
+  // std::vector<std::shared_ptr<const Surface>> m_referenceSurfaces;
+
+  // Use special hash function to ensure we can find keys without constructing shared ptrs
+  std::unordered_set<
+    std::shared_ptr<const Surface>,
+    detail::SurfaceHash
+    // detail::SurfaceEqualTo
+  > m_referenceSurfaces;
 
   std::vector<HashedString> m_dynamicKeys;
   std::unordered_map<HashedString, std::unique_ptr<detail::DynamicColumnBase>>
@@ -488,8 +532,11 @@ class VectorMultiTrajectory final
   }
 
   void setReferenceSurface_impl(IndexType istate,
-                                std::shared_ptr<const Surface> surface) {
-    m_referenceSurfaces[istate] = std::move(surface);
+                                const Surface &surface) {
+    if( m_referenceSurfaces.contains(surface.getSharedPtr())) {
+      m_referenceSurfaces.insert(surface.getSharedPtr());
+    }
+    m_index[istate].refSurface = &surface;
   }
 
   void copyDynamicFrom_impl(IndexType dstIdx, HashedString key,

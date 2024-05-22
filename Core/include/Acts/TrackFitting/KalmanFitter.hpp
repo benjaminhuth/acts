@@ -740,7 +740,7 @@ class KalmanFitter {
         // Set the trackStateProxy components with the state from the ongoing
         // propagation
         {
-          trackStateProxy.setReferenceSurface(surface->getSharedPtr());
+          trackStateProxy.setReferenceSurface(*surface);
           // Bind the transported state to the current surface
           auto res = stepper.boundState(state.stepping, *surface, false,
                                         freeToBoundCorrection);

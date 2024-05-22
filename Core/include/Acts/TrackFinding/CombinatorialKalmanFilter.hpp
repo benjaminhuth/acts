@@ -753,7 +753,7 @@ class CombinatorialKalmanFilter {
 
         ts.pathLength() = pathLength;
 
-        ts.setReferenceSurface(boundParams.referenceSurface().getSharedPtr());
+        ts.setReferenceSurface(boundParams.referenceSurface());
 
         // now calibrate the track state
         m_extensions.calibrator(gctx, calibrationContext, sourceLink, ts);
@@ -914,7 +914,7 @@ class CombinatorialKalmanFilter {
       trackStateProxy.pathLength() = pathLength;
       // Set the surface
       trackStateProxy.setReferenceSurface(
-          boundParams.referenceSurface().getSharedPtr());
+          boundParams.referenceSurface());
 
       // Set the track state flags
       auto typeFlags = trackStateProxy.typeFlags();

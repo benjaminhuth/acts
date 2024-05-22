@@ -136,7 +136,8 @@ concept MutableMultiTrajectoryBackend = CommonMultiTrajectoryBackend<T> &&
 
   {v.setUncalibratedSourceLink_impl(istate, sl)};
 
-  {v.setReferenceSurface_impl(istate, surface)};
+  // TODO Reactivate when ready
+  // {v.setReferenceSurface_impl(istate, surface)};
 
   {v.copyDynamicFrom_impl(istate, key, std::declval<const std::any&>())};
 };

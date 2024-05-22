@@ -327,8 +327,8 @@ class TrackStateProxy {
   /// @param srf Shared pointer to the surface to set
   /// @note This overload is only present in case @c ReadOnly is false.
   template <bool RO = ReadOnly, typename = std::enable_if_t<!RO>>
-  void setReferenceSurface(std::shared_ptr<const Surface> srf) {
-    m_traj->setReferenceSurface(m_istate, std::move(srf));
+  void setReferenceSurface(const Surface &srf) {
+    m_traj->setReferenceSurface(m_istate, srf);
   }
   // NOLINTEND(performance-unnecessary-value-param)
 
@@ -1010,7 +1010,7 @@ class TrackStateProxy {
     typeFlags() = other.typeFlags();
 
     if (other.hasReferenceSurface()) {
-      setReferenceSurface(other.referenceSurface().getSharedPtr());
+      setReferenceSurface(other.referenceSurface());
     }
 
     m_traj->copyDynamicFrom(m_istate, other.container(), other.index());

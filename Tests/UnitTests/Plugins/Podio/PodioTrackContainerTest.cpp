@@ -211,7 +211,7 @@ BOOST_AUTO_TEST_CASE(ConvertTrack) {
     BOOST_CHECK_EQUAL(pTrack.data().nSharedHits, 99);
 
     Acts::GeometryContext gctx;
-    t.setReferenceSurface(free);
+    t.setReferenceSurface(*free);
     const auto& free2 = t.referenceSurface();
     BOOST_CHECK_EQUAL(free->center(gctx), free2.center(gctx));
 
@@ -231,7 +231,7 @@ BOOST_AUTO_TEST_CASE(ConvertTrack) {
 
     // Register surface "with the detector"
     helper.surfaces[666] = free.get();
-    t2.setReferenceSurface(free);
+    t2.setReferenceSurface(*free);
     auto pTrack2 = tracks.at(1);
     BOOST_CHECK_EQUAL(pTrack2.getReferenceSurface().identifier, 666);
 

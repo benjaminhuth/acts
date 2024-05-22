@@ -36,7 +36,8 @@ auto VectorMultiTrajectory::addTrackState_impl(TrackStatePropMask mask,
   p.allocMask = mask;
 
   // always set, but can be null
-  m_referenceSurfaces.emplace_back(nullptr);
+  // now, by default nullptr
+  // m_referenceSurfaces.emplace_back(nullptr);
 
   assert(m_params.size() == m_cov.size());
 
@@ -287,7 +288,7 @@ void VectorMultiTrajectory::reserve(std::size_t n) {
   m_jac.reserve(n);
   m_sourceLinks.reserve(n);
   m_projectors.reserve(n);
-  m_referenceSurfaces.reserve(n);
+  // m_referenceSurfaces.reserve(n);
 
   for (auto& [key, vec] : m_dynamic) {
     vec->reserve(n);
