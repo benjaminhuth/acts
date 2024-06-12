@@ -165,6 +165,12 @@ set_option_if(ACTS_SETUP_COVFIE
   ACTS_BUILD_EXAMPLES OR ACTS_BUILD_EVERYTHING)
 set_option_if(ACTS_BUILD_PLUGIN_COVFIE
   ACTS_BUILD_EXAMPLES OR ACTS_BUILD_EVERYTHING)
+set_option_if(ACTS_SETUP_DETRAY
+  ACTS_BUILD_EXAMPLES OR ACTS_BUILD_EVERYTHING)
+set_option_if(ACTS_SETUP_TRACCC
+  ACTS_BUILD_EXAMPLES OR ACTS_BUILD_EVERYTHING)
+set_option_if(ACTS_BUILD_PLUGIN_TRACCC
+  ACTS_BUILD_EXAMPLES OR ACTS_BUILD_EVERYTHING)
 
 # feature tests
 include(CheckCXXSourceCompiles)
@@ -308,6 +314,8 @@ endmacro()
 # find packages explicitly for each component even if this means searching for
 # the same package twice. This avoids having complex if/else trees to sort out
 # when a particular package is actually needed.
+
+add_definitions(-DALGEBRA_PLUGINS_INCLUDE_ARRAY)
 
 # plugin dependencies
 if(ACTS_SETUP_COVFIE)

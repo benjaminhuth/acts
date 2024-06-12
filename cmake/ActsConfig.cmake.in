@@ -79,6 +79,9 @@ endif()
 if(PluginCovfie IN_LIST Acts_COMPONENTS)
   find_dependency(covfie @covfie_VERSION@ CONFIG EXACT)
 endif()
+if(PluginTraccc IN_LIST Acts_COMPONENTS)
+  find_dependency(traccc @traccc_VERSION@ CONFIG EXACT)
+endif()
 
 # dependencies that we have built ourselves but cannot be
 # straightforwardly handed to cmake
