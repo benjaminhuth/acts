@@ -80,7 +80,7 @@ METHOD_TRAIT(write_method_trait_t, write);
 #define ACTS_PYTHON_DECLARE_ALGORITHM(algorithm, mod, name, ...)              \
   do {                                                                        \
     using Alg = algorithm;                                                    \
-    using Config = Alg::Config;                                               \
+    using Config = typename Alg::Config;                                               \
     auto alg =                                                                \
         py::class_<Alg, ActsExamples::IAlgorithm, std::shared_ptr<Alg>>(mod,  \
                                                                         name) \

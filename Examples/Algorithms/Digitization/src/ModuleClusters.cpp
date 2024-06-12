@@ -66,6 +66,20 @@ ModuleClusters::digitizedParameters() {
   return retv;
 }
 
+double getCellTime(const ModuleValue& mval){
+  if (std::holds_alternative<ActsExamples::Cluster::Cell>(mval.value)) {
+    return 0.; // Should be updated later to match the cell's time.
+  }
+  throw std::domain_error("ModuleValue does not contain cell!");
+}
+
+double getCellActivation(const ModuleValue& mval){
+  if (std::holds_alternative<ActsExamples::Cluster::Cell>(mval.value)) {
+    return std::get<ActsExamples::Cluster::Cell>(mval.value).activation;
+  }
+  throw std::domain_error("ModuleValue does not contain cell!");
+}
+
 // Needed for clusterization
 int getCellRow(const ModuleValue& mval) {
   if (std::holds_alternative<ActsExamples::Cluster::Cell>(mval.value)) {

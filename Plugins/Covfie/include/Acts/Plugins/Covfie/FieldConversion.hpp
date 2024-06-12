@@ -26,12 +26,11 @@
 
 namespace Acts::CovfiePlugin {
 
-using builder_backend_t =
-    covfie::backend::strided<covfie::vector::size3,
-                             covfie::backend::array<covfie::vector::float3>>;
+using builder_backend_t = covfie::backend::strided<
+    covfie::vector::size3,
+    covfie::backend::array<covfie::vector::float3>>;
 
-using interpolated_field_t = covfie::field<covfie::backend::clamp<
-    covfie::backend::affine<covfie::backend::linear<builder_backend_t>>>>;
+using interpolated_field_t = covfie::field<covfie::backend::clamp<covfie::backend::affine<covfie::backend::linear<builder_backend_t>>>>;
 
 using constant_field_t = covfie::field<
     covfie::backend::constant<covfie::vector::float3, covfie::vector::float3>>;
