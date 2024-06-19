@@ -22,6 +22,8 @@
 
 #include <TChain.h>
 
+#include "ActsExamples/Io/Root/IRootReader.hpp"
+
 namespace ActsExamples {
 
 RootParticleReader::RootParticleReader(const RootParticleReader::Config& config,
