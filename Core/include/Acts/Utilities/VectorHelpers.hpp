@@ -37,16 +37,7 @@ using has_phi_method = Concepts::is_detected<phi_method_t, T>;
 /// @return The value of the angle in the transverse plane.
 template <typename Derived>
 double phi(const Eigen::MatrixBase<Derived>& v) noexcept {
-  constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
-  if constexpr (rows != -1) {
-    // static size, do compile time check
-    static_assert(rows >= 2,
-                  "Phi function not valid for vectors not at least 2D");
-  } else {
-    // dynamic size
-    assert(v.rows() >= 2 &&
-           "Phi function not valid for vectors not at least 2D");
-  }
+  static_assert(Eigen::MatrixBase<Derived>::RowsAtCompileTime >= 2);
   return std::atan2(v[1], v[0]);
 }
 
@@ -55,11 +46,11 @@ double phi(const Eigen::MatrixBase<Derived>& v) noexcept {
 /// @tparam T anything that has a phi method
 /// @param v Any type that implements a phi method
 /// @return The phi value
-template <typename T,
-          std::enable_if_t<detail::has_phi_method<T>::value, int> = 0>
-double phi(const T& v) noexcept {
-  return v.phi();
-}
+// template <typename T,
+//           std::enable_if_t<detail::has_phi_method<T>::value, int> = 0>
+// double phi(const T& v) noexcept {
+//   return v.phi();
+// }
 
 /// Calculate radius in the transverse (xy) plane of a vector
 /// @tparam Derived Eigen derived concrete type
@@ -69,16 +60,7 @@ double phi(const T& v) noexcept {
 /// @return The transverse radius value.
 template <typename Derived>
 double perp(const Eigen::MatrixBase<Derived>& v) noexcept {
-  constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
-  if constexpr (rows != -1) {
-    // static size, do compile time check
-    static_assert(rows >= 2,
-                  "Perp function not valid for vectors not at least 2D");
-  } else {
-    // dynamic size
-    assert(v.rows() >= 2 &&
-           "Perp function not valid for vectors not at least 2D");
-  }
+  static_assert(Eigen::MatrixBase<Derived>::RowsAtCompileTime >= 2);
   return std::hypot(v[0], v[1]);
 }
 
@@ -88,18 +70,16 @@ double perp(const Eigen::MatrixBase<Derived>& v) noexcept {
 /// @note Will static assert that the number of rows of @p v is at least 3, or
 /// in case of dynamic size, will abort execution if that is not the case.
 /// @return The theta value
-template <typename Derived>
-double theta(const Eigen::MatrixBase<Derived>& v) noexcept {
-  constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
-  if constexpr (rows != -1) {
-    // static size, do compile time check
-    static_assert(rows == 3, "Theta function not valid for non-3D vectors.");
-  } else {
-    // dynamic size
-    assert(v.rows() == 3 && "Theta function not valid for non-3D vectors.");
-  }
-
+inline ActsScalar theta(const Acts::Vector3& v) noexcept {
   return std::atan2(perp(v), v[2]);
+}
+
+inline ActsScalar eta(ActsScalar theta) {
+  return -std::log(std::tan(theta/2));
+}
+
+inline ActsScalar eta(ActsScalar r, ActsScalar z) {
+  return std::asinh(z / r);
 }
 
 /// Calculate the pseudorapidity for a vector.
@@ -108,21 +88,11 @@ double theta(const Eigen::MatrixBase<Derived>& v) noexcept {
 /// @note Will static assert that the number of rows of @p v is at least 3, or
 /// in case of dynamic size, will abort execution if that is not the case.
 /// @return The pseudorapidity value
-template <typename Derived>
-double eta(const Eigen::MatrixBase<Derived>& v) noexcept {
-  constexpr int rows = Eigen::MatrixBase<Derived>::RowsAtCompileTime;
-  if constexpr (rows != -1) {
-    // static size, do compile time check
-    static_assert(rows == 3, "Eta function not valid for non-3D vectors.");
-  } else {
-    // dynamic size
-    assert(v.rows() == 3 && "Eta function not valid for non-3D vectors.");
-  }
-
+inline ActsScalar eta(Acts::Vector3 v) noexcept {
   if (v[0] == 0. && v[1] == 0.) {
     return std::copysign(std::numeric_limits<double>::infinity(), v[2]);
   } else {
-    return std::asinh(v[2] / perp(v));
+    return eta(perp(v), v[2]);
   }
 }
 
