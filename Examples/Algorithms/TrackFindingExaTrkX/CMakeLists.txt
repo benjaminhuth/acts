@@ -3,6 +3,7 @@ add_library(
   src/TrackFindingAlgorithmExaTrkX.cpp
   src/PrototracksToParameters.cpp
   src/TrackFindingFromPrototrackAlgorithm.cpp
+  src/GNNPlusTracccAlgorithm.cpp
 )
 
 target_include_directories(
@@ -16,6 +17,7 @@ target_link_libraries(
     ActsPluginExaTrkX
     ActsExamplesFramework
     ActsExamplesTrackFinding
+    ActsExamplesTracccCommon
 )
 
 install(
