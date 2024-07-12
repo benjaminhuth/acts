@@ -1,6 +1,7 @@
 add_library(
   ActsExamplesTracccCommon SHARED
   src/TracccChainAlgorithmBase.cpp
+  src/MeasurementConversion.cpp
 )
 
 target_include_directories(

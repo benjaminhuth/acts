@@ -191,6 +191,10 @@ auto convertTracks(
     return constTracks;
 }
 
+auto convertMeasurements(const MeasurementContainer &actsMeasurements) const {
+    return Conversion::createTracccMeasurements(actsMeasurements, barcodeMap);
+}
+
 };
 
 }  // namespace ActsExamples

@@ -16,6 +16,7 @@
 
 // Acts examples include(s)
 #include "ActsExamples/EventData/IndexSourceLink.hpp"
+#include "ActsExamples/EventData/Measurement.hpp"
 
 // Traccc include(s)
 #include "traccc/edm/measurement.hpp"
@@ -47,5 +48,7 @@ inline auto createActsMeasurements(const detector_t& detector, const std::vector
     }
     return measurementContainer;
 }
+
+traccc::measurement_collection_types::host createTracccMeasurements(const MeasurementContainer &measurements, const std::map<std::uint64_t, detray::geometry::barcode> &barcodeMap);
 
 }

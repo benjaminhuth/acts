@@ -18,6 +18,7 @@ target_link_libraries(
     ActsExamplesFramework
     ActsExamplesTrackFinding
     ActsExamplesTracccCommon
+    ActsExamplesTracccHost
 )
 
 install(

@@ -17,8 +17,13 @@
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
+#include <ActsExamples/Traccc/Host/Types.hpp>
+
+
+#include <vecmem/memory/host_memory_resource.hpp>
 
 #include <numeric>
+
 
 using namespace ActsExamples;
 using namespace Acts::UnitLiterals;
@@ -104,20 +109,40 @@ ActsExamples::ProcessCode ActsExamples::GNNPlusTracccAlgorithm::execute(
   ///
   /// Tracc part
   ///
+  vecmem::host_memory_resource mr;
+
+  using HostTypes = typename ActsExamples::Chain::Host::Types<typename FieldType::view_t>;
+
+  // typename HostTypes::ClusterizationAlgorithmType clusterizationAlgorithm{mr};
+  // typename HostTypes::SpacepointFormationAlgorithmType spacepointFormationAlgorithm{mr};
+  // typename HostTypes::SeedingAlgorithmType seedingAlgorithm{mr};
+  // typename HostTypes::TrackParametersEstimationAlgorithmType trackParametersEstimationAlgorithm{mr};
+  // typename HostTypes::FindingAlgorithmType findingAlgorithm{mr};
+  // typename HostTypes::FittingAlgorithmType fittingAlgorithm{mr};
+  // typename HostTypes::AmbiguityResolutionAlgorithmType ambiguityResolutionAlgorithm{mr};
+
+  typename HostTypes::ClusterizationAlgorithmType::output_type tracccMeasurements{&mr};
+  typename HostTypes::SpacepointFormationAlgorithmType::output_type tracccSpacepoints{&mr};
+  typename HostTypes::SeedingAlgorithmType::output_type tracccSeeds{&mr};
+  typename HostTypes::TrackParametersEstimationAlgorithmType::output_type tracccParams{&mr};
+  typename HostTypes::FindingAlgorithmType::output_type tracccTrackCandidates{&mr};
+  typename HostTypes::FittingAlgorithmType::output_type tracccTrackStates{&mr};
+  // typename HostTypes::AmbiguityResolutionAlgorithmType::output_type resolvedTrackStates{&mr};
+
+  tracccMeasurements = converter.convertMeasurements(m_inputMeasurements(ctx));
 
   ACTS_INFO("Ran the finding algorithm");
 
-  trackStates = fittingAlgorithm(detector, field, trackCandidates);
+  // trackStates = fittingAlgorithm(detector, field, trackCandidates);
 
   ACTS_INFO("Ran the fitting algorithm");
 
-  resolvedTrackStates = ambiguityResolutionAlgorithm(trackStates);
+  // resolvedTrackStates = ambiguityResolutionAlgorithm(trackStates);
 
-  const auto& actsMeasurements = m_inputMeasurements(ctx);
+  // const auto& actsMeasurements = m_inputMeasurements(ctx);
 
-  auto result = converter.convertTracks(resolvedTrackStates, measurements,
-                                        actsMeasurements);
-  m_outputTracks(ctx, std::move(result));
+  // auto result = converter.convertTracks(resolvedTrackStates, measurements, actsMeasurements);
+  // m_outputTracks(ctx, std::move(result));
 
   return ActsExamples::ProcessCode::SUCCESS;
 }
