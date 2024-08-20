@@ -148,13 +148,13 @@ void addGeometry(Context& ctx) {
   {
     py::class_<Acts::TrackingGeometry, std::shared_ptr<Acts::TrackingGeometry>>(
         m, "TrackingGeometry")
-        .def(py::init([](const MutableTrackingVolumePtr& v,
-                         std::shared_ptr<const IMaterialDecorator> m,
-                         const GeometryIdentifierHook& h,
+        .def(py::init([](const MutableTrackingVolumePtr& volPtr,
+                         std::shared_ptr<const IMaterialDecorator> matDec,
+                         const GeometryIdentifierHook& hook,
                          Acts::Logging::Level level) {
           auto logger = Acts::getDefaultLogger("TrackingGeometry", level);
           auto trkGeo = std::make_shared<Acts::TrackingGeometry>(
-              v, m ? &*m : nullptr, h, *logger);
+              volPtr, matDec ? matDec.get() : nullptr, hook, *logger);
           return trkGeo;
         }))
         .def("visitSurfaces",
@@ -174,16 +174,16 @@ void addGeometry(Context& ctx) {
   }
 
   {
-    py::class_<Acts::Volume, std::shared_ptr<Acts::Volume>>(m, "Volume")
-        .def_static(
-            "makeCylinderVolume",
-            [](double r, double halfZ) {
-              auto bounds =
-                  std::make_shared<Acts::CylinderVolumeBounds>(0, r, halfZ);
-              return std::make_shared<Acts::Volume>(Transform3::Identity(),
-                                                    bounds);
-            },
-            "r"_a, "halfZ"_a);
+    py::class_<Acts::VolumeBounds, std::shared_ptr<Acts::VolumeBounds>>(
+        m, "VolumeBounds");
+
+    py::class_<Acts::CylinderVolumeBounds,
+               std::shared_ptr<Acts::CylinderVolumeBounds>, Acts::VolumeBounds>(
+        m, "CylinderVolumeBounds")
+        .def(py::init<ActsScalar, ActsScalar, ActsScalar, ActsScalar,
+                      ActsScalar, ActsScalar, ActsScalar>(),
+             "rmin"_a, "rmax"_a, "halfz"_a, "halfphi"_a = M_PI, "avgphi"_a = 0.,
+             "bevelMinZ"_a = 0., "bevelMaxZ"_a = 0.);
   }
 
   {

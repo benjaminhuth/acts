@@ -55,7 +55,6 @@ void addGeometryBuildingGen1(Context &ctx) {
 
     auto config =
         py::class_<LayerCreator::Config>(creator, "Config").def(py::init<>());
-    ;
 
     ACTS_PYTHON_STRUCT_BEGIN(config, LayerCreator::Config);
     ACTS_PYTHON_MEMBER(surfaceArrayCreator);
@@ -103,20 +102,7 @@ void addGeometryBuildingGen1(Context &ctx) {
     py::class_<Config>(creator, "Config").def(py::init<>());
   }
 
-  py::class_<Acts::VolumeBounds, std::shared_ptr<Acts::VolumeBounds>>(
-      m, "VolumeBounds");
-
-  py::class_<Acts::CylinderVolumeBounds,
-             std::shared_ptr<Acts::CylinderVolumeBounds>, Acts::VolumeBounds>(
-      m, "CylinderVolumeBounds")
-      .def(py::init<ActsScalar, ActsScalar, ActsScalar, ActsScalar, ActsScalar,
-                    ActsScalar, ActsScalar>(),
-           "rmin"_a, "rmax"_a, "halfz"_a, "halfphi"_a = M_PI, "avgphi"_a = 0.,
-           "bevelMinZ"_a = 0., "bevelMaxZ"_a = 0.);
-
   {
-    // NOTE Here we break the interface down from a transform to a zshift, since
-    // this is the only thing used
     auto helper =
         py::class_<Acts::CylinderVolumeHelper>(m, "CylinderVolumeHelper")
             .def(py::init([](const Acts::CylinderVolumeHelper::Config &cfg,
@@ -128,9 +114,7 @@ void addGeometryBuildingGen1(Context &ctx) {
                  [](const Acts::CylinderVolumeHelper &self,
                     GeometryContext gctx, const LayerVector &layers,
                     std::shared_ptr<VolumeBounds> volumeBounds,
-                    ActsScalar zShift, const std::string &name) {
-                   auto trafo = Transform3::Identity();
-                   trafo.translate(Acts::Vector3{0.0, 0.0, zShift});
+                    const Transform3 &trafo, const std::string &name) {
                    return self.createTrackingVolume(
                        gctx, layers, {}, volumeBounds, {}, trafo, name);
                  })
@@ -148,8 +132,6 @@ void addGeometryBuildingGen1(Context &ctx) {
     ACTS_PYTHON_MEMBER(passiveLayerRzBins);
     ACTS_PYTHON_STRUCT_END();
   }
-
-  {}
 }
 
 }  // namespace Acts::Python
