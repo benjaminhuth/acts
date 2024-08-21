@@ -33,8 +33,6 @@
 #include "Acts/Geometry/Volume.hpp"
 #include "Acts/Geometry/VolumeBounds.hpp"
 #include "Acts/Plugins/Python/Utilities.hpp"
-#include "Acts/Surfaces/AnnulusBounds.hpp"
-#include "Acts/Surfaces/DiscSurface.hpp"
 #include "Acts/Surfaces/Surface.hpp"
 #include "Acts/Surfaces/SurfaceArray.hpp"
 #include "Acts/Utilities/RangeXD.hpp"
@@ -190,12 +188,7 @@ void addGeometry(Context& ctx) {
     py::class_<Acts::Volume, std::shared_ptr<Acts::Volume>>(m, "Volume");
 
     py::class_<Acts::TrackingVolume, Acts::Volume,
-               std::shared_ptr<Acts::TrackingVolume>>(m, "TrackingVolume")
-        .def(py::init([](std::shared_ptr<const Acts::VolumeBounds> bounds,
-                         std::string name) {
-          return std::make_shared<Acts::TrackingVolume>(Transform3::Identity(),
-                                                        bounds, name);
-        }));
+               std::shared_ptr<Acts::TrackingVolume>>(m, "TrackingVolume");
   }
 
   {
@@ -225,18 +218,6 @@ void addGeometry(Context& ctx) {
           return std::array<Acts::ActsScalar, 2u>{self.min(bval),
                                                   self.max(bval)};
         });
-  }
-
-  {
-    m.def(
-        "makeAnnulusSurface",
-        [](const std::array<double, Acts::AnnulusBounds::eSize>& values)
-            -> std::shared_ptr<Acts::Surface> {
-          auto bounds = std::make_shared<Acts::AnnulusBounds>(values);
-          Acts::Transform3 trafo = Acts::Transform3::Identity();
-          return Acts::Surface::makeShared<Acts::DiscSurface>(trafo, bounds);
-        },
-        "values"_a);
   }
 }
 
