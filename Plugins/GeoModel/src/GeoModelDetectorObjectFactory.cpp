@@ -163,6 +163,9 @@ void Acts::GeoModelDetectorObjectFactory::convertFpv(
       const Transform3 &transform =
           fpv->getAbsoluteTransform() * surface.transform;
       convertSensitive(surface.volume, transform, sensitives);
+      for (auto &[detEl, _] : sensitives) {
+        detEl->setDatabaseEntryName(name);
+      }
     }
     cache.sensitiveSurfaces.insert(cache.sensitiveSurfaces.end(),
                                    sensitives.begin(), sensitives.end());
