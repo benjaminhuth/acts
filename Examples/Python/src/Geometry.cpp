@@ -152,7 +152,7 @@ void addGeometry(Context& ctx) {
                          Acts::Logging::Level level) {
           auto logger = Acts::getDefaultLogger("TrackingGeometry", level);
           auto trkGeo = std::make_shared<Acts::TrackingGeometry>(
-              volPtr, matDec ? matDec.get() : nullptr, hook, *logger);
+              volPtr, matDec.get(), hook, *logger);
           return trkGeo;
         }))
         .def("visitSurfaces",
@@ -188,7 +188,12 @@ void addGeometry(Context& ctx) {
     py::class_<Acts::Volume, std::shared_ptr<Acts::Volume>>(m, "Volume");
 
     py::class_<Acts::TrackingVolume, Acts::Volume,
-               std::shared_ptr<Acts::TrackingVolume>>(m, "TrackingVolume");
+               std::shared_ptr<Acts::TrackingVolume>>(m, "TrackingVolume")
+        .def(py::init([](std::shared_ptr<const Acts::VolumeBounds> bounds,
+                         std::string name) {
+          return std::make_shared<Acts::TrackingVolume>(Transform3::Identity(),
+                                                        bounds, name);
+        }));
   }
 
   {
