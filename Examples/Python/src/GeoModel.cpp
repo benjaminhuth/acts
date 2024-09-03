@@ -22,9 +22,12 @@
 #include "Acts/Plugins/GeoModel/GeoModelReader.hpp"
 #include "Acts/Plugins/GeoModel/GeoModelTree.hpp"
 #include "Acts/Plugins/GeoModel/IGeoShapeConverter.hpp"
-#include "Acts/Plugins/GeoModel/SplitModulesByRadius.hpp"
 #include "Acts/Plugins/Python/Utilities.hpp"
-#include "Acts/Surfaces/Surface.hpp"
+#include "Acts/Surfaces/AnnulusBounds.hpp"
+#include "Acts/Surfaces/DiscSurface.hpp"
+#include "Acts/Surfaces/PlaneSurface.hpp"
+#include "Acts/Surfaces/RectangleBounds.hpp"
+#include "ActsExamples/ITkModuleSplitting/ITkModuleSplitting.hpp"
 
 #include <string>
 
@@ -190,12 +193,48 @@ void addGeoModel(Context& ctx) {
                        &Acts::GeoModelBlueprintCreater::Options::table);
   }
 
-  py::class_<Acts::ModuleByRadiusSplitter>(gm, "ModuleByRadiusSplitter")
-      .def(py::init<std::map<std::string, std::vector<double>>, double,
-                    Acts::Logging::Level>(),
-           "designs"_a, "tolerance"_a = 1.e-3, "level"_a = Acts::Logging::INFO)
-      .def("split", &Acts::ModuleByRadiusSplitter::split, "surface"_a,
-           "detElement"_a, "gctx"_a);
+  gm.def(
+      "splitBarrelModule",
+      [](const Acts::GeometryContext& gctx,
+         std::shared_ptr<const GeoModelDetectorElement> detElement,
+         unsigned nSegments, Acts::Logging::Level logLevel) {
+        auto logger = Acts::getDefaultLogger("ITkSlitBarrel", logLevel);
+        auto name = detElement->databaseEntryName();
+
+        auto factory = [&](const auto& trafo, const auto& bounds) {
+          return Acts::GeoModelDetectorElement::createDetectorElement<
+              Acts::PlaneSurface, Acts::RectangleBounds>(
+              detElement->physicalVolume(), bounds, trafo,
+              detElement->thickness());
+        };
+
+        return ActsExamples::ITk::splitBarrelModule(gctx, detElement, nSegments,
+                                                    factory, name, *logger);
+      },
+      "gxtx"_a, "detElement"_a, "nSegments"_a,
+      "logLevel"_a = Acts::Logging::INFO);
+
+  gm.def(
+      "splitDiscModule",
+      [](const Acts::GeometryContext& gctx,
+         std::shared_ptr<const GeoModelDetectorElement> detElement,
+         const std::vector<std::pair<double, double>>& patterns,
+         Acts::Logging::Level logLevel) {
+        auto logger = Acts::getDefaultLogger("ITkSlitBarrel", logLevel);
+        auto name = detElement->databaseEntryName();
+
+        auto factory = [&](const auto& trafo, const auto& bounds) {
+          return Acts::GeoModelDetectorElement::createDetectorElement<
+              Acts::DiscSurface, Acts::AnnulusBounds>(
+              detElement->physicalVolume(), bounds, trafo,
+              detElement->thickness());
+        };
+
+        return ActsExamples::ITk::splitDiscModule(gctx, detElement, patterns,
+                                                  factory, name, *logger);
+      },
+      "gxtx"_a, "detElement"_a, "splitRanges"_a,
+      "logLevel"_a = Acts::Logging::INFO);
 
   py::class_<Acts::GeoModelDetectorElementITk,
              std::shared_ptr<Acts::GeoModelDetectorElementITk>>(
