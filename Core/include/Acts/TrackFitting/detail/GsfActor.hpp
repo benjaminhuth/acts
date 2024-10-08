@@ -23,6 +23,8 @@
 
 #include <ios>
 #include <map>
+#include <numeric>
+#include <stdexcept>
 
 namespace Acts::detail {
 
@@ -128,6 +130,8 @@ struct GsfActor {
     std::vector<MultiTrajectoryTraits::IndexType> tips;
     std::map<MultiTrajectoryTraits::IndexType, double> weights;
   };
+
+  enum class TrackStateTypes { eMeasurement, eOutlier, eOther };
 
   /// @brief GSF actor operation
   ///
@@ -544,11 +548,8 @@ struct GsfActor {
                             const SourceLink& sourceLink) const {
     const auto& surface = *navigator.currentSurface(state.navigation);
 
-    // Boolean flag, to distinguish measurement and outlier states. This flag
-    // is only modified by the valid-measurement-branch, so only if there
-    // isn't any valid measurement state, the flag stays false and the state
-    // is thus counted as an outlier
-    bool is_valid_measurement = false;
+    std::size_t nMeasurements = 0;
+    std::size_t nOutliers = 0;
 
     auto cmps = stepper.componentIterable(state.stepping);
     for (auto cmp : cmps) {
@@ -565,16 +566,23 @@ struct GsfActor {
       }
 
       const auto& trackStateProxy = *trackStateProxyRes;
+      assert(trackStateProxy.hasUncalibratedSourceLink());
 
       // If at least one component is no outlier, we consider the whole thing
       // as a measurementState
-      if (trackStateProxy.typeFlags().test(TrackStateFlag::MeasurementFlag)) {
-        is_valid_measurement = true;
+      if (trackStateProxy.typeFlags().test(
+              Acts::TrackStateFlag::MeasurementFlag)) {
+        ++nMeasurements;
+      } else {
+        ++nOutliers;
       }
 
       tmpStates.tips.push_back(trackStateProxy.index());
       tmpStates.weights[tmpStates.tips.back()] = cmp.weight();
     }
+
+    ACTS_VERBOSE("Kalman update step: measurements = "
+                 << nMeasurements << ", outliers = " << nOutliers);
 
     computePosteriorWeights(tmpStates.traj, tmpStates.tips, tmpStates.weights);
 
@@ -582,15 +590,18 @@ struct GsfActor {
       return tmpStates.weights.at(idx);
     });
 
+    TrackStateTypes flag = TrackStateTypes::eOutlier;
+
     // Do the statistics
     ++result.processedStates;
 
     // TODO should outlier states also be counted here?
-    if (is_valid_measurement) {
+    if (nMeasurements > 0) {
       ++result.measurementStates;
+      flag = TrackStateTypes::eMeasurement;
     }
 
-    addCombinedState(result, tmpStates, surface);
+    addCombinedState(result, tmpStates, surface, flag);
     result.lastMeasurementTip = result.currentTip;
 
     using FiltProjector =
@@ -666,7 +677,7 @@ struct GsfActor {
 
     ++result.processedStates;
 
-    addCombinedState(result, tmpStates, surface);
+    addCombinedState(result, tmpStates, surface, TrackStateTypes::eOther);
 
     return Result<void>::success();
   }
@@ -713,7 +724,8 @@ struct GsfActor {
   }
 
   void addCombinedState(result_type& result, const TemporaryStates& tmpStates,
-                        const Surface& surface) const {
+                        const Surface& surface,
+                        TrackStateTypes stateType) const {
     using PrtProjector =
         MultiTrajectoryProjector<StatesType::ePredicted, traj_t>;
     using FltProjector =
@@ -722,14 +734,21 @@ struct GsfActor {
     if (!m_cfg.inReversePass) {
       const auto firstCmpProxy =
           tmpStates.traj.getTrackState(tmpStates.tips.front());
-      const auto isMeasurement =
-          firstCmpProxy.typeFlags().test(MeasurementFlag);
 
-      const auto mask = isMeasurement ? TrackStatePropMask::Calibrated |
-                                            TrackStatePropMask::Predicted |
-                                            TrackStatePropMask::Filtered |
-                                            TrackStatePropMask::Smoothed
-                                      : TrackStatePropMask::Predicted;
+      using TSPM = TrackStatePropMask;
+      TSPM mask = TSPM::All;
+      switch (stateType) {
+        break;
+        case GsfActor::TrackStateTypes::eMeasurement: {
+          mask = TSPM::All;
+        } break;
+        case GsfActor::TrackStateTypes::eOutlier: {
+          mask = TSPM::Calibrated | TSPM::Predicted;
+        } break;
+        case GsfActor::TrackStateTypes::eOther: {
+          mask = TSPM::Predicted;
+        }
+      }
 
       auto proxy = result.fittedStates->makeTrackState(mask, result.currentTip);
       result.currentTip = proxy.index();
@@ -742,7 +761,7 @@ struct GsfActor {
       proxy.predicted() = prtMean;
       proxy.predictedCovariance() = prtCov;
 
-      if (isMeasurement) {
+      if (stateType == TrackStateTypes::eMeasurement) {
         auto [fltMean, fltCov] = mergeGaussianMixture(
             tmpStates.tips, surface, m_cfg.mergeMethod,
             FltProjector{tmpStates.traj, tmpStates.weights});
@@ -750,6 +769,7 @@ struct GsfActor {
         proxy.filteredCovariance() = fltCov;
         proxy.smoothed() = BoundVector::Constant(-2);
         proxy.smoothedCovariance() = BoundSquareMatrix::Constant(-2);
+        assert(proxy.hasUncalibratedSourceLink());
       } else {
         proxy.shareFrom(TrackStatePropMask::Predicted,
                         TrackStatePropMask::Filtered);
