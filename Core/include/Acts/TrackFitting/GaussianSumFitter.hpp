@@ -20,6 +20,8 @@
 #include "Acts/Utilities/Logger.hpp"
 #include "Acts/Utilities/TrackHelpers.hpp"
 
+#include <stdexcept>
+
 namespace Acts {
 
 namespace detail {
