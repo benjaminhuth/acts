@@ -353,6 +353,7 @@ struct GsfActor {
 
     // Store average material seen by the components
     // Should not be too broadly distributed
+    ACTS_VERBOSE("Average thickness in X0 encountered by components: " << pathXOverX0 / tmpStates.tips.size());
     result.sumPathXOverX0.tmp() += pathXOverX0 / tmpStates.tips.size();
   }
 
