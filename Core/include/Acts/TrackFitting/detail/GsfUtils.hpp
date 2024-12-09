@@ -87,11 +87,11 @@ class ScopedGsfInfoPrinterAndChecker {
       auto getVector = [&](auto idx) {
         return cmp.pars().template segment<3>(idx).transpose();
       };
-      ACTS_VERBOSE("  #" << i++ << " pos: " << getVector(eFreePos0) << ", dir: "
-                         << getVector(eFreeDir0) << ", weight: " << cmp.weight()
-                         << ", status: " << cmp.status()
-                         << ", qop: " << cmp.pars()[eFreeQOverP]
-                         << ", det(cov): " << cmp.cov().determinant());
+      ACTS_VERBOSE("  #" << i++
+                         << ", weight: " << cmp.weight()
+                         << " pos: " << getVector(eFreePos0) 
+                         << ", momentum: " << 1.0/std::abs(cmp.pars()[eFreeQOverP])
+                         << ", status: " << cmp.status());
     }
   }
 
@@ -164,7 +164,7 @@ double calculateDeterminant(
 template <typename traj_t>
 void computePosteriorWeights(
     const traj_t &mt, const std::vector<MultiTrajectoryTraits::IndexType> &tips,
-    std::map<MultiTrajectoryTraits::IndexType, double> &weights) {
+    std::map<MultiTrajectoryTraits::IndexType, double> &weights, const Acts::Logger &logger = Acts::getDummyLogger()) {
   // Helper Function to compute detR
 
   // Find minChi2, this can be used to factor some things later in the
@@ -196,8 +196,11 @@ void computePosteriorWeights(
 
     // If something is not finite here, just leave the weight as it is
     if (std::isfinite(factor)) {
+      ACTS_VERBOSE("old weight: " << weights.at(tip) << ", chi2: " << chi2 << ", new weight: " << weights.at(tip) * factor);
       weights.at(tip) *= factor;
-    }
+    } else {
+      ACTS_WARNING("Non finite factor: " << factor);
+    } 
   }
 }
 

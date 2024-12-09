@@ -175,7 +175,7 @@ struct GsfActor {
     }
 
     const auto& surface = *navigator.currentSurface(state.navigation);
-    ACTS_VERBOSE("Step is at surface " << surface.geometryId());
+    ACTS_VERBOSE("Step is at surface " << surface.geometryId() << " | " << surface.name());
 
     // All components must be normalized at the beginning here, otherwise the
     // stepper misbehaves
@@ -382,6 +382,8 @@ struct GsfActor {
     result.maxPathXOverX0.tmp() =
         std::max(result.maxPathXOverX0.tmp(), pathXOverX0);
 
+  
+
     // Emit a warning if the approximation is not valid for this x/x0
     if (!m_cfg.bethe_heitler_approx->validXOverX0(pathXOverX0)) {
       ++result.nInvalidBetheHeitler.tmp();
@@ -394,7 +396,9 @@ struct GsfActor {
     const auto mixture = m_cfg.bethe_heitler_approx->mixture(pathXOverX0);
 
     // Create all possible new components
+    ACTS_VERBOSE("Mixture convolution for component with path x/X0=" << pathXOverX0);
     for (const auto& gaussian : mixture) {
+      ACTS_VERBOSE("- weight / mean / var: " << gaussian.weight << ", " << gaussian.mean << ", " << gaussian.var);
       // Here we combine the new child weight with the parent weight.
       // However, this must be later re-adjusted
       const auto new_weight = gaussian.weight * old_weight;
@@ -491,6 +495,7 @@ struct GsfActor {
 
       cmp.pars() =
           MultiTrajectoryHelpers::freeFiltered(state.options.geoContext, proxy);
+      ACTS_VERBOSE("update stepper with free filtered: " << cmp.pars().transpose());
       cmp.cov() = proxy.filteredCovariance();
       cmp.weight() = tmpStates.weights.at(idx);
     }
@@ -585,7 +590,7 @@ struct GsfActor {
     ACTS_VERBOSE("Kalman update step: measurements = "
                  << nMeasurements << ", outliers = " << nOutliers);
 
-    computePosteriorWeights(tmpStates.traj, tmpStates.tips, tmpStates.weights);
+    computePosteriorWeights(tmpStates.traj, tmpStates.tips, tmpStates.weights, logger());
 
     detail::normalizeWeights(tmpStates.tips, [&](auto idx) -> double& {
       return tmpStates.weights.at(idx);
