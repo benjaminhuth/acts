@@ -1,17 +1,18 @@
-add_library(ActsExamplesTraccc INTERFACE)
+add_library(ActsExamplesTraccc SHARED src/EdmConversion.cpp)
 
 target_include_directories(
     ActsExamplesTraccc
-    INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
 
 target_link_libraries(
     ActsExamplesTraccc
-    INTERFACE
+    PUBLIC
         ActsCore
         ActsExamplesFramework
         ActsExamplesPropagation
         ActsPluginDetray
+        traccc::core
 )
 
 acts_compile_headers(ActsExamplesTraccc GLOB "include/**/*.hpp")
