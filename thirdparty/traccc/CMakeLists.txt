@@ -17,7 +17,12 @@ message(STATUS "Building traccc as part of the Acts project")
 set(TRACCC_VERSION "${_acts_traccc_version}")
 
 # Declare where to get traccc from.
-FetchContent_Declare(traccc SYSTEM ${ACTS_TRACCC_SOURCE})
+FetchContent_Declare(
+    traccc
+    SYSTEM
+    GIT_REPOSITORY https://github.com/acts-project/traccc
+    GIT_TAG 9a16463
+)
 
 set(ACTS_TRACCC_SCALARTYPE "double")
 
