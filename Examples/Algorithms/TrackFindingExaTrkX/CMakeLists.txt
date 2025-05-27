@@ -18,6 +18,15 @@ target_link_libraries(
     PUBLIC ActsPluginExaTrkX ActsExamplesFramework ActsExamplesTrackFinding
 )
 
+if(ACTS_BUILD_PLUGIN_TRACCC)
+    target_sources(
+        ActsExamplesTrackFindingExaTrkX
+        PUBLIC src/GNNTracccFullChainAlgorithm.cpp
+    )
+
+    target_link_libraries(ActsExamplesTrackFindingExaTrkX PUBLIC traccc::core)
+endif()
+
 install(
     TARGETS ActsExamplesTrackFindingExaTrkX
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

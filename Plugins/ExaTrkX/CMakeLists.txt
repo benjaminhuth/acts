@@ -113,6 +113,11 @@ if(ACTS_EXATRKX_ENABLE_TORCH)
     target_link_options(ActsPluginExaTrkX PUBLIC "-Wl,-no-as-needed")
 endif()
 
+if(ACTS_EXATRKX_ENABLE_TRACCC)
+    target_link_libraries(ActsPluginExaTrkX PUBLIC traccc::core traccc::cuda)
+    target_sources(ActsPluginExaTrkX PRIVATE src/TracccFeatureCreation.cu)
+endif()
+
 install(
     TARGETS ActsPluginExaTrkX
     EXPORT ActsPluginExaTrkXTargets
