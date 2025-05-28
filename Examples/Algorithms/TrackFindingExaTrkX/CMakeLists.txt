@@ -18,13 +18,16 @@ target_link_libraries(
     PUBLIC ActsPluginExaTrkX ActsExamplesFramework ActsExamplesTrackFinding
 )
 
-if(ACTS_BUILD_PLUGIN_TRACCC)
+if(ACTS_BUILD_PLUGIN_TRACCC AND ACTS_EXATRKX_ENABLE_TRACCC)
     target_sources(
         ActsExamplesTrackFindingExaTrkX
         PUBLIC src/GNNTracccFullChainAlgorithm.cpp
     )
 
-    target_link_libraries(ActsExamplesTrackFindingExaTrkX PUBLIC traccc::core)
+    target_link_libraries(
+        ActsExamplesTrackFindingExaTrkX
+        PUBLIC ActsExamplesTraccc
+    )
 endif()
 
 install(

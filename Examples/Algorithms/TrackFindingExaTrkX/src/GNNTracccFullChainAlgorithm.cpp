@@ -18,10 +18,16 @@
 #include "ActsExamples/EventData/ProtoTrack.hpp"
 #include "ActsExamples/EventData/SimSpacePoint.hpp"
 #include "ActsExamples/Framework/WhiteBoard.hpp"
+#include "ActsExamples/Traccc/EdmConversion.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <numeric>
+
+#include <vecmem/containers/vector.hpp>
+#include <vecmem/memory/cuda/device_memory_resource.hpp>
+#include <vecmem/memory/host_memory_resource.hpp>
+#include <vecmem/utils/cuda/async_copy.hpp>
 
 #include "createFeatures.hpp"
 
@@ -42,7 +48,7 @@ ActsExamples::GNNTracccFullChainAlgorithm::GNNTracccFullChainAlgorithm(
   }
 
   m_inputSpacePoints.initialize(m_cfg.inputSpacePoints);
-  m_inputClusters.maybeInitialize(m_cfg.inputClusters);
+  m_inputClusters.initialize(m_cfg.inputClusters);
   m_outputProtoTracks.initialize(m_cfg.outputProtoTracks);
 
   // reserve space for timing
@@ -55,26 +61,77 @@ ActsExamples::GNNTracccFullChainAlgorithm::GNNTracccFullChainAlgorithm(
 
 ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
     const ActsExamples::AlgorithmContext& ctx) const {
-  /*
   using Clock = std::chrono::high_resolution_clock;
   using Duration = std::chrono::duration<double, std::milli>;
   auto t0 = Clock::now();
 
-  // Read input data
-  const auto& spacepoints = m_inputSpacePoints(ctx);
+  auto spacepoints = m_inputSpacePoints(ctx);
 
-  const ClusterContainer* clusters = nullptr;
-  if (m_inputClusters.isInitialized()) {
-    clusters = &m_inputClusters(ctx);
+  // We need to sort the spacepoints by the module id, which is the geometry
+  // id of the first source link. If the geometryIdMap is provided, we use that
+  // to map the geometry id to a module id. Otherwise, we use the geometry id
+  // value directly.
+  if (m_cfg.geometryIdMap != nullptr) {
+    std::ranges::sort(spacepoints, std::less{}, [&](const auto& a) {
+      auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
+      return m_cfg.geometryIdMap->right.at(sl.geometryId());
+    });
+  } else {
+    std::ranges::sort(spacepoints, std::less{}, [&](const auto& a) {
+      auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
+      return sl.geometryId().value();
+    });
   }
+
+  const auto& clusters = m_inputClusters(ctx);
 
   // Convert Input data to a list of size [num_measurements x
   // measurement_features]
   const std::size_t numSpacepoints = spacepoints.size();
-  const std::size_t numFeatures = m_cfg.nodeFeatures.size();
+  const static std::vector<std::string_view> nodeFeatures = {
+      "r",     "phi",     "z",     "eta",     "cl1_r", "cl1_phi",
+      "cl1_z", "cl1_eta", "cl2_r", "cl2_phi", "cl2_z", "cl2_eta"};
+  const std::size_t numFeatures = nodeFeatures.size();
+
   ACTS_DEBUG("Received " << numSpacepoints << " spacepoints");
   ACTS_DEBUG("Construct " << numFeatures << " node features");
 
+  vecmem::host_memory_resource hostMemory;
+  traccc::edm::spacepoint_collection::host tracccSps(hostMemory);
+  tracccSps.reserve(spacepoints.size());
+
+  convertToTraccc(tracccSps, spacepoints);
+  ACTS_DEBUG("Converted " << spacepoints.size()
+                          << " spacepoints to Traccc format");
+
+  // Create additional cluster features
+  vecmem::vector<float> clXglobal(clusters.size()), clYglobal(clusters.size()),
+      clZglobal(clusters.size());
+  std::ranges::transform(clusters, clXglobal.begin(), [](const Cluster& cl) {
+    return cl.globalPosition.x();
+  });
+  std::ranges::transform(clusters, clYglobal.begin(), [](const Cluster& cl) {
+    return cl.globalPosition.y();
+  });
+  std::ranges::transform(clusters, clZglobal.begin(), [](const Cluster& cl) {
+    return cl.globalPosition.z();
+  });
+
+  // Move data to device
+  vecmem::cuda::stream_wrapper stream(0);
+  vecmem::cuda::async_copy copy(stream);
+  vecmem::cuda::device_memory_resource cudaMemory;
+
+  traccc::edm::spacepoint_collection::buffer tracccSpsCuda(numSpacepoints,
+                                                           cudaMemory);
+  copy.setup(tracccSpsCuda)->wait();
+  copy(vecmem::get_data(tracccSps), tracccSpsCuda)->wait();
+
+  vecmem::device_vector<float> clXglobalCuda(clusters.size(), cudaMemory);
+  auto clXglobalCuda = copy.to(vecmem::get_data(clXglobal), cudaMemory,
+                               vecmem::copy::type::host_to_device);
+
+  /*
   auto t01 = Clock::now();
 
   std::vector<std::uint64_t> moduleIds;
