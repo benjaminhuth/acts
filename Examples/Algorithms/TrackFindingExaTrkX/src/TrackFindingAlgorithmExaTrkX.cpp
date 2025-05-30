@@ -31,14 +31,12 @@ using namespace Acts::UnitLiterals;
 namespace {
 
 struct LoopHook : public Acts::ExaTrkXHook {
-  std::vector<std::unique_ptr<Acts::ExaTrkXHook>> hooks;
-
-  ~LoopHook() override = default;
+  std::vector<Acts::ExaTrkXHook*> hooks;
 
   void operator()(const Acts::PipelineTensors& tensors,
-                  const Acts::ExecutionContext& execCtx) const override {
-    for (const auto& hook : hooks) {
-      (*hook)(tensors, execCtx);
+                  const Acts::ExecutionContext& ctx) const override {
+    for (auto hook : hooks) {
+      (*hook)(tensors, ctx);
     }
   }
 };
@@ -101,13 +99,17 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   // Setup hooks
   LoopHook hook;
 
+  std::unique_ptr<Acts::TruthGraphMetricsHook> truthGraphHook;
   if (m_inputTruthGraph.isInitialized()) {
-    hook.hooks.emplace_back(std::make_unique<Acts::TruthGraphMetricsHook>(
-        m_inputTruthGraph(ctx).edges, this->logger().clone()));
+    truthGraphHook = std::make_unique<Acts::TruthGraphMetricsHook>(
+        m_inputTruthGraph(ctx).edges, this->logger().clone());
+    hook.hooks.push_back(&*truthGraphHook);
   }
 
+  std::unique_ptr<Acts::GraphStoreHook> graphStoreHook;
   if (m_outputGraph.isInitialized()) {
-    hook.hooks.emplace_back(std::make_unique<Acts::GraphStoreHook>());
+    graphStoreHook = std::make_unique<Acts::GraphStoreHook>();
+    hook.hooks.push_back(&*graphStoreHook);
   }
 
   // Read input data
@@ -222,12 +224,12 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
 
   m_outputProtoTracks(ctx, std::move(protoTracks));
 
-  /*if (m_outputGraph.isInitialized()) {
+  if (m_outputGraph.isInitialized()) {
     auto graph = graphStoreHook->storedGraph();
     std::transform(graph.first.begin(), graph.first.end(), graph.first.begin(),
                    [&](const auto& a) -> std::int64_t { return idxs.at(a); });
     m_outputGraph(ctx, {graph.first, graph.second});
-  }*/
+  }
 
   auto t3 = Clock::now();
 
