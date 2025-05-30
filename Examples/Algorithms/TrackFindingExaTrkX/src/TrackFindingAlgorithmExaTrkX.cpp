@@ -9,8 +9,8 @@
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
 
 #include "Acts/Definitions/Units.hpp"
-#include "Acts/Plugins/ExaTrkX/TorchGraphStoreHook.hpp"
-#include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
+#include "Acts/Plugins/ExaTrkX/GraphStoreHook.hpp"
+#include "Acts/Plugins/ExaTrkX/TruthGraphMetricsHook.hpp"
 #include "Acts/Utilities/Helpers.hpp"
 #include "Acts/Utilities/Zip.hpp"
 #include "ActsExamples/EventData/Index.hpp"
@@ -31,14 +31,14 @@ using namespace Acts::UnitLiterals;
 namespace {
 
 struct LoopHook : public Acts::ExaTrkXHook {
-  std::vector<Acts::ExaTrkXHook*> hooks;
+  std::vector<std::unique_ptr<Acts::ExaTrkXHook>> hooks;
 
-  ~LoopHook() {}
+  ~LoopHook() override = default;
 
-  void operator()(const std::any& nodes, const std::any& edges,
-                  const std::any& weights) const override {
-    for (auto hook : hooks) {
-      (*hook)(nodes, edges, weights);
+  void operator()(const Acts::PipelineTensors& tensors,
+                  const Acts::ExecutionContext& execCtx) const override {
+    for (const auto& hook : hooks) {
+      (*hook)(tensors, execCtx);
     }
   }
 };
@@ -101,17 +101,13 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   // Setup hooks
   LoopHook hook;
 
-  std::unique_ptr<Acts::TorchTruthGraphMetricsHook> truthGraphHook;
   if (m_inputTruthGraph.isInitialized()) {
-    truthGraphHook = std::make_unique<Acts::TorchTruthGraphMetricsHook>(
-        m_inputTruthGraph(ctx).edges, this->logger().clone());
-    hook.hooks.push_back(&*truthGraphHook);
+    hook.hooks.emplace_back(std::make_unique<Acts::TruthGraphMetricsHook>(
+        m_inputTruthGraph(ctx).edges, this->logger().clone()));
   }
 
-  std::unique_ptr<Acts::TorchGraphStoreHook> graphStoreHook;
   if (m_outputGraph.isInitialized()) {
-    graphStoreHook = std::make_unique<Acts::TorchGraphStoreHook>();
-    hook.hooks.push_back(&*graphStoreHook);
+    hook.hooks.emplace_back(std::make_unique<Acts::GraphStoreHook>());
   }
 
   // Read input data
@@ -226,12 +222,12 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
 
   m_outputProtoTracks(ctx, std::move(protoTracks));
 
-  if (m_outputGraph.isInitialized()) {
+  /*if (m_outputGraph.isInitialized()) {
     auto graph = graphStoreHook->storedGraph();
     std::transform(graph.first.begin(), graph.first.end(), graph.first.begin(),
                    [&](const auto& a) -> std::int64_t { return idxs.at(a); });
     m_outputGraph(ctx, {graph.first, graph.second});
-  }
+  }*/
 
   auto t3 = Clock::now();
 
