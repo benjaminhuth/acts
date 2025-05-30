@@ -9,8 +9,7 @@
 #include "ActsExamples/TrackFindingExaTrkX/GNNTracccFullChainAlgorithm.hpp"
 
 #include "Acts/Definitions/Units.hpp"
-#include "Acts/Plugins/ExaTrkX/TorchGraphStoreHook.hpp"
-#include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
+#include "Acts/Plugins/ExaTrkX/TracccFeatureCreation.hpp"
 #include "Acts/Utilities/Helpers.hpp"
 #include "Acts/Utilities/Zip.hpp"
 #include "ActsExamples/EventData/Index.hpp"
@@ -71,30 +70,33 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
   // id of the first source link. If the geometryIdMap is provided, we use that
   // to map the geometry id to a module id. Otherwise, we use the geometry id
   // value directly.
+  std::vector<std::uint64_t> moduleIds;
+  moduleIds.reserve(spacepoints.size());
   if (m_cfg.geometryIdMap != nullptr) {
-    std::ranges::sort(spacepoints, std::less{}, [&](const auto& a) {
+    auto getGeoId = [&](const auto& a) {
       auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
       return m_cfg.geometryIdMap->right.at(sl.geometryId());
-    });
+    };
+    std::ranges::sort(spacepoints, std::less{}, getGeoId);
+    std::ranges::transform(spacepoints, moduleIds.begin(), getGeoId);
   } else {
-    std::ranges::sort(spacepoints, std::less{}, [&](const auto& a) {
+    auto getGeoId = [&](const auto& a) {
       auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
       return sl.geometryId().value();
-    });
+    };
+    std::ranges::sort(spacepoints, std::less{}, getGeoId);
+    std::ranges::transform(spacepoints, moduleIds.begin(), getGeoId);
   }
+
+  auto t01 = Clock::now();
 
   const auto& clusters = m_inputClusters(ctx);
 
   // Convert Input data to a list of size [num_measurements x
   // measurement_features]
   const std::size_t numSpacepoints = spacepoints.size();
-  const static std::vector<std::string_view> nodeFeatures = {
-      "r",     "phi",     "z",     "eta",     "cl1_r", "cl1_phi",
-      "cl1_z", "cl1_eta", "cl2_r", "cl2_phi", "cl2_z", "cl2_eta"};
-  const std::size_t numFeatures = nodeFeatures.size();
 
   ACTS_DEBUG("Received " << numSpacepoints << " spacepoints");
-  ACTS_DEBUG("Construct " << numFeatures << " node features");
 
   vecmem::host_memory_resource hostMemory;
   traccc::edm::spacepoint_collection::host tracccSps(hostMemory);
@@ -117,80 +119,77 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
     return cl.globalPosition.z();
   });
 
+  std::vector<int> idxs(numSpacepoints);
+  std::iota(idxs.begin(), idxs.end(), 0);
+
   // Move data to device
   vecmem::cuda::stream_wrapper stream(0);
   vecmem::cuda::async_copy copy(stream);
   vecmem::cuda::device_memory_resource cudaMemory;
 
-  traccc::edm::spacepoint_collection::buffer tracccSpsCuda(numSpacepoints,
-                                                           cudaMemory);
-  copy.setup(tracccSpsCuda)->wait();
-  copy(vecmem::get_data(tracccSps), tracccSpsCuda)->wait();
+  traccc::edm::spacepoint_collection::buffer tracccSpsCudaBuffer(numSpacepoints,
+                                                                 cudaMemory);
 
-  vecmem::device_vector<float> clXglobalCuda(clusters.size(), cudaMemory);
-  auto clXglobalCuda = copy.to(vecmem::get_data(clXglobal), cudaMemory,
-                               vecmem::copy::type::host_to_device);
+  copy.setup(tracccSpsCudaBuffer)->wait();
+  copy(vecmem::get_data(tracccSps), tracccSpsCudaBuffer)->wait();
 
-  /*
-  auto t01 = Clock::now();
+  traccc::edm::spacepoint_collection::const_device tracccSpsCuda(
+      tracccSpsCudaBuffer);
 
-  std::vector<std::uint64_t> moduleIds;
-  moduleIds.reserve(spacepoints.size());
+  auto clXglobalBuffer = copy.to(vecmem::get_data(clXglobal), cudaMemory);
+  auto clYglobalBuffer = copy.to(vecmem::get_data(clYglobal), cudaMemory);
+  auto clZglobalBuffer = copy.to(vecmem::get_data(clZglobal), cudaMemory);
 
-  for (auto isp = 0ul; isp < numSpacepoints; ++isp) {
-    const auto& sp = spacepoints[isp];
+  vecmem::device_vector<float> clXglobalCuda(clXglobalBuffer);
+  vecmem::device_vector<float> clYglobalCuda(clYglobalBuffer);
+  vecmem::device_vector<float> clZglobalCuda(clZglobalBuffer);
 
-    // For now just take the first index since does require one single index
-    // per spacepoint
-    // TODO does it work for the module map construction to use only the first
-    // sp?
-    const auto& sl1 = sp.sourceLinks().at(0).template get<IndexSourceLink>();
-
-    if (m_cfg.geometryIdMap != nullptr) {
-      moduleIds.push_back(m_cfg.geometryIdMap->right.at(sl1.geometryId()));
-    } else {
-      moduleIds.push_back(sl1.geometryId().value());
-    }
+  // Create features
+  const static std::vector<std::string_view> nodeFeatures = {
+      "r",     "phi",     "z",     "eta",     "cl1_r", "cl1_phi",
+      "cl1_z", "cl1_eta", "cl2_r", "cl2_phi", "cl2_z", "cl2_eta"};
+  std::vector<float> featureScales;
+  featureScales.reserve(12);
+  for (int i = 0; i < 3; ++i) {
+    featureScales.push_back(1000.f);
+    featureScales.push_back(std::numbers::pi_v<float>);
+    featureScales.push_back(1000.f);
+    featureScales.push_back(1.f);
   }
 
+  stream.synchronize();
   auto t02 = Clock::now();
 
-  // Sort the spacepoints by module ide. Required by module map
-  std::vector<int> idxs(numSpacepoints);
-  std::iota(idxs.begin(), idxs.end(), 0);
-  std::ranges::sort(idxs, {}, [&](auto i) { return moduleIds[i]; });
+  const std::size_t numFeatures = nodeFeatures.size();
+  ACTS_DEBUG("Construct " << numFeatures << " node features");
 
-  std::ranges::sort(moduleIds);
+  Acts::ExecutionContext execContext{
+      Acts::Device::Cuda(0), static_cast<cudaStream_t>(stream.stream())};
+  auto nodeTensor = Acts::createInputTensor(
+      nodeFeatures, featureScales, tracccSpsCuda, execContext, clXglobalCuda,
+      clYglobalCuda, clZglobalCuda);
 
-  SimSpacePointContainer sortedSpacepoints;
-  sortedSpacepoints.reserve(spacepoints.size());
-  std::ranges::transform(idxs, std::back_inserter(sortedSpacepoints),
-                         [&](auto i) { return spacepoints[i]; });
-
-  auto t03 = Clock::now();
-
-  auto features = createFeatures(sortedSpacepoints, clusters,
-                                 m_cfg.nodeFeatures, m_cfg.featureScales);
-
+  stream.synchronize();
   auto t1 = Clock::now();
 
   auto ms = [](auto a, auto b) {
     return std::chrono::duration<double, std::milli>(b - a).count();
   };
-  ACTS_DEBUG("Setup time:              " << ms(t0, t01));
-  ACTS_DEBUG("ModuleId mapping & copy: " << ms(t01, t02));
-  ACTS_DEBUG("Spacepoint sort:         " << ms(t02, t03));
-  ACTS_DEBUG("Feature creation:        " << ms(t03, t1));
+  ACTS_DEBUG("Spacepoint sort:         " << ms(t0, t01));
+  ACTS_DEBUG("vecmem prepartaion:      " << ms(t01, t02));
+  ACTS_DEBUG("Feature creation:        " << ms(t02, t1));
 
   // Run the pipeline
   Acts::ExaTrkXTiming timing;
-#ifdef ACTS_EXATRKX_CPUONLY
-  Acts::Device device = {Acts::Device::Type::eCPU, 0};
-#else
   Acts::Device device = {Acts::Device::Type::eCUDA, 0};
-#endif
+
+  auto nodeTensorCpu = nodeTensor.clone(
+      {Acts::Device::Cpu(), static_cast<cudaStream_t>(stream.stream())});
+  std::vector<float> features(nodeTensorCpu.data(),
+                              nodeTensorCpu.data() + nodeTensorCpu.size());
+
   auto trackCandidates =
-      m_pipeline.run(features, moduleIds, idxs, device, hook, &timing);
+      m_pipeline.run(features, moduleIds, idxs, device, {}, &timing);
 
   auto t2 = Clock::now();
 
@@ -229,13 +228,6 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
 
   m_outputProtoTracks(ctx, std::move(protoTracks));
 
-  if (m_outputGraph.isInitialized()) {
-    auto graph = graphStoreHook->storedGraph();
-    std::transform(graph.first.begin(), graph.first.end(), graph.first.begin(),
-                   [&](const auto& a) -> std::int64_t { return idxs.at(a); });
-    m_outputGraph(ctx, {graph.first, graph.second});
-  }
-
   auto t3 = Clock::now();
 
   {
@@ -254,7 +246,7 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
     m_timing.postprocessingTime(Duration(t3 - t2).count());
     m_timing.fullTime(Duration(t3 - t0).count());
   }
-*/
+
   return ActsExamples::ProcessCode::SUCCESS;
 }
 

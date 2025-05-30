@@ -116,6 +116,10 @@ endif()
 if(ACTS_EXATRKX_ENABLE_TRACCC)
     target_link_libraries(ActsPluginExaTrkX PUBLIC traccc::core traccc::cuda)
     target_sources(ActsPluginExaTrkX PRIVATE src/TracccFeatureCreation.cu)
+    target_compile_definitions(
+        ActsPluginExaTrkX
+        PUBLIC ACTS_EXATRKX_WITH_TRACCC
+    )
 endif()
 
 install(

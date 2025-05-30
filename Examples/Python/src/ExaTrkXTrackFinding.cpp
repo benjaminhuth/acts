@@ -16,6 +16,7 @@
 #include "Acts/Plugins/ExaTrkX/TorchMetricLearning.hpp"
 #include "Acts/Plugins/ExaTrkX/TorchTruthGraphMetricsHook.hpp"
 #include "Acts/Plugins/Python/Utilities.hpp"
+#include "ActsExamples/TrackFindingExaTrkX/GNNTracccFullChainAlgorithm.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/PrototracksToParameters.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingFromPrototrackAlgorithm.hpp"
@@ -167,6 +168,14 @@ void addExaTrkXTrackFinding(Context &ctx) {
       inputTruthGraph, outputProtoTracks, outputGraph, graphConstructor,
       edgeClassifiers, trackBuilder, nodeFeatures, featureScales,
       minMeasurementsPerTrack, geometryIdMap);
+
+#ifdef EXATRKX_WITH_TRACCC
+  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::GNNTracccFullChainAlgorithm, mex,
+                                "GNNTracccFullChainAlgorithm", inputSpacePoints,
+                                inputClusters, outputTracks, graphConstructor,
+                                edgeClassifiers, trackBuilder);
+  );
+#endif
 
   {
     auto cls =
