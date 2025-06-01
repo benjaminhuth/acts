@@ -217,8 +217,15 @@ void addExaTrkXTrackFinding(Context &ctx) {
                      }),
                  py::arg("graphConstructor"), py::arg("edgeClassifiers"),
                  py::arg("trackBuilder"), py::arg("level"))
-            .def("run", &ExaTrkXPipeline::run, py::arg("features"),
-                 py::arg("moduleIds"), py::arg("spacepoints"),
+            .def("run",
+                 py::overload_cast<const std::vector<float> &,
+                                   const std::vector<std::uint64_t> &,
+                                   const std::vector<int> &, Acts::Device,
+                                   const Acts::ExaTrkXHook &,
+                                   Acts::ExaTrkXTiming *>(&ExaTrkXPipeline::run,
+                                                          py::const_),
+                 py::arg("features"), py::arg("moduleIds"),
+                 py::arg("spacepoints"),
                  py::arg("device") = Acts::Device::Cuda(0),
                  py::arg("hook") = Acts::ExaTrkXHook{},
                  py::arg("timing") = nullptr);

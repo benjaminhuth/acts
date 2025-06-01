@@ -19,6 +19,12 @@
 
 namespace Acts {
 
+namespace detail {
+std::vector<std::vector<int>> unpackTrackLabels(
+    const Acts::Tensor<int> &trackLabels, std::size_t numberLabels,
+    const std::vector<int> &spacepointIDs);
+}
+
 struct ExaTrkXTiming {
   using Duration = std::chrono::duration<float, std::milli>;
 
@@ -36,15 +42,47 @@ class ExaTrkXHook {
 
 class ExaTrkXPipeline {
  public:
+  /// Constructor for the GNN pipeline
+  ///
+  /// @param graphConstructor Graph construction stage
+  /// @param edgeClassifiers Edge classification stages
+  /// @param trackBuilder Track building stage
+  /// @param logger Logger to use
   ExaTrkXPipeline(
       std::shared_ptr<GraphConstructionBase> graphConstructor,
       std::vector<std::shared_ptr<EdgeClassificationBase>> edgeClassifiers,
       std::shared_ptr<TrackBuildingBase> trackBuilder,
       std::unique_ptr<const Acts::Logger> logger);
 
-  std::vector<std::vector<int>> run(std::vector<float> &features,
+  /// Run the GNN pipeline from tensor data
+  ///
+  /// @param nodeFeatures Node features in a 2D tensor
+  /// @param moduleIds Module IDs of the features (used for module-map-like
+  /// graph construction)
+  /// @param execCtx Device and stream information
+  /// @param hook Optional hook to run after each stage
+  /// @param timing Optional timing object to fill with the execution times
+  /// @return {tensor with the track labels, number of track candidates}
+  std::pair<Acts::Tensor<int>, std::size_t> run(
+      Tensor<float> nodeFeatures,
+      std::optional<Tensor<std::uint64_t>> moduleIds,
+      const ExecutionContext &execCtx, const ExaTrkXHook &hook = {},
+      ExaTrkXTiming *timing = nullptr) const;
+
+  /// Run the GNN pipeline from data in STL containers
+  /// @note Data will be copied even if the device is CPU
+  ///
+  /// @param features Node features in a 1D vector
+  /// @param moduleIds Module IDs of the features (used for module-map-like
+  /// graph construction)
+  /// @param spacepointIDs Spacepoint IDs corresponding to the features
+  /// @param device Device to run the pipeline on
+  /// @param hook Optional hook to run after each stage
+  /// @param timing Optional timing object to fill with the execution times
+  /// @return vector of track candidates
+  std::vector<std::vector<int>> run(const std::vector<float> &features,
                                     const std::vector<std::uint64_t> &moduleIds,
-                                    std::vector<int> &spacepointIDs,
+                                    const std::vector<int> &spacepointIDs,
                                     Acts::Device device,
                                     const ExaTrkXHook &hook = {},
                                     ExaTrkXTiming *timing = nullptr) const;

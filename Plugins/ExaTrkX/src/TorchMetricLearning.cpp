@@ -66,8 +66,8 @@ TorchMetricLearning::TorchMetricLearning(const Config &cfg,
 TorchMetricLearning::~TorchMetricLearning() {}
 
 PipelineTensors TorchMetricLearning::operator()(
-    std::vector<float> &inputValues, std::size_t numNodes,
-    const std::vector<std::uint64_t> & /*moduleIds*/,
+    Tensor<float> inputValues,
+    std::optional<Tensor<std::uint64_t>> /*moduleIds*/,
     const ExecutionContext &execContext) {
   const auto device =
       execContext.device.type == Acts::Device::Type::eCUDA
@@ -86,19 +86,9 @@ PipelineTensors TorchMetricLearning::operator()(
   }
 #endif
 
-  const std::int64_t numAllFeatures = inputValues.size() / numNodes;
-
-  // printout the r,phi,z of the first spacepoint
-  ACTS_VERBOSE("First spacepoint information: " << [&]() {
-    std::stringstream ss;
-    for (int i = 0; i < numAllFeatures; ++i) {
-      ss << inputValues[i] << "  ";
-    }
-    return ss.str();
-  }());
   printCudaMemInfo(logger());
 
-  auto inputTensor = detail::vectorToTensor2D(inputValues, numAllFeatures);
+  auto inputTensor = detail::actsToNonOwningTorchTensor(inputValues);
 
   // If we are on CPU, clone to get ownership (is this necessary?), else bring
   // to device.
@@ -147,7 +137,7 @@ PipelineTensors TorchMetricLearning::operator()(
   printCudaMemInfo(logger());
 
   // Note: this unfortunately makes a copy right now
-  return {detail::torchToActsTensor<float>(inputTensor, execContext),
+  return {std::move(inputValues),
           detail::torchToActsTensor<std::int64_t>(edgeList, execContext),
           std::nullopt, std::nullopt};
 }

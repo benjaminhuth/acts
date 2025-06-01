@@ -70,22 +70,22 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
   // id of the first source link. If the geometryIdMap is provided, we use that
   // to map the geometry id to a module id. Otherwise, we use the geometry id
   // value directly.
-  std::vector<std::uint64_t> moduleIds;
-  moduleIds.reserve(spacepoints.size());
+  auto moduleIds = Acts::Tensor<std::uint64_t>::Create(
+      {spacepoints.size(), 1}, {Acts::Device::Cpu(), {}});
   if (m_cfg.geometryIdMap != nullptr) {
     auto getGeoId = [&](const auto& a) {
       auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
       return m_cfg.geometryIdMap->right.at(sl.geometryId());
     };
     std::ranges::sort(spacepoints, std::less{}, getGeoId);
-    std::ranges::transform(spacepoints, moduleIds.begin(), getGeoId);
+    std::ranges::transform(spacepoints, moduleIds.data(), getGeoId);
   } else {
     auto getGeoId = [&](const auto& a) {
       auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
       return sl.geometryId().value();
     };
     std::ranges::sort(spacepoints, std::less{}, getGeoId);
-    std::ranges::transform(spacepoints, moduleIds.begin(), getGeoId);
+    std::ranges::transform(spacepoints, moduleIds.data(), getGeoId);
   }
 
   auto t01 = Clock::now();
@@ -118,9 +118,6 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
   std::ranges::transform(clusters, clZglobal.begin(), [](const Cluster& cl) {
     return cl.globalPosition.z();
   });
-
-  std::vector<int> idxs(numSpacepoints);
-  std::iota(idxs.begin(), idxs.end(), 0);
 
   // Move data to device
   vecmem::cuda::stream_wrapper stream(0);
@@ -169,6 +166,8 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
       nodeFeatures, featureScales, tracccSpsCuda, execContext, clXglobalCuda,
       clYglobalCuda, clZglobalCuda);
 
+  std::optional<Acts::Tensor<std::uint64_t>> moduleIdsCuda =
+      moduleIds.clone(execContext);
   stream.synchronize();
   auto t1 = Clock::now();
 
@@ -181,15 +180,18 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
 
   // Run the pipeline
   Acts::ExaTrkXTiming timing;
-  Acts::Device device = {Acts::Device::Type::eCUDA, 0};
 
-  auto nodeTensorCpu = nodeTensor.clone(
-      {Acts::Device::Cpu(), static_cast<cudaStream_t>(stream.stream())});
-  std::vector<float> features(nodeTensorCpu.data(),
-                              nodeTensorCpu.data() + nodeTensorCpu.size());
+  auto [trackLabels, numCandidates] =
+      m_pipeline.run(std::move(nodeTensor), std::move(moduleIdsCuda),
+                     execContext, {}, &timing);
+
+  auto trackLabelsHost =
+      trackLabels.clone({Acts::Device::Cpu(), execContext.stream});
+  std::vector<int> idxs(numSpacepoints);
+  std::iota(idxs.begin(), idxs.end(), 0);
 
   auto trackCandidates =
-      m_pipeline.run(features, moduleIds, idxs, device, {}, &timing);
+      Acts::detail::unpackTrackLabels(trackLabelsHost, numCandidates, idxs);
 
   auto t2 = Clock::now();
 

@@ -15,9 +15,8 @@
 
 namespace Acts {
 
-std::vector<std::vector<int>> CudaTrackBuilding::operator()(
-    PipelineTensors tensors, std::vector<int>& spacepointIDs,
-    const ExecutionContext& execContext) {
+std::pair<Acts::Tensor<int>, std::size_t> CudaTrackBuilding::operator()(
+    PipelineTensors tensors, const ExecutionContext& execContext) {
   ACTS_VERBOSE("Start CUDA track building");
   if (!(tensors.edgeIndex.device().isCuda() &&
         tensors.edgeScores.value().device().isCuda())) {
@@ -25,12 +24,12 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
         "CudaTrackBuilding expects tensors to be on CUDA!");
   }
 
-  const auto numSpacepoints = spacepointIDs.size();
-  auto numEdges = static_cast<std::size_t>(tensors.edgeIndex.shape().at(1));
+  const auto numSpacepoints = tensors.nodeFeatures.shape().at(0);
+  auto numEdges = tensors.edgeIndex.shape().at(1);
 
   if (numEdges == 0) {
     ACTS_DEBUG("No edges remained after edge classification");
-    return {};
+    return {Acts::Tensor<int>::Create({0, 0}, execContext), 0};
   }
 
   auto stream = execContext.stream.value();
@@ -61,7 +60,7 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
           "No edges remained after junction removal, this should not happen!");
       ACTS_CUDA_CHECK(cudaFreeAsync(cudaSrcPtrJr, stream));
       ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
-      return {};
+      return {Acts::Tensor<int>::Create({0, 0}, execContext), 0};
     }
 
     ACTS_DEBUG("Removed " << numEdges - numEdgesOut
@@ -70,43 +69,24 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
     numEdges = numEdgesOut;
   }
 
-  int* cudaLabels{};
-  ACTS_CUDA_CHECK(
-      cudaMallocAsync(&cudaLabels, numSpacepoints * sizeof(int), stream));
+  auto cudaLabels = Acts::Tensor<int>::Create({numSpacepoints, 1}, execContext);
 
   auto t0 = std::chrono::high_resolution_clock::now();
   std::size_t numberLabels = detail::connectedComponentsCuda(
-      numEdges, cudaSrcPtr, cudaTgtPtr, numSpacepoints, cudaLabels, stream,
-      m_cfg.useOneBlockImplementation);
+      numEdges, cudaSrcPtr, cudaTgtPtr, numSpacepoints, cudaLabels.data(),
+      stream, m_cfg.useOneBlockImplementation);
   auto t1 = std::chrono::high_resolution_clock::now();
   ACTS_DEBUG("Connected components took " << ms(t0, t1) << " ms");
 
   // TODO not sure why there is an issue that is not detected in the unit tests
   numberLabels += 1;
 
-  std::vector<int> trackLabels(numSpacepoints);
-  ACTS_CUDA_CHECK(cudaMemcpyAsync(trackLabels.data(), cudaLabels,
-                                  numSpacepoints * sizeof(int),
-                                  cudaMemcpyDeviceToHost, stream));
-
   // Free Memory
-  ACTS_CUDA_CHECK(cudaFreeAsync(cudaLabels, stream));
   if (m_cfg.doJunctionRemoval) {
     ACTS_CUDA_CHECK(cudaFreeAsync(cudaSrcPtr, stream));
   }
 
-  ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
-  ACTS_CUDA_CHECK(cudaGetLastError());
-
-  ACTS_VERBOSE("Found " << numberLabels << " track candidates");
-
-  std::vector<std::vector<int>> trackCandidates(numberLabels);
-
-  for (const auto [label, id] : Acts::zip(trackLabels, spacepointIDs)) {
-    trackCandidates[label].push_back(id);
-  }
-
-  return trackCandidates;
+  return {std::move(cudaLabels), numberLabels};
 }
 
 }  // namespace Acts

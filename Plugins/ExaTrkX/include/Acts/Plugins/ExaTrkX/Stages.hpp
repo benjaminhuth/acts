@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <exception>
 #include <optional>
-#include <vector>
 
 namespace Acts {
 
@@ -32,16 +31,14 @@ class GraphConstructionBase {
  public:
   /// Perform the graph construction
   ///
-  /// @param inputValues Flattened input data
-  /// @param numNodes Number of nodes. inputValues.size() / numNodes
-  /// then gives the number of features
+  /// @param nodeFeatures in a 2D tensor
   /// @param moduleIds Module IDs of the features (used for module-map-like
   /// graph construction)
   /// @param execContext Device & stream information
   /// @return (node_features, edge_features, edge_index)
   virtual PipelineTensors operator()(
-      std::vector<float> &inputValues, std::size_t numNodes,
-      const std::vector<std::uint64_t> &moduleIds,
+      Acts::Tensor<float> nodeFeatures,
+      std::optional<Acts::Tensor<std::uint64_t>> moduleIds,
       const ExecutionContext &execContext = {}) = 0;
 
   virtual ~GraphConstructionBase() = default;
@@ -66,13 +63,11 @@ class TrackBuildingBase {
   /// Perform track building
   ///
   /// @param tensors Input pipeline tensors
-  /// @param spacepointIDs IDs of the nodes (must have size=n_nodes)
   /// @param execContext Device & stream information
   ///
-  /// @return tracks (as vectors of node-IDs)
-  virtual std::vector<std::vector<int>> operator()(
-      PipelineTensors tensors, std::vector<int> &spacepointIDs,
-      const ExecutionContext &execContext = {}) = 0;
+  /// @return (track candidate labels, number of track candidates)
+  virtual std::pair<Acts::Tensor<int>, std::size_t> operator()(
+      PipelineTensors tensors, const ExecutionContext &execContext = {}) = 0;
 
   virtual ~TrackBuildingBase() = default;
 };

@@ -112,20 +112,23 @@ ModuleMapCuda::~ModuleMapCuda() {
 namespace {}  // namespace
 
 PipelineTensors ModuleMapCuda::operator()(
-    std::vector<float> &inputValues, std::size_t numNodes,
-    const std::vector<std::uint64_t> &moduleIds,
+    Acts::Tensor<float> nodeFeatures,
+    std::optional<Acts::Tensor<std::uint64_t>> moduleIds,
     const ExecutionContext &execContext) {
   auto t0 = std::chrono::high_resolution_clock::now();
-  assert(execContext.device.isCuda());
 
-  if (moduleIds.empty()) {
-    throw NoEdgesError{};
+  if (!moduleIds.has_value()) {
+    throw std::runtime_error("Module IDs must be provided for ModuleMapCuda");
   }
 
-  const auto nHits = moduleIds.size();
-  assert(inputValues.size() % moduleIds.size() == 0);
-  const auto nFeatures = inputValues.size() / moduleIds.size();
-  auto &features = inputValues;
+  assert(nodeFeatures.shape().at(0) == moduleIds->size());
+  assert(nodeFeatures.size() % moduleIds.size() == 0);
+  assert(execContext.device.isCuda());
+  assert(nodeFeatures.device() == execContext.device);
+  assert(moduleIds->device() == execContext.device);
+
+  const auto nHits = moduleIds->size();
+  const auto nFeatures = nodeFeatures.size() / moduleIds->size();
 
   const dim3 blockDim = m_cfg.gpuBlocks;
   const dim3 gridDimHits = (nHits + blockDim.x - 1) / blockDim.x;
@@ -142,21 +145,6 @@ PipelineTensors ModuleMapCuda::operator()(
   /////////////////////////
   // Prepare input data
   ////////////////////////
-
-  // Full node features to device
-
-  auto nodeFeatures =
-      Acts::Tensor<float>::Create({nHits, nFeatures}, execContext);
-  float *cudaNodeFeaturePtr = nodeFeatures.data();
-  ACTS_CUDA_CHECK(cudaMemcpyAsync(cudaNodeFeaturePtr, features.data(),
-                                  features.size() * sizeof(float),
-                                  cudaMemcpyHostToDevice, stream));
-
-  // Module IDs to device
-  ScopedCudaPtr<std::uint64_t> cudaModuleIds(nHits, stream);
-  ACTS_CUDA_CHECK(cudaMemcpyAsync(cudaModuleIds.data(), moduleIds.data(),
-                                  nHits * sizeof(std::uint64_t),
-                                  cudaMemcpyHostToDevice, stream));
 
   // Allocate memory for transposed node features that are needed for the
   // module map kernels in one block
@@ -182,6 +170,7 @@ PipelineTensors ModuleMapCuda::operator()(
   const auto width = sizeof(float);      // only copy 1 column
   const auto height = nHits;
 
+  auto cudaNodeFeaturePtr = nodeFeatures.data();
   ACTS_CUDA_CHECK(cudaMemcpy2DAsync(
       inputData.cuda_R(), dstStride, cudaNodeFeaturePtr + rOffset, srcStride,
       width, height, cudaMemcpyDeviceToDevice, stream));
@@ -221,7 +210,7 @@ PipelineTensors ModuleMapCuda::operator()(
   ACTS_CUDA_CHECK(cudaGetLastError());
 
   detail::mapModuleIdsToNbHits<<<gridDimHits, blockDim, 0, stream>>>(
-      cudaNbHits.data(), nHits, cudaModuleIds.data(), m_cudaModuleMapSize,
+      cudaNbHits.data(), nHits, moduleIds->data(), m_cudaModuleMapSize,
       m_cudaModuleMapKeys, m_cudaModuleMapVals);
   ACTS_CUDA_CHECK(cudaGetLastError());
 

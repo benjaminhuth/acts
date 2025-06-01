@@ -25,8 +25,8 @@ class CudaTrackBuilding final : public Acts::TrackBuildingBase {
   CudaTrackBuilding(const Config &cfg, std::unique_ptr<const Logger> logger)
       : m_cfg(cfg), m_logger(std::move(logger)) {}
 
-  std::vector<std::vector<int>> operator()(
-      PipelineTensors tensors, std::vector<int> &spacepointIDs,
+  std::pair<Acts::Tensor<int>, std::size_t> operator()(
+      PipelineTensors tensors,
       const ExecutionContext &execContext = {}) override;
   const Config &config() const { return m_cfg; }
 

@@ -16,60 +16,32 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/graph/connected_components.hpp>
 
-namespace {
-template <typename vertex_t, typename weight_t>
-auto weaklyConnectedComponents(vertex_t numNodes,
-                               boost::beast::span<const vertex_t>& rowIndices,
-                               boost::beast::span<const vertex_t>& colIndices,
-                               boost::beast::span<const weight_t>& edgeWeights,
-                               std::vector<vertex_t>& trackLabels) {
-  using Graph =
-      boost::adjacency_list<boost::vecS,         // edge list
-                            boost::vecS,         // vertex list
-                            boost::undirectedS,  // directedness
-                            boost::no_property,  // property of vertices
-                            weight_t             // property of edges
-                            >;
-
-  Graph g(numNodes);
-
-  for (const auto [row, col, weight] :
-       Acts::zip(rowIndices, colIndices, edgeWeights)) {
-    boost::add_edge(row, col, weight, g);
-  }
-
-  return boost::connected_components(g, &trackLabels[0]);
-}
-}  // namespace
-
 namespace Acts {
 
-std::vector<std::vector<int>> BoostTrackBuilding::operator()(
-    PipelineTensors tensors, std::vector<int>& spacepointIDs,
-    const ExecutionContext& execContext) {
+std::pair<Acts::Tensor<int>, std::size_t> BoostTrackBuilding::operator()(
+    PipelineTensors tensors, const ExecutionContext& execContext) {
   ACTS_DEBUG("Start track building");
   using RTF = const Tensor<float>&;
   using RTI = const Tensor<std::int64_t>&;
-  const auto& edgeTensor =
-      tensors.edgeIndex.device().isCpu()
-          ? static_cast<RTI>(tensors.edgeIndex)
-          : static_cast<RTI>(tensors.edgeIndex.clone(
-                {Acts::Device::Cpu(), execContext.stream}));
-  const auto& scoreTensor =
-      tensors.edgeScores->device().isCpu()
-          ? static_cast<RTF>(*tensors.edgeScores)
-          : static_cast<RTF>(tensors.edgeScores->clone(
-                {Acts::Device::Cpu(), execContext.stream}));
+  const auto& edgeTensor = tensors.edgeIndex.device().isCpu()
+                               ? static_cast<RTI>(tensors.edgeIndex)
+                               : static_cast<RTI>(tensors.edgeIndex.clone(
+                                     {Device::Cpu(), execContext.stream}));
+  const auto& scoreTensor = tensors.edgeScores->device().isCpu()
+                                ? static_cast<RTF>(*tensors.edgeScores)
+                                : static_cast<RTF>(tensors.edgeScores->clone(
+                                      {Device::Cpu(), execContext.stream}));
 
   assert(edgeTensor.shape().at(0) == 2);
   assert(edgeTensor.shape().at(1) == scoreTensor.shape().at(0));
 
-  const auto numSpacepoints = spacepointIDs.size();
+  ExecutionContext cpuContext = {Acts::Device::Cpu(), {}};
+  const auto numSpacepoints = tensors.nodeFeatures.shape().at(0);
   const auto numEdges = scoreTensor.shape().at(1);
 
   if (numEdges == 0) {
     ACTS_WARNING("No edges remained after edge classification");
-    return {};
+    return {Tensor<int>::Create({0, 0}, cpuContext), 0};
   }
 
   using vertex_t = std::int64_t;
@@ -80,30 +52,35 @@ std::vector<std::vector<int>> BoostTrackBuilding::operator()(
                                                 numEdges);
   boost::beast::span<const weight_t> edgeWeights(scoreTensor.data(), numEdges);
 
-  std::vector<vertex_t> trackLabels(numSpacepoints);
+  auto trackLabels = Tensor<int>::Create({numSpacepoints, 1ul}, cpuContext);
 
-  auto numberLabels = weaklyConnectedComponents<vertex_t, weight_t>(
-      numSpacepoints, rowIndices, colIndices, edgeWeights, trackLabels);
+  using Graph =
+      boost::adjacency_list<boost::vecS,         // edge list
+                            boost::vecS,         // vertex list
+                            boost::undirectedS,  // directedness
+                            boost::no_property,  // property of vertices
+                            weight_t             // property of edges
+                            >;
+
+  Graph g(numSpacepoints);
+
+  for (const auto [row, col, weight] :
+       Acts::zip(rowIndices, colIndices, edgeWeights)) {
+    boost::add_edge(row, col, weight, g);
+  }
+
+  std::size_t numberLabels = boost::connected_components(g, trackLabels.data());
 
   ACTS_VERBOSE("Number of track labels: " << trackLabels.size());
   ACTS_VERBOSE("Number of unique track labels: " << [&]() {
-    std::vector<vertex_t> sorted(trackLabels);
+    std::vector<vertex_t> sorted(trackLabels.data(),
+                                 trackLabels.data() + trackLabels.size());
     std::ranges::sort(sorted);
     sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
     return sorted.size();
   }());
 
-  if (trackLabels.size() == 0) {
-    return {};
-  }
-
-  std::vector<std::vector<int>> trackCandidates(numberLabels);
-
-  for (const auto [label, id] : Acts::zip(trackLabels, spacepointIDs)) {
-    trackCandidates[label].push_back(id);
-  }
-
-  return trackCandidates;
+  return {std::move(trackLabels), numberLabels};
 }
 
 }  // namespace Acts
