@@ -107,7 +107,8 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
       run(std::move(nodeFeaturesTarget), std::move(moduleIdsTarget), execCtx,
           hook, timing);
 
-  return detail::unpackTrackLabels(labelTensor, nLabels, spacepointIDs);
+  auto labelTensorHost = labelTensor.clone({Device::Cpu(), execCtx.stream});
+  return detail::unpackTrackLabels(labelTensorHost, nLabels, spacepointIDs);
 }
 
 std::pair<Acts::Tensor<int>, std::size_t> ExaTrkXPipeline::run(
