@@ -3,7 +3,6 @@ add_library(
     SHARED
     src/ExaTrkXPipeline.cpp
     src/DummyEdgeClassifier.cpp
-    src/GnnTrackFitterCpu.cpp
     src/FullyConnectedGraphConstructor.cpp
     src/Tensor.cpp
     src/BoostTrackBuilding.cpp
