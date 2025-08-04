@@ -21,7 +21,7 @@ target_link_libraries(
 if(ACTS_BUILD_PLUGIN_TRACCC AND ACTS_EXATRKX_ENABLE_TRACCC)
     target_sources(
         ActsExamplesTrackFindingExaTrkX
-        PUBLIC src/GNNTracccFullChainAlgorithm.cpp
+        PRIVATE src/GNNTracccFullChainAlgorithm.cpp
     )
 
     target_link_libraries(

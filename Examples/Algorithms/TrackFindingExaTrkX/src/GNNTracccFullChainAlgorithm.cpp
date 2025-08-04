@@ -28,14 +28,12 @@
 #include <vecmem/memory/host_memory_resource.hpp>
 #include <vecmem/utils/cuda/async_copy.hpp>
 
-#include "createFeatures.hpp"
-
 using namespace ActsExamples;
 using namespace Acts::UnitLiterals;
 
 ActsExamples::GNNTracccFullChainAlgorithm::GNNTracccFullChainAlgorithm(
     Config config, Acts::Logging::Level level)
-    : ActsExamples::IAlgorithm("TrackFindingMLBasedAlgorithm", level),
+    : ActsExamples::IAlgorithm("GNNTracccFullChain", level),
       m_cfg(std::move(config)),
       m_pipeline(m_cfg.graphConstructor, m_cfg.edgeClassifiers,
                  m_cfg.trackBuilder, logger().clone()) {
@@ -66,6 +64,36 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
 
   auto spacepoints = m_inputSpacePoints(ctx);
 
+  /*
+  std::cout << "Start loop over " << spacepoints.size() << " spacepoints" <<
+  std::endl; for(const auto &sp : spacepoints) { std::cout << "Spacepoint with "
+  << sp.sourceLinks().size()
+              << " source links" << std::endl;
+    const auto &sl = sp.sourceLinks().at(0).template
+  get<ActsExamples::IndexSourceLink>(); std::cout << "sl index: " << sl.index()
+              << ", geometryId: " << sl.geometryId().value() << std::endl;
+  }
+
+  std::vector<std::uint64_t> moduleIds;
+  moduleIds.reserve(spacepoints.size());
+
+  for (auto isp = 0ul; isp < spacepoints.size(); ++isp) {
+    const auto& sp = spacepoints[isp];
+
+    // For now just take the first index since does require one single index
+    // per spacepoint
+    // TODO does it work for the module map construction to use only the first
+    // sp?
+    const auto& sl1 = sp.sourceLinks().at(0).template get<IndexSourceLink>();
+
+    if (m_cfg.geometryIdMap != nullptr) {
+      moduleIds.push_back(m_cfg.geometryIdMap->right.at(sl1.geometryId()));
+    } else {
+      moduleIds.push_back(sl1.geometryId().value());
+    }
+  }
+  */
+
   // We need to sort the spacepoints by the module id, which is the geometry
   // id of the first source link. If the geometryIdMap is provided, we use that
   // to map the geometry id to a module id. Otherwise, we use the geometry id
@@ -73,15 +101,15 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
   auto moduleIds = Acts::Tensor<std::uint64_t>::Create(
       {spacepoints.size(), 1}, {Acts::Device::Cpu(), {}});
   if (m_cfg.geometryIdMap != nullptr) {
-    auto getGeoId = [&](const auto& a) {
-      auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
+    auto getGeoId = [&](const SimSpacePoint& a) {
+      const auto& sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
       return m_cfg.geometryIdMap->right.at(sl.geometryId());
     };
     std::ranges::sort(spacepoints, std::less{}, getGeoId);
     std::ranges::transform(spacepoints, moduleIds.data(), getGeoId);
   } else {
-    auto getGeoId = [&](const auto& a) {
-      auto sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
+    auto getGeoId = [&](const SimSpacePoint& a) {
+      const auto& sl = a.sourceLinks().at(0).template get<IndexSourceLink>();
       return sl.geometryId().value();
     };
     std::ranges::sort(spacepoints, std::less{}, getGeoId);
@@ -130,16 +158,9 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
   copy.setup(tracccSpsCudaBuffer)->wait();
   copy(vecmem::get_data(tracccSps), tracccSpsCudaBuffer)->wait();
 
-  traccc::edm::spacepoint_collection::const_device tracccSpsCuda(
-      tracccSpsCudaBuffer);
-
   auto clXglobalBuffer = copy.to(vecmem::get_data(clXglobal), cudaMemory);
   auto clYglobalBuffer = copy.to(vecmem::get_data(clYglobal), cudaMemory);
   auto clZglobalBuffer = copy.to(vecmem::get_data(clZglobal), cudaMemory);
-
-  vecmem::device_vector<float> clXglobalCuda(clXglobalBuffer);
-  vecmem::device_vector<float> clYglobalCuda(clYglobalBuffer);
-  vecmem::device_vector<float> clZglobalCuda(clZglobalBuffer);
 
   // Create features
   const static std::vector<std::string_view> nodeFeatures = {
@@ -162,9 +183,9 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
 
   Acts::ExecutionContext execContext{
       Acts::Device::Cuda(0), static_cast<cudaStream_t>(stream.stream())};
-  auto nodeTensor = Acts::createInputTensor(
-      nodeFeatures, featureScales, tracccSpsCuda, execContext, clXglobalCuda,
-      clYglobalCuda, clZglobalCuda);
+  auto nodeTensor =
+      Acts::createInputTensor(nodeFeatures, featureScales, tracccSpsCudaBuffer,
+                              execContext, clXglobal, clYglobal, clZglobal);
 
   std::optional<Acts::Tensor<std::uint64_t>> moduleIdsCuda =
       moduleIds.clone(execContext);
@@ -249,6 +270,9 @@ ActsExamples::ProcessCode ActsExamples::GNNTracccFullChainAlgorithm::execute(
     m_timing.fullTime(Duration(t3 - t0).count());
   }
 
+  // std::vector<ProtoTrack> protoTracks;
+  // m_outputProtoTracks(ctx, std::move(protoTracks));
+
   return ActsExamples::ProcessCode::SUCCESS;
 }
 
@@ -276,5 +300,4 @@ ActsExamples::ProcessCode GNNTracccFullChainAlgorithm::finalize() {
   ACTS_INFO("- full timing:    " << print(m_timing.fullTime));
 
   return {};
-  */
 }

@@ -554,6 +554,7 @@ RootAthenaDumpReader::readSpacepoints(
 
     IndexSourceLink first(*cl1GeoId,
                           imIdxMap ? imIdxMap->at(cl1Index) : cl1Index);
+    std::cout << first.index() << std::endl;
     sLinks.emplace_back(first);
 
     // First create pixel spacepoint here, later maybe overwrite with strip

@@ -76,33 +76,46 @@ def runGNN4ITk(
         )
     )
 
-    e = acts.examples.NodeFeature
-    s.addAlgorithm(
-        acts.examples.TrackFindingAlgorithmExaTrkX(
-            level=logLevel,
-            graphConstructor=graphConstructor,
-            edgeClassifiers=[edgeClassifier],
-            trackBuilder=trackBuilder,
-            nodeFeatures=[
-                e.R,
-                e.Phi,
-                e.Z,
-                e.Eta,
-                e.Cluster1R,
-                e.Cluster1Phi,
-                e.Cluster1Z,
-                e.Cluster1Eta,
-                e.Cluster2R,
-                e.Cluster2Phi,
-                e.Cluster2Z,
-                e.Cluster2Eta,
-            ],
-            featureScales=[1000.0, 3.14159265359, 1000.0, 1.0] * 3,
-            inputSpacePoints="spacepoints",
-            inputClusters="clusters",
-            outputProtoTracks="prototracks",
+    if True:
+        e = acts.examples.NodeFeature
+        s.addAlgorithm(
+            acts.examples.TrackFindingAlgorithmExaTrkX(
+                level=logLevel,
+                graphConstructor=graphConstructor,
+                edgeClassifiers=[edgeClassifier],
+                trackBuilder=trackBuilder,
+                nodeFeatures=[
+                    e.R,
+                    e.Phi,
+                    e.Z,
+                    e.Eta,
+                    e.Cluster1R,
+                    e.Cluster1Phi,
+                    e.Cluster1Z,
+                    e.Cluster1Eta,
+                    e.Cluster2R,
+                    e.Cluster2Phi,
+                    e.Cluster2Z,
+                    e.Cluster2Eta,
+                ],
+                featureScales=[1000.0, 3.14159265359, 1000.0, 1.0] * 3,
+                inputSpacePoints="spacepoints",
+                inputClusters="clusters",
+                outputProtoTracks="prototracks",
+            )
         )
-    )
+    else:
+        s.addAlgorithm(
+            acts.examples.GNNTracccFullChainAlgorithm(
+                level=logLevel,
+                graphConstructor=graphConstructor,
+                edgeClassifiers=[edgeClassifier],
+                trackBuilder=trackBuilder,
+                inputSpacePoints="spacepoints",
+                inputClusters="clusters",
+                outputProtoTracks="prototracks",
+            )
+        )
 
     s.addAlgorithm(
         acts.examples.PrototracksToTracks(

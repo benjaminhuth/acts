@@ -116,6 +116,15 @@ std::pair<Acts::Tensor<int>, std::size_t> ExaTrkXPipeline::run(
     std::optional<Acts::Tensor<std::uint64_t>> moduleIds,
     const ExecutionContext &execCtx, const ExaTrkXHook &hook,
     ExaTrkXTiming *timing) const {
+  // debug print first row of nodeFeatures
+  auto nodeFeaturesHost =
+      nodeFeatures.clone({Acts::Device::Cpu(), execCtx.stream});
+  ACTS_DEBUG("First row of node features: ");
+  std::copy(nodeFeaturesHost.data(),
+            nodeFeaturesHost.data() + nodeFeaturesHost.shape().at(1),
+            std::ostream_iterator<float>(std::cout, ", "));
+  std::cout << std::endl;
+
   try {
     auto t0 = std::chrono::high_resolution_clock::now();
     auto tensors = (*m_graphConstructor)(std::move(nodeFeatures),

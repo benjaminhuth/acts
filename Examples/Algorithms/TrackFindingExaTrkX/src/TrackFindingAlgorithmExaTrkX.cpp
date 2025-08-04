@@ -6,6 +6,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+#define _ACTS_ANY_ENABLE_VERBOSE
+#define _ACTS_ANY_ENABLE_DEBUG
+#define _ACTS_ANY_ENABLE_TRACK_ALLOCATIONS
+
 #include "ActsExamples/TrackFindingExaTrkX/TrackFindingAlgorithmExaTrkX.hpp"
 
 #include "Acts/Definitions/Units.hpp"

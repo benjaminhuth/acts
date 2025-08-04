@@ -169,12 +169,11 @@ void addExaTrkXTrackFinding(Context &ctx) {
       edgeClassifiers, trackBuilder, nodeFeatures, featureScales,
       minMeasurementsPerTrack, geometryIdMap);
 
-#ifdef EXATRKX_WITH_TRACCC
-  ACTS_PYTHON_DECLARE_ALGORITHM(ActsExamples::GNNTracccFullChainAlgorithm, mex,
-                                "GNNTracccFullChainAlgorithm", inputSpacePoints,
-                                inputClusters, outputTracks, graphConstructor,
-                                edgeClassifiers, trackBuilder);
-  );
+#ifdef ACTS_EXATRKX_WITH_TRACCC
+  ACTS_PYTHON_DECLARE_ALGORITHM(
+      ActsExamples::GNNTracccFullChainAlgorithm, mex,
+      "GNNTracccFullChainAlgorithm", inputSpacePoints, inputClusters,
+      outputProtoTracks, graphConstructor, edgeClassifiers, trackBuilder);
 #endif
 
   {

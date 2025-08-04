@@ -11,7 +11,6 @@
 #include "Acts/Plugins/ExaTrkX/Tensor.hpp"
 
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 #include "traccc/edm/spacepoint_collection.hpp"
@@ -21,10 +20,10 @@ namespace Acts {
 Acts::Tensor<float> createInputTensor(
     const std::vector<std::string_view> &features,
     const std::vector<float> &featureScales,
-    const traccc::edm::spacepoint_collection::const_device &sps,
+    traccc::edm::spacepoint_collection::const_view sps,
     const ExecutionContext &execContext,
-    const std::optional<vecmem::device_vector<float>> &clXglobal = {},
-    const std::optional<vecmem::device_vector<float>> &clYglobal = {},
-    const std::optional<vecmem::device_vector<float>> &clZglobal = {});
+    std::optional<vecmem::data::vector_view<const float>> clXglobal,
+    std::optional<vecmem::data::vector_view<const float>> clYglobal,
+    std::optional<vecmem::data::vector_view<const float>> clZglobal);
 
 }

@@ -42,8 +42,6 @@ class GNNTracccFullChainAlgorithm final : public IAlgorithm {
     std::string inputTruthGraph;
     /// Output prototracks
     std::string outputProtoTracks;
-    /// Output graph (optional)
-    std::string outputGraph;
 
     /// Graph constructor
     std::shared_ptr<Acts::GraphConstructionBase> graphConstructor;
