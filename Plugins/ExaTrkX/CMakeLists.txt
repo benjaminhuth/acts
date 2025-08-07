@@ -83,7 +83,8 @@ if(ACTS_EXATRKX_ENABLE_CUDA)
     target_compile_options(
         ActsPluginExaTrkX
         PRIVATE
-            $<$<COMPILE_LANGUAGE:CUDA>:-g
+            $<$<COMPILE_LANGUAGE:CUDA>:
+            --dopt=on
             --generate-line-info
             --expt-relaxed-constexpr
             --extended-lambda>
