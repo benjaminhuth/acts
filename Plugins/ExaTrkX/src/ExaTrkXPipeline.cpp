@@ -24,6 +24,16 @@ struct CudaStreamGuard {
   }
 };
 }  // namespace
+
+#define ACTS_CUDA_SYNC()                                         \
+  if (streamGuard) {                                             \
+    ACTS_CUDA_CHECK(cudaStreamSynchronize(streamGuard->stream)); \
+  };
+
+#else
+
+#define ACTS_CUDA_SYNC() /*nothing*/
+
 #endif
 
 namespace Acts {
@@ -69,6 +79,7 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
     auto tensors =
         (*m_graphConstructor)(features, spacepointIDs.size(), moduleIds, ctx);
     ACTS_NVTX_STOP(graph_construction);
+    ACTS_CUDA_SYNC()
     auto t1 = std::chrono::high_resolution_clock::now();
 
     if (timing != nullptr) {
@@ -85,6 +96,7 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
       t0 = std::chrono::high_resolution_clock::now();
       ACTS_NVTX_START(edge_classifier);
       tensors = (*edgeClassifier)(std::move(tensors), ctx);
+      ACTS_CUDA_SYNC()
       ACTS_NVTX_STOP(edge_classifier);
       t1 = std::chrono::high_resolution_clock::now();
 
@@ -98,6 +110,7 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
     t0 = std::chrono::high_resolution_clock::now();
     ACTS_NVTX_START(track_building);
     auto res = (*m_trackBuilder)(std::move(tensors), spacepointIDs, ctx);
+    ACTS_CUDA_SYNC()
     ACTS_NVTX_STOP(track_building);
     t1 = std::chrono::high_resolution_clock::now();
 
