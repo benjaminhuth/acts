@@ -142,8 +142,8 @@ PipelineTensors TensorRTEdgeClassifier::operator()(
     PipelineTensors tensors, const ExecutionContext &execContext) {
   assert(execContext.device.type == Acts::Device::Type::eCUDA);
 
-  decltype(std::chrono::high_resolution_clock::now()) t0, t1, t2, t3, t4;
-  t0 = std::chrono::high_resolution_clock::now();
+  decltype(std::chrono::high_resolution_clock::now()) t0, t2, t3, t4;
+  t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream); 
 
   // Curing this would require more complicated handling, and should happen
   // almost never
@@ -203,7 +203,7 @@ PipelineTensors TensorRTEdgeClassifier::operator()(
       Tensor<float>::Create({tensors.edgeIndex.shape()[1], 1ul}, execContext);
   context->setTensorAddress("output", scores.data());
 
-  t2 = std::chrono::high_resolution_clock::now();
+  t2 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
 
   auto stream = execContext.stream.value();
   auto status = context->enqueueV3(stream);
@@ -212,7 +212,7 @@ PipelineTensors TensorRTEdgeClassifier::operator()(
   }
   ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-  t3 = std::chrono::high_resolution_clock::now();
+  t3 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
 
   {
     std::lock_guard<std::mutex> lock(m_contextMutex);
@@ -232,13 +232,12 @@ PipelineTensors TensorRTEdgeClassifier::operator()(
   ACTS_VERBOSE("Size after score cut: " << newEdgeIndex.shape()[1]);
   printCudaMemInfo(logger());
 
-  t4 = std::chrono::high_resolution_clock::now();
+  t4 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
 
   auto milliseconds = [](const auto &a, const auto &b) {
     return std::chrono::duration<double, std::milli>(b - a).count();
   };
-  ACTS_DEBUG("Time anycast:  " << milliseconds(t0, t1));
-  ACTS_DEBUG("Time alloc, set shape " << milliseconds(t1, t2));
+  ACTS_DEBUG("Time preprocessing:   " << milliseconds(t0, t2));
   ACTS_DEBUG("Time inference:       " << milliseconds(t2, t3));
   ACTS_DEBUG("Time sigmoid and cut: " << milliseconds(t3, t4));
 

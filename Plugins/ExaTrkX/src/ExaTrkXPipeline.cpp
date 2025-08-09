@@ -24,16 +24,6 @@ struct CudaStreamGuard {
   }
 };
 }  // namespace
-
-#define ACTS_CUDA_SYNC()                                         \
-  if (streamGuard) {                                             \
-    ACTS_CUDA_CHECK(cudaStreamSynchronize(streamGuard->stream)); \
-  };
-
-#else
-
-#define ACTS_CUDA_SYNC() /*nothing*/
-
 #endif
 
 namespace Acts {
@@ -77,14 +67,27 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
   }
 #endif
 
+  auto now = [&](){
+#if ACTS_EXATRKX_WITH_CUDA
+    if( ctx.stream.has_value() ) {
+      ACTS_CUDA_CHECK(cudaStreamSynchronize(*stream));
+    }
+#endif
+    if( timing != nullptr ) {
+      return std::high_resolution_clock::now();
+    } else {
+      return {};
+    }
+  };
+
   try {
-    auto t0 = std::chrono::high_resolution_clock::now();
+    auto t0 = now();
     ACTS_NVTX_START(graph_construction);
     auto tensors =
         (*m_graphConstructor)(features, spacepointIDs.size(), moduleIds, ctx);
     ACTS_NVTX_STOP(graph_construction);
     ACTS_CUDA_SYNC()
-    auto t1 = std::chrono::high_resolution_clock::now();
+    auto t1 = now();
 
     if (timing != nullptr) {
       timing->graphBuildingTime = t1 - t0;
@@ -97,12 +100,12 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
     }
 
     for (const auto &edgeClassifier : m_edgeClassifiers) {
-      t0 = std::chrono::high_resolution_clock::now();
+      t0 = now();
       ACTS_NVTX_START(edge_classifier);
       tensors = (*edgeClassifier)(std::move(tensors), ctx);
       ACTS_CUDA_SYNC()
       ACTS_NVTX_STOP(edge_classifier);
-      t1 = std::chrono::high_resolution_clock::now();
+      t1 = now();
 
       if (timing != nullptr) {
         timing->classifierTimes.push_back(t1 - t0);
@@ -111,12 +114,11 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
       hook(tensors, ctx);
     }
 
-    t0 = std::chrono::high_resolution_clock::now();
+    t0 = now();
     ACTS_NVTX_START(track_building);
     auto res = (*m_trackBuilder)(std::move(tensors), spacepointIDs, ctx);
-    ACTS_CUDA_SYNC()
     ACTS_NVTX_STOP(track_building);
-    t1 = std::chrono::high_resolution_clock::now();
+    t1 = now();
 
     if (timing != nullptr) {
       timing->trackBuildingTime = t1 - t0;
