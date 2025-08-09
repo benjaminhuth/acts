@@ -49,10 +49,10 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
     auto cudaScorePtr = tensors.edgeScores->data();
 
     ACTS_DEBUG("Do junction removal...");
-    auto t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, stream);
+    auto t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
     auto [cudaSrcPtrJr, numEdgesOut] = detail::junctionRemovalCuda(
         numEdges, numSpacepoints, cudaScorePtr, cudaSrcPtr, cudaTgtPtr, stream);
-    auto t1 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, stream);
+    auto t1 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
     cudaSrcPtr = cudaSrcPtrJr;
     cudaTgtPtr = cudaSrcPtrJr + numEdgesOut;
 
@@ -74,11 +74,11 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
   ACTS_CUDA_CHECK(
       cudaMallocAsync(&cudaLabels, numSpacepoints * sizeof(int), stream));
 
-  auto t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, stream);
+  auto t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
   std::size_t numberLabels = detail::connectedComponentsCuda(
       numEdges, cudaSrcPtr, cudaTgtPtr, numSpacepoints, cudaLabels, stream,
       m_cfg.useOneBlockImplementation);
-  auto t1 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, stream);
+  auto t1 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
   ACTS_DEBUG("Connected components took " << ms(t0, t1) << " ms");
 
   // TODO not sure why there is an issue that is not detected in the unit tests

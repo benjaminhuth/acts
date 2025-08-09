@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <optional>
 #include <sstream>
 
 #include <cuda_runtime_api.h>
@@ -30,14 +31,14 @@ inline void cudaAssert(cudaError_t code, const char *file, int line) {
     Acts::detail::cudaAssert((ans), __FILE__, __LINE__); \
   } while (0)
 
-#define ACTS_TIME_STREAM_SYNC(lvl, stream) \
-  [&](Acts::Logging::Level lvl, [[maybe_unused]] std::optional<cudaStream_t> stream) { \
-    if( logger().level() >= lvl ) { \
-      if( stream.has_value() ) { \
-        ACTS_CUDA_CHECK(cudaStreamSynchronize(*stream)); \
-      } \
-      return std::chrono::high_resolution_clock::now(); \
-    } else { \
-      return {}; \
-    } \
+#define ACTS_TIME_STREAM_SYNC(lvl, stream)                          \
+  [&]() {                                                           \
+    if (logger().level() >= lvl) {                                  \
+      if (stream.has_value()) {                                     \
+        ACTS_CUDA_CHECK(cudaStreamSynchronize(stream.value()));     \
+      }                                                             \
+      return std::chrono::high_resolution_clock::now();             \
+    } else {                                                        \
+      return decltype(std::chrono::high_resolution_clock::now()){}; \
+    }                                                               \
   }()

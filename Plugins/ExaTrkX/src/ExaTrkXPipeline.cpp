@@ -67,16 +67,16 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
   }
 #endif
 
-  auto now = [&](){
+  auto now = [&]() {
 #if ACTS_EXATRKX_WITH_CUDA
-    if( ctx.stream.has_value() ) {
-      ACTS_CUDA_CHECK(cudaStreamSynchronize(*stream));
+    if (ctx.stream.has_value()) {
+      ACTS_CUDA_CHECK(cudaStreamSynchronize(*ctx.stream));
     }
 #endif
-    if( timing != nullptr ) {
-      return std::high_resolution_clock::now();
+    if (timing != nullptr) {
+      return std::chrono::high_resolution_clock::now();
     } else {
-      return {};
+      return decltype(std::chrono::high_resolution_clock::now()){};
     }
   };
 
@@ -86,7 +86,6 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
     auto tensors =
         (*m_graphConstructor)(features, spacepointIDs.size(), moduleIds, ctx);
     ACTS_NVTX_STOP(graph_construction);
-    ACTS_CUDA_SYNC()
     auto t1 = now();
 
     if (timing != nullptr) {
@@ -103,7 +102,6 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
       t0 = now();
       ACTS_NVTX_START(edge_classifier);
       tensors = (*edgeClassifier)(std::move(tensors), ctx);
-      ACTS_CUDA_SYNC()
       ACTS_NVTX_STOP(edge_classifier);
       t1 = now();
 
