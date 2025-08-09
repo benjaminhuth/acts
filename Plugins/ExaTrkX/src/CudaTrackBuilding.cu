@@ -49,9 +49,11 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
     auto cudaScorePtr = tensors.edgeScores->data();
 
     ACTS_DEBUG("Do junction removal...");
+    ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
     auto t0 = std::chrono::high_resolution_clock::now();
     auto [cudaSrcPtrJr, numEdgesOut] = detail::junctionRemovalCuda(
         numEdges, numSpacepoints, cudaScorePtr, cudaSrcPtr, cudaTgtPtr, stream);
+    ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
     auto t1 = std::chrono::high_resolution_clock::now();
     cudaSrcPtr = cudaSrcPtrJr;
     cudaTgtPtr = cudaSrcPtrJr + numEdgesOut;
@@ -74,10 +76,12 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
   ACTS_CUDA_CHECK(
       cudaMallocAsync(&cudaLabels, numSpacepoints * sizeof(int), stream));
 
+  ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
   auto t0 = std::chrono::high_resolution_clock::now();
   std::size_t numberLabels = detail::connectedComponentsCuda(
       numEdges, cudaSrcPtr, cudaTgtPtr, numSpacepoints, cudaLabels, stream,
       m_cfg.useOneBlockImplementation);
+  ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
   auto t1 = std::chrono::high_resolution_clock::now();
   ACTS_DEBUG("Connected components took " << ms(t0, t1) << " ms");
 

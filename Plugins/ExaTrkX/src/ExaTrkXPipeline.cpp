@@ -70,6 +70,10 @@ std::vector<std::vector<int>> ExaTrkXPipeline::run(
   if (ctx.device.type == Acts::Device::Type::eCUDA) {
     streamGuard.emplace();
     ctx.stream = streamGuard->stream;
+    if (std::getenv("CUDA_LAUNCH_BLOCKING") != nullptr) {
+      ACTS_WARNING("Set stream to 0 because of CUDA_LAUNCH_BLOCKING");
+      ctx.stream = nullptr;
+    }
   }
 #endif
 
