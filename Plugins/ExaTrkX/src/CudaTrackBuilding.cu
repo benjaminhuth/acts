@@ -38,10 +38,7 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
   auto cudaSrcPtr = tensors.edgeIndex.data();
   auto cudaTgtPtr = tensors.edgeIndex.data() + numEdges;
 
-  auto ms = [](auto t0, auto t1) {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0)
-        .count();
-  };
+  auto t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
 
   if (m_cfg.doJunctionRemoval) {
     assert(tensors.edgeScores->shape().at(0) ==
@@ -49,10 +46,8 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
     auto cudaScorePtr = tensors.edgeScores->data();
 
     ACTS_DEBUG("Do junction removal...");
-    auto t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
     auto [cudaSrcPtrJr, numEdgesOut] = detail::junctionRemovalCuda(
         numEdges, numSpacepoints, cudaScorePtr, cudaSrcPtr, cudaTgtPtr, stream);
-    auto t1 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
     cudaSrcPtr = cudaSrcPtrJr;
     cudaTgtPtr = cudaSrcPtrJr + numEdgesOut;
 
@@ -66,20 +61,20 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
 
     ACTS_DEBUG("Removed " << numEdges - numEdgesOut
                           << " edges in junction removal");
-    ACTS_DEBUG("Junction removal took " << ms(t0, t1) << " ms");
     numEdges = numEdgesOut;
   }
+
+  auto t1 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
 
   int* cudaLabels{};
   ACTS_CUDA_CHECK(
       cudaMallocAsync(&cudaLabels, numSpacepoints * sizeof(int), stream));
 
-  auto t0 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
   std::size_t numberLabels = detail::connectedComponentsCuda(
       numEdges, cudaSrcPtr, cudaTgtPtr, numSpacepoints, cudaLabels, stream,
       m_cfg.useOneBlockImplementation);
-  auto t1 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
-  ACTS_DEBUG("Connected components took " << ms(t0, t1) << " ms");
+
+  auto t2 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
 
   // TODO not sure why there is an issue that is not detected in the unit tests
   numberLabels += 1;
@@ -98,13 +93,27 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
   ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
   ACTS_CUDA_CHECK(cudaGetLastError());
 
+  auto t3 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
+
   ACTS_VERBOSE("Found " << numberLabels << " track candidates");
 
   std::vector<std::vector<int>> trackCandidates(numberLabels);
 
   for (const auto [label, id] : Acts::zip(trackLabels, spacepointIDs)) {
+    trackCandidates[label].reserve(32);
     trackCandidates[label].push_back(id);
   }
+
+  auto t4 = ACTS_TIME_STREAM_SYNC(Acts::Logging::DEBUG, execContext.stream);
+
+  auto ms = [](auto t0, auto t1) {
+    return std::chrono::duration<double, std::milli>(t1 - t0).count();
+  };
+
+  ACTS_DEBUG("Junction removal:     " << ms(t0, t1) << " ms");
+  ACTS_DEBUG("Connected components: " << ms(t1, t2) << " ms");
+  ACTS_DEBUG("Copy to host:         " << ms(t2, t3) << " ms");
+  ACTS_DEBUG("Build vector<vector>: " << ms(t3, t4) << " ms");
 
   return trackCandidates;
 }
