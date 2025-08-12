@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <chrono>
 #include <numeric>
+#include <ranges>
 
 #include "createFeatures.hpp"
 
@@ -96,7 +97,7 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   ACTS_NVTX_START(data_preparation);
 
   using Clock = std::chrono::high_resolution_clock;
-  using Duration = std::chrono::duration<double, std::milli>;
+  using Duration = std::chrono::duration<float, std::milli>;
   auto t0 = Clock::now();
 
   // Setup hooks
@@ -241,18 +242,18 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
   {
     std::lock_guard<std::mutex> lock(m_mutex);
 
-    m_timing.preprocessingTime(Duration(t1 - t0).count());
-    m_timing.graphBuildingTime(timing.graphBuildingTime.count());
+    m_timing.preprocessingTime.push_back(Duration(t1 - t0).count());
+    m_timing.graphBuildingTime.push_back(timing.graphBuildingTime.count());
 
     assert(timing.classifierTimes.size() == m_timing.classifierTimes.size());
-    for (auto [aggr, a] :
+    for (auto [vec, a] :
          Acts::zip(m_timing.classifierTimes, timing.classifierTimes)) {
-      aggr(a.count());
+      vec.push_back(a.count());
     }
 
-    m_timing.trackBuildingTime(timing.trackBuildingTime.count());
-    m_timing.postprocessingTime(Duration(t3 - t2).count());
-    m_timing.fullTime(Duration(t3 - t0).count());
+    m_timing.trackBuildingTime.push_back(timing.trackBuildingTime.count());
+    m_timing.postprocessingTime.push_back(Duration(t3 - t2).count());
+    m_timing.fullTime.push_back(Duration(t3 - t0).count());
   }
 
   ACTS_NVTX_STOP(post_processing);
@@ -261,19 +262,33 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmExaTrkX::execute(
 
 ActsExamples::ProcessCode TrackFindingAlgorithmExaTrkX::finalize() {
   namespace ba = boost::accumulators;
+  using Accumulator = boost::accumulators::accumulator_set<
+      float,
+      boost::accumulators::features<
+          boost::accumulators::tag::mean, boost::accumulators::tag::variance,
+          boost::accumulators::tag::max, boost::accumulators::tag::min>>;
 
-  auto print = [](const auto& t) {
+  auto print = [](std::vector<float>& t) {
+    std::ranges::sort(t);
+    auto begin = t.size() >= 3 ? std::next(t.begin()) : t.begin();
+    auto end = t.size() >= 3 ? std::prev(t.end()) : t.end();
+    Accumulator acc;
+    std::for_each(begin, end, [&](auto v) { acc(v); });
     std::stringstream ss;
-    ss << ba::mean(t) << " +- " << std::sqrt(ba::variance(t)) << " ";
-    ss << "[" << ba::min(t) << ", " << ba::max(t) << "]";
+    ss << ba::mean(acc) << " +- "
+       << std::sqrt(ba::variance(acc) / std::distance(begin, end)) << " ";
+    ss << "[" << ba::min(acc) << ", " << ba::max(acc) << "]";
     return ss.str();
   };
 
   ACTS_INFO("Exa.TrkX timing info");
+  if (m_timing.preprocessingTime.size() >= 3) {
+    ACTS_INFO("Note: shortest and largest times are removed!");
+  }
   ACTS_INFO("- preprocessing:  " << print(m_timing.preprocessingTime));
   ACTS_INFO("- graph building: " << print(m_timing.graphBuildingTime));
   // clang-format off
-  for (const auto& t : m_timing.classifierTimes) {
+  for (auto& t : m_timing.classifierTimes) {
   ACTS_INFO("- classifier:     " << print(t));
   }
   // clang-format on

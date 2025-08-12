@@ -151,19 +151,13 @@ class TrackFindingAlgorithmExaTrkX final : public IAlgorithm {
   Acts::ExaTrkXPipeline m_pipeline;
   mutable std::mutex m_mutex;
 
-  using Accumulator = boost::accumulators::accumulator_set<
-      float,
-      boost::accumulators::features<
-          boost::accumulators::tag::mean, boost::accumulators::tag::variance,
-          boost::accumulators::tag::max, boost::accumulators::tag::min>>;
-
   mutable struct {
-    Accumulator preprocessingTime;
-    Accumulator graphBuildingTime;
-    std::vector<Accumulator> classifierTimes;
-    Accumulator trackBuildingTime;
-    Accumulator postprocessingTime;
-    Accumulator fullTime;
+    std::vector<float> preprocessingTime;
+    std::vector<float> graphBuildingTime;
+    std::vector<std::vector<float>> classifierTimes;
+    std::vector<float> trackBuildingTime;
+    std::vector<float> postprocessingTime;
+    std::vector<float> fullTime;
   } m_timing;
 
   ReadDataHandle<SimSpacePointContainer> m_inputSpacePoints{this,
