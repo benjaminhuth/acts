@@ -10,16 +10,31 @@
 
 #include "Acts/EventData/SeedContainer2.hpp"
 #include "Acts/EventData/SpacePointContainer2.hpp"
+#include "Acts/Seeding2/BroadTripletSeedFilter.hpp"
 #include "Acts/Seeding2/DoubletSeedFinder.hpp"
-#include "Acts/Seeding2/ITripletSeedFilter.hpp"
 #include "Acts/Seeding2/TripletSeedFinder.hpp"
+#include "Acts/Seeding2/detail/CandidatesForMiddleSp2.hpp"
 #include "Acts/Utilities/Logger.hpp"
 
 #include <vector>
 
 namespace Acts::Experimental {
 
-class TripletSeeder {
+/// @brief Triplet seeding algorithm front-end
+///
+/// This class implements the triplet seeding algorithm, which is typical
+/// procedure to find track seeds using space points in a cylindrical detector.
+/// It is designed to be fast, flexible, and configurable.
+///
+/// The algorithm works by first finding compatible doublets of space points,
+/// two space points that can be connected by a track coming from the
+/// interaction region, and then forming triplets by combinding these
+/// doublets at a common middle space point. The triplets are then filtered
+/// using a seed filter to produce a set of track seeds.
+///
+/// Note that this algorithm is designed and tuned for cylindrical detectors and
+/// uses R-Z coordinates for the space points.
+class BroadTripletSeedFinder {
  public:
   struct Cache {
     DoubletsForMiddleSp bottomDoublets;
@@ -29,14 +44,24 @@ class TripletSeeder {
     std::vector<DoubletsForMiddleSp::IndexAndCotTheta> sortedTops;
 
     TripletTopCandidates tripletTopCandidates;
+
+    BroadTripletSeedFilter::Cache filter;
+
+    CandidatesForMiddleSp2 candidatesCollector;
+    std::vector<TripletCandidate2> sortedCandidates;
   };
 
-  explicit TripletSeeder(std::unique_ptr<const Logger> logger =
-                             getDefaultLogger("TripletSeeder",
-                                              Logging::Level::INFO));
+  struct State {
+    BroadTripletSeedFilter::State filter;
+  };
+
+  explicit BroadTripletSeedFinder(std::unique_ptr<const Logger> logger =
+                                      getDefaultLogger("BroadTripletSeedFinder",
+                                                       Logging::Level::INFO));
 
   /// Create all possible seeds from bottom, middle, and top space points.
   ///
+  /// @param state State of the seed finder
   /// @param cache Cache object to store intermediate results
   /// @param bottomFinder Finder for bottom doublets
   /// @param topFinder Finder for top doublets
@@ -47,10 +72,11 @@ class TripletSeeder {
   /// @param middleSp Space point candidate to be used as middle SP in a seed
   /// @param topSps Subset of space points to be used as outermost SP in a seed
   /// @param outputSeeds Output container for the seeds
-  void createSeedsFromGroup(Cache& cache, const DoubletSeedFinder& bottomFinder,
+  void createSeedsFromGroup(State& state, Cache& cache,
+                            const DoubletSeedFinder& bottomFinder,
                             const DoubletSeedFinder& topFinder,
                             const TripletSeedFinder& tripletFinder,
-                            const ITripletSeedFilter& filter,
+                            const BroadTripletSeedFilter& filter,
                             const SpacePointContainer2& spacePoints,
                             SpacePointContainer2::ConstSubset& bottomSps,
                             const ConstSpacePointProxy2& middleSp,
@@ -59,6 +85,7 @@ class TripletSeeder {
 
   /// Create all possible seeds from bottom, middle, and top space points.
   ///
+  /// @param state State of the seed finder
   /// @param cache Cache object to store intermediate results
   /// @param bottomFinder Finder for bottom doublets
   /// @param topFinder Finder for top doublets
@@ -71,9 +98,10 @@ class TripletSeeder {
   /// @param radiusRangeForMiddle Range of radii for the middle space points
   /// @param outputSeeds Output container for the seeds
   void createSeedsFromGroups(
-      Cache& cache, const DoubletSeedFinder& bottomFinder,
+      State& state, Cache& cache, const DoubletSeedFinder& bottomFinder,
       const DoubletSeedFinder& topFinder,
-      const TripletSeedFinder& tripletFinder, const ITripletSeedFilter& filter,
+      const TripletSeedFinder& tripletFinder,
+      const BroadTripletSeedFilter& filter,
       const SpacePointContainer2& spacePoints,
       const std::span<SpacePointContainer2::ConstRange>& bottomSpGroups,
       const SpacePointContainer2::ConstRange& middleSpGroup,

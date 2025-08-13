@@ -10,7 +10,6 @@
 
 #include "Acts/EventData/SpacePointContainer2.hpp"
 
-#include <limits>
 #include <vector>
 
 namespace Acts::Experimental {
@@ -34,9 +33,9 @@ struct TripletCandidate2 {
   SpacePointIndex2 bottom{};
   SpacePointIndex2 middle{};
   SpacePointIndex2 top{};
-  float weight{};
-  float zOrigin{};
-  bool isQuality{};
+  float weight{0.};
+  float zOrigin{0.};
+  bool isQuality{false};
 };
 
 class CandidatesForMiddleSp2 {
@@ -44,16 +43,12 @@ class CandidatesForMiddleSp2 {
   using Index = std::uint32_t;
   using Size = std::uint32_t;
 
-  static constexpr Size kNoSize = std::numeric_limits<Size>::max();
-
-  CandidatesForMiddleSp2();
+  Size size() const { return m_storage.size(); }
 
   /// @brief Setting maximum number of candidates to keep
   /// @param nLow Maximum number of candidates in the low-quality collection
   /// @param nHigh Maximum number of candidates in the high-quality collection
-  CandidatesForMiddleSp2(Size nLow, Size nHigh);
-
-  Size size() const { return m_storage.size(); }
+  void setMaxElements(Size nLow, Size nHigh);
 
   /// @brief Clear the internal storage
   void clear();
@@ -87,12 +82,12 @@ class CandidatesForMiddleSp2 {
   // sizes
   // m_maxSize* is the maximum size of the indices collections. These values
   // are set by the user once
-  Size m_maxSizeLow{kNoSize};
-  Size m_maxSizeHigh{kNoSize};
+  Size m_maxSizeHigh{0};
+  Size m_maxSizeLow{0};
   // m_n_* is the current size of the indices collections [0, m_maxSize*).
   // These values are set internally by the class
-  Size m_nLow{0};
   Size m_nHigh{0};
+  Size m_nLow{0};
 
   // storage contains the collection of the candidates
   std::vector<TripletCandidate2> m_storage;
@@ -106,10 +101,10 @@ class CandidatesForMiddleSp2 {
   // This is in effect faster sorted container - implementation with std::set
   // and std::priority_queue were tried and were found to be slower.
 
-  // list of indexes of candidates with low quality in the storage
-  std::vector<Index> m_indicesLow;
   // list of indexes of candidates with high quality in the storage
   std::vector<Index> m_indicesHigh;
+  // list of indexes of candidates with low quality in the storage
+  std::vector<Index> m_indicesLow;
 
   /// @brief A function for sorting the triplet candidates from higher to lower quality
   /// @param spacePoints The input spacepoints from which to create seeds.
