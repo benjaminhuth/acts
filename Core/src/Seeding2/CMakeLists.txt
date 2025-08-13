@@ -6,5 +6,4 @@ target_sources(
         DoubletSeedFinder.cpp
         BroadTripletSeedFilter.cpp
         BroadTripletSeedFinder.cpp
-        TripletSeedFinder.cpp
 )
