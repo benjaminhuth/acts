@@ -201,6 +201,8 @@ PipelineTensors TrackLengthEdgeFilter::operator()(
         std::move(newEdgeFeatures)
             .clone({tensors.edgeFeatures->device(), execContext.stream});
   }
+
+  return tensors;
 }
 
 }  // namespace ActsPlugins
