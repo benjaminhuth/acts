@@ -6,6 +6,7 @@ acts_add_library(
     src/BoostTrackBuilding.cpp
     src/TruthGraphMetricsHook.cpp
     src/GraphStoreHook.cpp
+    src/TrackLengthEdgeFilter.cpp
     ACTS_INCLUDE_FOLDER include/ActsPlugins
 )
 

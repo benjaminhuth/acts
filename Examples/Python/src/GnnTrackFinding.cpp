@@ -76,6 +76,10 @@ void addGnnTrackFinding(Context &ctx) {
 
   ACTS_PYTHON_DECLARE_GNN_STAGE(BoostTrackBuilding, TrackBuildingBase, mex);
 
+  ACTS_PYTHON_DECLARE_GNN_STAGE(TrackLengthEdgeFilter, EdgeClassificationBase,
+                                mex, stripRadius, radiusFeatureIdx,
+                                minTrackLength);
+
 #ifdef ACTS_GNN_TORCH_BACKEND
   ACTS_PYTHON_DECLARE_GNN_STAGE(TorchMetricLearning, GraphConstructionBase, mex,
                                 modelPath, selectedFeatures, embeddingDim, rVal,
