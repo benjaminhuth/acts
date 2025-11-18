@@ -14,6 +14,16 @@
 #include <boost/graph/reverse_graph.hpp>
 #include <boost/graph/topological_sort.hpp>
 
+#ifndef ACTS_GNN_CPUONLY
+#include <cuda_runtime_api.h>
+
+namespace ActsPlugins::detail {
+Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
+    const Tensor<std::int64_t> &edgeIndex, std::size_t nNodes,
+    std::size_t minTrackLength, cudaStream_t stream);
+}
+#endif
+
 struct NodeProperty {
   int weight{1};
   int distance{weight};
@@ -140,6 +150,18 @@ TrackLengthEdgeFilter::~TrackLengthEdgeFilter() = default;
 
 PipelineTensors TrackLengthEdgeFilter::operator()(
     PipelineTensors tensors, const ExecutionContext &execContext) {
+#ifndef ACTS_GNN_CPUONLY
+  // CUDA path - keep tensors on device
+  if (execContext.device.isCuda()) {
+    const std::size_t nNodes = tensors.nodeFeatures.shape().at(0);
+    tensors.edgeIndex = detail::cudaFilterEdgesByTrackLength(
+        tensors.edgeIndex, nNodes, m_cfg.minTrackLength,
+        execContext.stream.value());
+    return tensors;
+  }
+#endif
+
+  // CPU path - clone to CPU and use Boost Graph
   auto edgesCpu = tensors.edgeIndex.clone({Device::Cpu(), execContext.stream});
   std::span<const std::int64_t> srcSpan{edgesCpu.data(),
                                         edgesCpu.shape().at(1)};
