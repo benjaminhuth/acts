@@ -14,7 +14,7 @@ if(ACTS_GNN_ENABLE_CUDA)
     target_compile_definitions(ActsPluginGnn PUBLIC ACTS_GNN_WITH_CUDA)
     target_sources(
         ActsPluginGnn
-        PRIVATE src/CudaTrackBuilding.cu src/JunctionRemoval.cu src/Tensor.cu
+        PRIVATE src/CudaTrackBuilding.cu src/JunctionRemoval.cu src/Tensor.cu src/TrackLengthEdgeFilter.cu
     )
 endif()
 

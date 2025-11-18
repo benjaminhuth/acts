@@ -29,7 +29,7 @@ macro(add_unittest _name _source)
     add_dependencies(unit_tests ${_target})
 endmacro()
 
-add_subdirectory(Core)
+#add_subdirectory(Core)
 add_subdirectory_if(
     Examples
     ACTS_BUILD_EXAMPLES

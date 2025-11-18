@@ -32,15 +32,14 @@ using Graph =
 using Vi = std::vector<int>;
 
 // helper function that creates a boost graph from two vectors of int
-inline auto make_graph(const Vi &from, const Vi &to, const Vi &weights = {}) {
+inline auto make_graph(const Vi &from, const Vi &to, const Vi &weights) {
   Graph g;
   for (std::size_t i = 0; i < from.size(); ++i) {
     boost::add_edge(from[i], to[i], g);
   }
-  if (!weights.empty()) {
-    for (auto i = 0ul; i < boost::num_vertices(g); ++i) {
-      g[i].weight = weights.at(i);
-    }
+  for (auto i = 0ul; i < boost::num_vertices(g); ++i) {
+    g[i].weight = weights.at(i);
+    //g[i].distance = weights.at(i);
   }
   return g;
 }
@@ -53,12 +52,13 @@ inline auto findMaxDistances(Graph &g, const Acts::Logger &logger) {
   for (auto vit = topoOrder.rbegin(); vit != topoOrder.rend(); ++vit) {
     auto src = *vit;
     auto [it, end] = boost::out_edges(src, g);
+    ACTS_VERBOSE("Vertex: " << src);
     for (; it != end; ++it) {
       auto tgt = boost::target(*it, g);
       g[*it].distance = g[src].distance + g[tgt].weight;
       auto newDist = std::max(g[tgt].distance, g[*it].distance);
-      ACTS_VERBOSE("- set vertex " << *it << "|" << g[tgt].weight << ": "
-                                   << g[tgt].distance << " -> " << newDist);
+      ACTS_VERBOSE("- set edge " << *it << "|" << g[tgt].weight << ": "
+                                 << g[tgt].distance << " -> " << newDist);
       g[tgt].distance = newDist;
     }
   }
@@ -95,11 +95,15 @@ inline std::pair<std::vector<bool>, std::size_t> filterEdges(
     const Vi &src, const Vi &dst, const Vi &nodeWeights,
     std::size_t trackLengthConstraint, const Acts::Logger &logger) {
   auto g = make_graph(src, dst, nodeWeights);
+
+  ACTS_VERBOSE("Find max distances in forward pass");
   findMaxDistances(g, logger);
   Vi distances;
   for (auto i = 0ul; i < boost::num_vertices(g); ++i) {
     distances.push_back(g[i].distance);
   }
+
+  ACTS_VERBOSE("Propagate max distances back in graph");
   accumulateBackwards(g, logger);
   Vi accumulated;
   for (auto i = 0ul; i < boost::num_vertices(g); ++i) {
@@ -128,6 +132,12 @@ struct StridedSpan {
 
 namespace ActsPlugins {
 
+TrackLengthEdgeFilter::TrackLengthEdgeFilter(
+    const Config &cfg, std::unique_ptr<const Acts::Logger> logger)
+    : m_logger(std::move(logger)), m_cfg(cfg) {}
+
+TrackLengthEdgeFilter::~TrackLengthEdgeFilter() = default;
+
 PipelineTensors TrackLengthEdgeFilter::operator()(
     PipelineTensors tensors, const ExecutionContext &execContext) {
   auto edgesCpu = tensors.edgeIndex.clone({Device::Cpu(), execContext.stream});
@@ -149,11 +159,14 @@ PipelineTensors TrackLengthEdgeFilter::operator()(
   for (auto i = 0ul; i < edgesCpu.shape().at(1); ++i) {
     from.push_back(static_cast<int>(srcSpan[i]));
     to.push_back(static_cast<int>(tgtSpan[i]));
+  }
+
+  for(auto i = 0ul; i < nodesCpu.shape().at(0); ++i) {
     weights.push_back(radius[i] < m_cfg.stripRadius ? 1 : 2);
   }
 
   auto [mask, nEdgesKept] =
-      filterEdges(from, to, weights, m_cfg.stripRadius > 0.f ? 2 : 1, logger());
+      filterEdges(from, to, weights, m_cfg.minTrackLength, logger());
 
   auto newEdges = Tensor<std::int64_t>::Create(
       {2, nEdgesKept}, {Device::Cpu(), execContext.stream});
@@ -197,6 +210,7 @@ PipelineTensors TrackLengthEdgeFilter::operator()(
         ++j;
       }
     }
+
     tensors.edgeFeatures =
         std::move(newEdgeFeatures)
             .clone({tensors.edgeFeatures->device(), execContext.stream});
