@@ -25,6 +25,10 @@
 
 #include "createFeatures.hpp"
 
+#ifndef ACTS_GNN_CPUONLY
+#include "ActsPlugins/Gnn/detail/CudaUtils.hpp"
+#endif
+
 using namespace Acts;
 using namespace ActsPlugins;
 using namespace Acts::UnitLiterals;
@@ -87,6 +91,7 @@ ActsExamples::TrackFindingAlgorithmGnn::TrackFindingAlgorithmGnn(
     throw std::invalid_argument(
         "Number of features mismatches number of scale parameters.");
   }
+
 }
 
 /// Allow access to features with nice names
@@ -180,10 +185,11 @@ ActsExamples::ProcessCode ActsExamples::TrackFindingAlgorithmGnn::execute(
 
   // Run the pipeline
   GnnTiming timing;
-#ifdef ACTS_GNN_CPUONLY
   Device device = {Device::Type::eCPU, 0};
-#else
-  Device device = {Device::Type::eCUDA, 0};
+#ifndef ACTS_GNN_CPUONLY
+  if(int deviceCount{}; cudaGetDeviceCount(&deviceCount) == cudaSuccess && deviceCount > 0) {
+    device = {Device::Type::eCUDA, 0};
+  }
 #endif
   auto trackCandidates =
       m_pipeline.run(features, moduleIds, idxs, device, hook, &timing);

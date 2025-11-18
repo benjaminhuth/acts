@@ -18,6 +18,7 @@
 #include "ActsPlugins/Gnn/TensorRTEdgeClassifier.hpp"
 #include "ActsPlugins/Gnn/TorchEdgeClassifier.hpp"
 #include "ActsPlugins/Gnn/TorchMetricLearning.hpp"
+#include "ActsPlugins/Gnn/TrackLengthEdgeFilter.hpp"
 #include "ActsPlugins/Gnn/TruthGraphMetricsHook.hpp"
 #include "ActsPython/Utilities/Helpers.hpp"
 #include "ActsPython/Utilities/Macros.hpp"
