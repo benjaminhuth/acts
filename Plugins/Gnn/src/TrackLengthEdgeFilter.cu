@@ -30,12 +30,27 @@ namespace ActsPlugins::detail {
 // step 1
 // 
 
-
-template<typename T1, typename T2>
-__global__ void forward(const T1 *srcNodes, const T1 *tgtNodes,
-                       std::size_t nEdges, const T2 *accumulatedPrev,
-                       T2 *accumulatedNext, bool *globalChanged) {
+template<typename T>
+__global__ void fillNodeWeights(T *weights, const float *features,
+                                float minStripRadius, std::size_t radiusOffset,
+                                std::size_t nNodes, std::size_t nFeatures) {
   const int i = threadIdx.x + blockIdx.x * blockDim.x;
+
+  if (i >= nNodes) {
+    return;
+  }
+
+  const int j = radiusOffset + i * nFeatures;
+  weights[i] = features[j] < minStripRadius ? 1 : 2;
+}
+
+
+template<typename T1, typename T2, typename T3>
+__global__ void forward(const T1 *srcNodes, const T1 *tgtNodes, const T3 *nodeWeights,
+                        std::size_t nEdges, const T2 *accumulatedPrev,
+                        T2 *accumulatedNext, bool *globalChanged) {
+  const int i = threadIdx.x + blockIdx.x * blockDim.x;
+
   if (i >= nEdges) {
     return;
   }
@@ -43,8 +58,7 @@ __global__ void forward(const T1 *srcNodes, const T1 *tgtNodes,
   const auto srcNode = srcNodes[i];
   const auto tgtNode = tgtNodes[i];
 
-  const auto nextTgt = accumulatedPrev[srcNode] + 1.f; //nodeWeights[tgtNode];
-
+  const auto nextTgt = accumulatedPrev[srcNode] + nodeWeights[tgtNode];
   const auto prevTgt = accumulatedPrev[tgtNode];
 
   bool changed = false;
@@ -52,6 +66,11 @@ __global__ void forward(const T1 *srcNodes, const T1 *tgtNodes,
     accumulatedNext[tgtNode] = nextTgt;
     changed = true;
   }
+
+  printf("  [FWD] edge %d (%lld->%lld): Prev[src]=%d, Prev[tgt]=%d, nextTgt=%d, Next[tgt]=%d, changed=%d\n",
+         i, (long long)srcNode, (long long)tgtNode,
+         (int)accumulatedPrev[srcNode], (int)prevTgt, (int)nextTgt,
+         (int)accumulatedNext[tgtNode], changed);
 
   if (__syncthreads_or(changed) && threadIdx.x == 0) {
     *globalChanged = true;
@@ -63,6 +82,7 @@ __global__ void backward(const T1 *srcNodes, const T1 *tgtNodes,
     std::size_t nEdges, const T2 *forwardAccumulated,
     const T2 *backwardAccumulatedPrev, T2 *backwardAccumulatedNext, bool *globalChanged) {
   const int i = threadIdx.x + blockIdx.x * blockDim.x;
+
   if (i >= nEdges) {
     return;
   }
@@ -72,8 +92,9 @@ __global__ void backward(const T1 *srcNodes, const T1 *tgtNodes,
 
   auto diff = forwardAccumulated[tgtNode] - forwardAccumulated[srcNode];
 
-  const float weight = 1.f;
-  const auto nextSrc = forwardAccumulated[tgtNode] - (diff - weight);
+  const int weight = 1;
+  // Use backwardAccumulatedPrev[tgtNode], not forwardAccumulated[tgtNode]!
+  const auto nextSrc = backwardAccumulatedPrev[tgtNode] - (diff - weight);
   const auto prevSrc = backwardAccumulatedPrev[srcNode];
 
   bool changed = false;
@@ -81,6 +102,12 @@ __global__ void backward(const T1 *srcNodes, const T1 *tgtNodes,
     backwardAccumulatedNext[srcNode] = nextSrc;
     changed = true;
   }
+
+  printf("  [BWD] edge %d (%lld->%lld): fwd[src]=%d, fwd[tgt]=%d, bwdPrev[src]=%d, bwdPrev[tgt]=%d, diff=%d, nextSrc=%d, Next[src]=%d, changed=%d\n",
+         i, (long long)srcNode, (long long)tgtNode,
+         (int)forwardAccumulated[srcNode], (int)forwardAccumulated[tgtNode],
+         (int)prevSrc, (int)backwardAccumulatedPrev[tgtNode], (int)diff, (int)nextSrc,
+         (int)backwardAccumulatedNext[srcNode], changed);
 
   if (__syncthreads_or(changed) && threadIdx.x == 0) {
     *globalChanged = true;
@@ -109,6 +136,11 @@ __global__ void createEdgeMask(const T1 *srcNodes,
       (forwardAccumulated[tgtNode] - forwardAccumulated[srcNode] - 1);
 
   mask[i] = edgeAccumulated >= static_cast<int>(minTrackLength);
+
+  printf("  [MASK] edge %d (%lld->%lld): fwd[src]=%d, fwd[tgt]=%d, bwd[tgt]=%d, edgeAcc=%d, pass=%d (minLen=%d)\n",
+         i, (long long)srcNode, (long long)tgtNode,
+         (int)forwardAccumulated[srcNode], (int)forwardAccumulated[tgtNode],
+         (int)backwardAccumulated[tgtNode], edgeAccumulated, mask[i], (int)minTrackLength);
 }
 
 
@@ -123,10 +155,24 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
 
   const dim3 blockDim = 1024;
   const std::size_t nEdges = edgeIndex.shape().at(1);
+
+  ExecutionContext execContext{edgeIndex.device(), stream};
+
+  // Handle empty graph - return empty tensor
+  if (nEdges == 0) {
+    printf("Empty graph, returning empty edge tensor\n");
+    printf("=== cudaFilterEdgesByTrackLength end ===\n\n");
+    return Tensor<std::int64_t>::Create({2, 0}, execContext);
+  }
+
   const dim3 gridDimEdges = (nEdges + blockDim.x - 1) / blockDim.x;
   const dim3 gridDimNodes = (nNodes + blockDim.x - 1) / blockDim.x;
 
-  ExecutionContext execContext{edgeIndex.device(), stream};
+  int *nodeWeights{};
+  ACTS_CUDA_CHECK(
+      cudaMallocAsync(&nodeWeights, sizeof(int) * nNodes, stream));
+  thrust::fill(thrust::device.on(stream), nodeWeights,
+               nodeWeights + nNodes, 1);
 
   // Extract source and destination node arrays
   const std::int64_t *srcNodes = edgeIndex.data();
@@ -142,10 +188,16 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   ACTS_CUDA_CHECK(
       cudaMallocAsync(&mem2, sizeof(int) * nNodes, stream));
   
-  int *forwardAccumulatedNext = mem1;
+  // Initialize forward accumulated prev with node weights,
+  // as first step of forward accumulation
   int *forwardAccumulatedPrev = mem2;
   ACTS_CUDA_CHECK(
-      cudaMemsetAsync(forwardAccumulatedPrev, 0, sizeof(int) * nNodes, stream));
+      cudaMemcpyAsync(forwardAccumulatedPrev, nodeWeights,
+                      sizeof(int) * nNodes, cudaMemcpyDeviceToDevice, stream));
+  
+  // Initialize forward accumulated with zeros, will always be smaller then max
+  // and thus overwritten in first iteration
+  int *forwardAccumulatedNext = mem1;
   ACTS_CUDA_CHECK(
       cudaMemsetAsync(forwardAccumulatedNext, 0, sizeof(int) * nNodes, stream));
 
@@ -157,8 +209,12 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
     printf("Forward iteration %d\n", forwardIter++);
     ACTS_CUDA_CHECK(cudaMemsetAsync(cudaChanged, 0, sizeof(bool), stream));
 
+    // Initialize Next buffer with Prev values before kernel
+    ACTS_CUDA_CHECK(cudaMemcpyAsync(forwardAccumulatedNext, forwardAccumulatedPrev,
+                                    sizeof(int) * nNodes, cudaMemcpyDeviceToDevice, stream));
+
     forward<<<gridDimEdges, blockDim, 0, stream>>>(srcNodes,
-        dstNodes, nEdges, forwardAccumulatedPrev,
+        dstNodes, nodeWeights, nEdges, forwardAccumulatedPrev,
         forwardAccumulatedNext, cudaChanged);
     ACTS_CUDA_CHECK(cudaGetLastError());
 
@@ -166,8 +222,12 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
                                     cudaMemcpyDeviceToHost, stream));
     ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    printf("  changed = %d\n", changed);
-    std::swap(forwardAccumulatedNext, forwardAccumulatedPrev);
+    printf("  changed = %d\n", static_cast<int>(changed));
+
+    // Copy Next back to Prev for next iteration
+    ACTS_CUDA_CHECK(cudaMemcpyAsync(forwardAccumulatedPrev, forwardAccumulatedNext,
+                                    sizeof(int) * nNodes, cudaMemcpyDeviceToDevice, stream));
+
     if( forwardIter > 100) {
       throw std::runtime_error("iter_error");
     }
@@ -176,7 +236,9 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   // Repurpose pointers, due to last swap, prev has the final result
   int *forwardAccumulated = forwardAccumulatedPrev;
   int *backwardAccumulatedPrev = forwardAccumulatedNext;
-  ACTS_CUDA_CHECK(cudaMemsetAsync(backwardAccumulatedPrev, 0, sizeof(int) * nNodes, stream));
+  // Initialize backward with forward values (not zeros!)
+  ACTS_CUDA_CHECK(cudaMemcpyAsync(backwardAccumulatedPrev, forwardAccumulated,
+                                  sizeof(int) * nNodes, cudaMemcpyDeviceToDevice, stream));
 
   int *mem3{};
   ACTS_CUDA_CHECK(
@@ -192,6 +254,10 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
     printf("Backward iteration %d\n", backwardIter++);
     ACTS_CUDA_CHECK(cudaMemsetAsync(cudaChanged, 0, sizeof(bool), stream));
 
+    // Initialize Next buffer with Prev values before kernel
+    ACTS_CUDA_CHECK(cudaMemcpyAsync(backwardAccumulatedNext, backwardAccumulatedPrev,
+                                    sizeof(int) * nNodes, cudaMemcpyDeviceToDevice, stream));
+
     backward<<<gridDimEdges, blockDim, 0, stream>>>(srcNodes, dstNodes, nEdges, forwardAccumulated,
         backwardAccumulatedPrev, backwardAccumulatedNext, cudaChanged);
     ACTS_CUDA_CHECK(cudaGetLastError());
@@ -201,7 +267,10 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
     ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
     printf("  changed = %d\n", changed);
-    std::swap(backwardAccumulatedNext, backwardAccumulatedPrev);
+
+    // Copy Next back to Prev for next iteration
+    ACTS_CUDA_CHECK(cudaMemcpyAsync(backwardAccumulatedPrev, backwardAccumulatedNext,
+                                    sizeof(int) * nNodes, cudaMemcpyDeviceToDevice, stream));
   } while (changed);
 
   // Repurpose pointer, due to last swap, prev has the final result
@@ -234,6 +303,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
                   outputEdgeIndex.data() + nEdgesAfter, pred);
 
   // Free temporary arrays
+  ACTS_CUDA_CHECK(cudaFreeAsync(nodeWeights, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(cudaChanged, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(mem1, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(mem2, stream));

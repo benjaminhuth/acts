@@ -62,7 +62,7 @@ void testTrackLengthFilter(const std::vector<std::int64_t>& inputSources,
   TrackLengthEdgeFilter filter(cfg, std::move(logger));
 
   // Apply filter
-  auto output = filter(std::move(input));
+  auto output = filter(std::move(input), execContext);
 
   // Clone results back to CPU for verification
   auto outputEdgesHost = output.edgeIndex.clone(execContextCpu);
@@ -81,213 +81,144 @@ void testTrackLengthFilter(const std::vector<std::int64_t>& inputSources,
       expectedTargets.end());
 }
 
+// Test case functions that take only ExecutionContext as parameter
+void runTestAllPass(const ExecutionContext& execContext) {
+  std::vector<std::int64_t> inputSources = {0, 1, 2};
+  std::vector<std::int64_t> inputTargets = {1, 2, 3};
+  std::vector<std::int64_t> expectedSources = inputSources;
+  std::vector<std::int64_t> expectedTargets = inputTargets;
+  std::vector<float> nodeRadii(4, 0.f);
+
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 4;
+  cfg.stripRadius = 0.f;
+  cfg.radiusFeatureIdx = 0;
+
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, nodeRadii, cfg, execContext);
+}
+
+void runTestAllFiltered(const ExecutionContext& execContext) {
+  std::vector<std::int64_t> inputSources = {0, 1};
+  std::vector<std::int64_t> inputTargets = {1, 2};
+  std::vector<std::int64_t> expectedSources, expectedTargets;
+  std::vector<float> nodeRadii(3, 0.f);
+
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 4;
+  cfg.stripRadius = 1000.f;
+  cfg.radiusFeatureIdx = 0;
+
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, nodeRadii, cfg, execContext);
+}
+
+void runTestEmptyGraph(const ExecutionContext& execContext) {
+  std::vector<std::int64_t> inputSources, inputTargets;
+  std::vector<std::int64_t> expectedSources, expectedTargets;
+  std::vector<float> nodeRadii;
+
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 4;
+  cfg.stripRadius = 1000.f;
+  cfg.radiusFeatureIdx = 0;
+
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, nodeRadii, cfg, execContext);
+}
+
+void runTestBranching(const ExecutionContext& execContext) {
+  std::vector<std::int64_t> inputSources = {0, 1, 2, 1};
+  std::vector<std::int64_t> inputTargets = {1, 2, 3, 4};
+  std::vector<std::int64_t> expectedSources = {0, 1, 2};
+  std::vector<std::int64_t> expectedTargets = {1, 2, 3};
+  std::vector<float> nodeRadii(5, 0.f);
+
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 4;
+  cfg.stripRadius = 1000.f;
+  cfg.radiusFeatureIdx = 0;
+
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, nodeRadii, cfg, execContext);
+}
+
+void runTestWithWeights(const ExecutionContext& execContext) {
+  std::vector<std::int64_t> inputSources = {0, 1, 2};
+  std::vector<std::int64_t> inputTargets = {1, 2, 3};
+  std::vector<std::int64_t> expectedSources = inputSources;
+  std::vector<std::int64_t> expectedTargets = inputTargets;
+  std::vector<float> nodeRadii = {30.f, 30.f, 70.f, 70.f};
+
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 5;
+  cfg.stripRadius = 50.f;
+  cfg.radiusFeatureIdx = 0;
+
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, nodeRadii, cfg, execContext);
+}
+
 }  // namespace
 
 namespace ActsTests {
 
 BOOST_AUTO_TEST_SUITE(GnnSuite)
 
+const ExecutionContext execContextCpu{Device::Cpu(), {}};
+
 BOOST_AUTO_TEST_CASE(test_track_length_filter_all_pass) {
-  ExecutionContext execCtx{Device::Cpu(), {}};
-
-  // Single long track: 0 -> 1 -> 2 -> 3 -> 4 -> 5 (6 nodes, minTrackLength=4)
-  std::vector<std::int64_t> inputSources = {0, 1, 2, 3, 4};
-  std::vector<std::int64_t> inputTargets = {1, 2, 3, 4, 5};
-
-  // All edges should pass
-  std::vector<std::int64_t> expectedSources = inputSources;
-  std::vector<std::int64_t> expectedTargets = inputTargets;
-
-  std::vector<float> nodeRadii(6, 0.f);  // 6 nodes, all with radius 0
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 0.f;
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestAllPass(execContextCpu);
 }
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_all_filtered) {
-  ExecutionContext execCtx{Device::Cpu(), {}};
-
-  // Short track: 0 -> 1 -> 2 (3 nodes, less than minTrackLength=4)
-  std::vector<std::int64_t> inputSources = {0, 1};
-  std::vector<std::int64_t> inputTargets = {1, 2};
-
-  // All edges should be filtered
-  std::vector<std::int64_t> expectedSources, expectedTargets;
-
-  std::vector<float> nodeRadii(3, 0.f);  // 3 nodes, all with radius 0
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 1000.f; // all weights should be one
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestAllFiltered(execContextCpu);
 }
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_empty_graph) {
-  ExecutionContext execCtx{Device::Cpu(), {}};
-
-  // Empty graph
-  std::vector<std::int64_t> inputSources, inputTargets;
-  std::vector<std::int64_t> expectedSources, expectedTargets;
-  std::vector<float> nodeRadii;
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 1000.f; // all weights should be one
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestEmptyGraph(execContextCpu);
 }
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_branching) {
-  ExecutionContext execCtx{Device::Cpu(), {}};
-
-  // Test branching behavior: edges on long branches kept, short branches filtered
-  // Graph: 0 -> 1 -> 2 -> 3 (main path, 4 nodes)
-  //           \-> 4 (short branch, only 3 nodes from 0)
-  // With minTrackLength=4, keep main path edges, filter short branch
-
-  std::vector<std::int64_t> inputSources = {0, 1, 2, 1};  // Last edge is the branch
-  std::vector<std::int64_t> inputTargets = {1, 2, 3, 4};
-
-  // Expected: keep main path (0->1, 1->2, 2->3), filter branch (1->4)
-  std::vector<std::int64_t> expectedSources = {0, 1, 2};
-  std::vector<std::int64_t> expectedTargets = {1, 2, 3};
-
-  std::vector<float> nodeRadii(5, 0.f);  // 5 nodes, all with radius 0
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 1000.f; // all weights should be one
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestBranching(execContextCpu);
 }
 
-
 BOOST_AUTO_TEST_CASE(test_track_length_filter_with_weights) {
-  ExecutionContext execCtx{Device::Cpu(), {}};
-
-  // Track with mixed pixel (weight=1) and strip (weight=2) detectors
-  // 0 -> 1 -> 2 -> 3
-  // With stripRadius=50, nodes with radius < 50 get weight 1, others get weight 2
-  // Nodes 0,1 are pixels (r=30), nodes 2,3 are strips (r=70)
-  // Weighted track length = 1 + 1 + 2 + 2 = 6, passes minTrackLength=5
-
-  std::vector<std::int64_t> inputSources = {0, 1, 2};
-  std::vector<std::int64_t> inputTargets = {1, 2, 3};
-
-  // All edges should be kept with weighted nodes
-  std::vector<std::int64_t> expectedSources = inputSources;
-  std::vector<std::int64_t> expectedTargets = inputTargets;
-
-  // Radius values: nodes 0,1 are pixels (r=30), nodes 2,3 are strips (r=70)
-  std::vector<float> nodeRadii = {30.f, 30.f, 70.f, 70.f};
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 5;  // Require weighted length >= 5
-  cfg.stripRadius = 50.f;  // Distinguish pixel vs strip
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestWithWeights(execContextCpu);
 }
 
 #ifdef ACTS_GNN_WITH_CUDA
+#include <cuda_runtime_api.h>
+
+// Initialize CUDA runtime and create a stream
+static cudaStream_t createCudaStream() {
+  cudaSetDevice(0);
+  cudaStream_t stream;
+  cudaStreamCreate(&stream);
+  return stream;
+}
+static cudaStream_t cudaStream = createCudaStream();
+
+const ExecutionContext execContextCuda{Device::Cuda(0), cudaStream};
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_all_pass_cuda) {
-  ExecutionContext execCtx{Device::Cuda(0), cudaStream_t{}};
-
-  // Single long track: 0 -> 1 -> 2 -> 3 -> 4 -> 5 (6 nodes, minTrackLength=4)
-  std::vector<std::int64_t> inputSources = {0, 1, 2, 3, 4};
-  std::vector<std::int64_t> inputTargets = {1, 2, 3, 4, 5};
-
-  // All edges should pass
-  std::vector<std::int64_t> expectedSources = inputSources;
-  std::vector<std::int64_t> expectedTargets = inputTargets;
-
-  std::vector<float> nodeRadii(6, 0.f);  // 6 nodes, all with radius 0
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 0.f;
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestAllPass(execContextCuda);
 }
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_all_filtered_cuda) {
-  ExecutionContext execCtx{Device::Cuda(0), cudaStream_t{}};
-
-  // Short track: 0 -> 1 -> 2 (3 nodes, less than minTrackLength=4)
-  std::vector<std::int64_t> inputSources = {0, 1};
-  std::vector<std::int64_t> inputTargets = {1, 2};
-
-  // All edges should be filtered
-  std::vector<std::int64_t> expectedSources, expectedTargets;
-
-  std::vector<float> nodeRadii(3, 0.f);  // 3 nodes, all with radius 0
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 1000.f;  // all weights should be one
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestAllFiltered(execContextCuda);
 }
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_empty_graph_cuda) {
-  ExecutionContext execCtx{Device::Cuda(0), cudaStream_t{}};
-
-  // Empty graph
-  std::vector<std::int64_t> inputSources, inputTargets;
-  std::vector<std::int64_t> expectedSources, expectedTargets;
-  std::vector<float> nodeRadii;
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 1000.f;  // all weights should be one
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+  runTestEmptyGraph(execContextCuda);
 }
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_branching_cuda) {
-  ExecutionContext execCtx{Device::Cuda(0), cudaStream_t{}};
+  runTestBranching(execContextCuda);
+}
 
-  // Test branching behavior: edges on long branches kept, short branches filtered
-  // Graph: 0 -> 1 -> 2 -> 3 (main path, 4 nodes)
-  //           \-> 4 (short branch, only 3 nodes from 0)
-  // With minTrackLength=4, keep main path edges, filter short branch
-
-  std::vector<std::int64_t> inputSources = {0, 1, 2, 1};  // Last edge is the branch
-  std::vector<std::int64_t> inputTargets = {1, 2, 3, 4};
-
-  // Expected: keep main path (0->1, 1->2, 2->3), filter branch (1->4)
-  std::vector<std::int64_t> expectedSources = {0, 1, 2};
-  std::vector<std::int64_t> expectedTargets = {1, 2, 3};
-
-  std::vector<float> nodeRadii(5, 0.f);  // 5 nodes, all with radius 0
-
-  TrackLengthEdgeFilter::Config cfg;
-  cfg.minTrackLength = 4;
-  cfg.stripRadius = 1000.f;  // all weights should be one
-  cfg.radiusFeatureIdx = 0;
-
-  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
-                        expectedTargets, nodeRadii, cfg, execCtx);
+BOOST_AUTO_TEST_CASE(test_track_length_filter_with_weights_cuda) {
+  runTestWithWeights(execContextCuda);
 }
 
 #endif  // ACTS_GNN_WITH_CUDA
