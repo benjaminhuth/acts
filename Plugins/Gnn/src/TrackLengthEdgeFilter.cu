@@ -117,6 +117,10 @@ __global__ void createEdgeMask(const T1 *srcNodes,
 Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
     const Tensor<std::int64_t> &edgeIndex, std::size_t nNodes,
     std::size_t minTrackLength, cudaStream_t stream) {
+  printf("\n=== cudaFilterEdgesByTrackLength start ===\n");
+  printf("nNodes = %zu, nEdges = %zu, minTrackLength = %zu\n",
+         nNodes, edgeIndex.shape().at(1), minTrackLength);
+
   const dim3 blockDim = 1024;
   const std::size_t nEdges = edgeIndex.shape().at(1);
   const dim3 gridDimEdges = (nEdges + blockDim.x - 1) / blockDim.x;
@@ -142,11 +146,15 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   int *forwardAccumulatedPrev = mem2;
   ACTS_CUDA_CHECK(
       cudaMemsetAsync(forwardAccumulatedPrev, 0, sizeof(int) * nNodes, stream));
+  ACTS_CUDA_CHECK(
+      cudaMemsetAsync(forwardAccumulatedNext, 0, sizeof(int) * nNodes, stream));
 
   bool changed{};
 
   // Accumulate forward through graph
+  int forwardIter = 0;
   do {
+    printf("Forward iteration %d\n", forwardIter++);
     ACTS_CUDA_CHECK(cudaMemsetAsync(cudaChanged, 0, sizeof(bool), stream));
 
     forward<<<gridDimEdges, blockDim, 0, stream>>>(srcNodes,
@@ -158,7 +166,11 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
                                     cudaMemcpyDeviceToHost, stream));
     ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
+    printf("  changed = %d\n", changed);
     std::swap(forwardAccumulatedNext, forwardAccumulatedPrev);
+    if( forwardIter > 100) {
+      throw std::runtime_error("iter_error");
+    }
   } while (changed);
 
   // Repurpose pointers, due to last swap, prev has the final result
@@ -175,7 +187,9 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
       cudaMemsetAsync(backwardAccumulatedNext, 0, sizeof(int) * nNodes, stream));
 
   // Propagate backwards
+  int backwardIter = 0;
   do {
+    printf("Backward iteration %d\n", backwardIter++);
     ACTS_CUDA_CHECK(cudaMemsetAsync(cudaChanged, 0, sizeof(bool), stream));
 
     backward<<<gridDimEdges, blockDim, 0, stream>>>(srcNodes, dstNodes, nEdges, forwardAccumulated,
@@ -186,6 +200,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
                                     cudaMemcpyDeviceToHost, stream));
     ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
+    printf("  changed = %d\n", changed);
     std::swap(backwardAccumulatedNext, backwardAccumulatedPrev);
   } while (changed);
 
@@ -205,6 +220,8 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   const std::size_t nEdgesAfter =
       thrust::count(thrust::device.on(stream), mask, mask + nEdges, true);
 
+  printf("Edges after filtering: %zu (from %zu)\n", nEdgesAfter, nEdges);
+
   // Create output tensor
   auto outputEdgeIndex =
       Tensor<std::int64_t>::Create({2, nEdgesAfter}, execContext);
@@ -223,6 +240,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   ACTS_CUDA_CHECK(cudaFreeAsync(mem3, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(mask, stream));
 
+  printf("=== cudaFilterEdgesByTrackLength end ===\n\n");
   return outputEdgeIndex;
 }
 
