@@ -23,11 +23,9 @@ namespace {
 Tensor<std::int64_t> createEdgeTensor(const std::vector<std::int64_t>& sources,
                                       const std::vector<std::int64_t>& targets,
                                       const ExecutionContext& execCtx) {
-  auto edgeTensor =
-      Tensor<std::int64_t>::Create({2, sources.size()}, execCtx);
+  auto edgeTensor = Tensor<std::int64_t>::Create({2, sources.size()}, execCtx);
   std::copy(sources.begin(), sources.end(), edgeTensor.data());
-  std::copy(targets.begin(), targets.end(),
-            edgeTensor.data() + sources.size());
+  std::copy(targets.begin(), targets.end(), edgeTensor.data() + sources.size());
   return edgeTensor;
 }
 
@@ -44,7 +42,8 @@ void testTrackLengthFilter(const std::vector<std::int64_t>& inputSources,
   const ExecutionContext execContextCpu{Device::Cpu(), {}};
 
   // Create input tensors on CPU
-  auto edgeTensor = createEdgeTensor(inputSources, inputTargets, execContextCpu);
+  auto edgeTensor =
+      createEdgeTensor(inputSources, inputTargets, execContextCpu);
 
   // Node features: 1D tensor containing only radius values
   auto nodeFeatures =
@@ -56,7 +55,8 @@ void testTrackLengthFilter(const std::vector<std::int64_t>& inputSources,
   auto nodeFeaturesTarget = nodeFeatures.clone(execContext);
 
   PipelineTensors input{std::move(nodeFeaturesTarget),
-                        std::move(edgeTensorTarget), std::nullopt, std::nullopt};
+                        std::move(edgeTensorTarget), std::nullopt,
+                        std::nullopt};
 
   auto logger = Acts::getDefaultLogger("TestLogger", Acts::Logging::INFO);
   TrackLengthEdgeFilter filter(cfg, std::move(logger));
@@ -72,13 +72,12 @@ void testTrackLengthFilter(const std::vector<std::int64_t>& inputSources,
   BOOST_CHECK_EQUAL(outputEdgesHost.shape()[1], expectedSources.size());
 
   // Check edge indices
-  BOOST_CHECK_EQUAL_COLLECTIONS(
-      outputEdgesHost.data(), outputEdgesHost.data() + expectedSources.size(),
-      expectedSources.begin(), expectedSources.end());
-  BOOST_CHECK_EQUAL_COLLECTIONS(
-      outputEdgesHost.data() + expectedSources.size(),
-      outputEdgesHost.data() + outputEdgesHost.size(), expectedTargets.begin(),
-      expectedTargets.end());
+  BOOST_CHECK_EQUAL_COLLECTIONS(outputEdgesHost.data(),
+                                outputEdgesHost.data() + expectedSources.size(),
+                                expectedSources.begin(), expectedSources.end());
+  BOOST_CHECK_EQUAL_COLLECTIONS(outputEdgesHost.data() + expectedSources.size(),
+                                outputEdgesHost.data() + outputEdgesHost.size(),
+                                expectedTargets.begin(), expectedTargets.end());
 }
 
 // Test case functions that take only ExecutionContext as parameter
@@ -159,6 +158,49 @@ void runTestWithWeights(const ExecutionContext& execContext) {
                         expectedTargets, nodeRadii, cfg, execContext);
 }
 
+void runTestOutgoingBranch(const ExecutionContext& execContext) {
+  // Minimal outgoing branch: 0 -> 1 -> 2
+  //                               \-> 3
+  // Use weights to make one branch longer than the other
+  std::vector<std::int64_t> inputSources = {0, 1, 1};
+  std::vector<std::int64_t> inputTargets = {1, 2, 3};
+  // Node radii: nodes 0,1,3 have weight=1, node 2 has weight=2
+  // Path 0->1->2 has accumulated length 4, path 0->1->3 has length 3
+  std::vector<std::int64_t> expectedSources = {0, 1};
+  std::vector<std::int64_t> expectedTargets = {1, 2};
+  std::vector<float> nodeRadii = {10.f, 10.f, 60.f, 10.f};
+
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 4;
+  cfg.stripRadius = 50.f;  // Nodes 0,1,3 have weight 1, node 2 has weight 2
+  cfg.radiusFeatureIdx = 0;
+
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, nodeRadii, cfg, execContext);
+}
+
+void runTestJunction(const ExecutionContext& execContext) {
+  // Junction with two incoming and two outgoing edges:
+  // 0 -> 2 -> 3
+  // 1 -> 2 -> 4
+  // Node 2 is the junction
+  std::vector<std::int64_t> inputSources = {0, 1, 2, 2};
+  std::vector<std::int64_t> inputTargets = {2, 2, 3, 4};
+  // All edges have accumulated length 3 with weights=1
+  // With minTrackLength=3, all edges pass
+  std::vector<std::int64_t> expectedSources = inputSources;
+  std::vector<std::int64_t> expectedTargets = inputTargets;
+  std::vector<float> nodeRadii(5, 0.f);
+
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 3;
+  cfg.stripRadius = 1000.f;
+  cfg.radiusFeatureIdx = 0;
+
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, nodeRadii, cfg, execContext);
+}
+
 }  // namespace
 
 namespace ActsTests {
@@ -185,6 +227,14 @@ BOOST_AUTO_TEST_CASE(test_track_length_filter_branching) {
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_with_weights) {
   runTestWithWeights(execContextCpu);
+}
+
+BOOST_AUTO_TEST_CASE(test_track_length_filter_outgoing_branch) {
+  runTestOutgoingBranch(execContextCpu);
+}
+
+BOOST_AUTO_TEST_CASE(test_track_length_filter_junction) {
+  runTestJunction(execContextCpu);
 }
 
 #ifdef ACTS_GNN_WITH_CUDA
@@ -219,6 +269,14 @@ BOOST_AUTO_TEST_CASE(test_track_length_filter_branching_cuda) {
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_with_weights_cuda) {
   runTestWithWeights(execContextCuda);
+}
+
+BOOST_AUTO_TEST_CASE(test_track_length_filter_outgoing_branch_cuda) {
+  runTestOutgoingBranch(execContextCuda);
+}
+
+BOOST_AUTO_TEST_CASE(test_track_length_filter_junction_cuda) {
+  runTestJunction(execContextCuda);
 }
 
 #endif  // ACTS_GNN_WITH_CUDA

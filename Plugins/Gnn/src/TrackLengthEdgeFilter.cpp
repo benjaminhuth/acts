@@ -19,9 +19,10 @@
 
 namespace ActsPlugins::detail {
 Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
-    const Tensor<std::int64_t> &edgeIndex, std::size_t nNodes,
-    std::size_t minTrackLength, cudaStream_t stream,
-    const Acts::Logger& logger);
+    const Tensor<std::int64_t> &edgeIndex, const Tensor<float> &nodeFeatures,
+    std::size_t nNodes, std::size_t minTrackLength, float stripRadius,
+    std::size_t radiusFeatureIdx, cudaStream_t stream,
+    const Acts::Logger &logger);
 }
 #endif
 
@@ -50,7 +51,7 @@ inline auto make_graph(const Vi &from, const Vi &to, const Vi &weights) {
   }
   for (auto i = 0ul; i < boost::num_vertices(g); ++i) {
     g[i].weight = weights.at(i);
-    //g[i].distance = weights.at(i);
+    // g[i].distance = weights.at(i);
   }
   return g;
 }
@@ -156,8 +157,9 @@ PipelineTensors TrackLengthEdgeFilter::operator()(
   if (execContext.device.isCuda()) {
     const std::size_t nNodes = tensors.nodeFeatures.shape().at(0);
     tensors.edgeIndex = detail::cudaFilterEdgesByTrackLength(
-        tensors.edgeIndex, nNodes, m_cfg.minTrackLength,
-        execContext.stream.value(), logger());
+        tensors.edgeIndex, tensors.nodeFeatures, nNodes, m_cfg.minTrackLength,
+        m_cfg.stripRadius, m_cfg.radiusFeatureIdx, execContext.stream.value(),
+        logger());
     return tensors;
   }
 #endif
@@ -184,7 +186,7 @@ PipelineTensors TrackLengthEdgeFilter::operator()(
     to.push_back(static_cast<int>(tgtSpan[i]));
   }
 
-  for(auto i = 0ul; i < nodesCpu.shape().at(0); ++i) {
+  for (auto i = 0ul; i < nodesCpu.shape().at(0); ++i) {
     weights.push_back(radius[i] < m_cfg.stripRadius ? 1 : 2);
   }
 
