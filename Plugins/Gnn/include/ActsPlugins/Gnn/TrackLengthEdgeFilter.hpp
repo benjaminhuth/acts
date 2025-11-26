@@ -18,8 +18,20 @@ namespace ActsPlugins {
 class TrackLengthEdgeFilter final : public EdgeClassificationBase {
  public:
   struct Config {
+    /// Radius threshold to distinguish pixel (r < threshold) from strip layers.
+    /// Nodes with radius < stripRadius get weight 1 (pixel layers),
+    /// nodes with radius >= stripRadius get weight 2 (strip layers).
+    /// Default 0.f means all nodes are treated as strip layers (weight 2).
     float stripRadius = 0.f;
+
+    /// Index of the radius feature in the node feature tensor.
+    /// The radius value is extracted from nodeFeatures[i, radiusFeatureIdx]
+    /// for each node i.
     std::size_t radiusFeatureIdx = 0;
+
+    /// Minimum accumulated track length (sum of node weights along path)
+    /// required to keep an edge. Edges belonging to tracks shorter than
+    /// this threshold are filtered out.
     std::size_t minTrackLength = 7;
   };
 
