@@ -20,7 +20,8 @@
 namespace ActsPlugins::detail {
 Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
     const Tensor<std::int64_t> &edgeIndex, std::size_t nNodes,
-    std::size_t minTrackLength, cudaStream_t stream);
+    std::size_t minTrackLength, cudaStream_t stream,
+    const Acts::Logger& logger);
 }
 #endif
 
@@ -156,7 +157,7 @@ PipelineTensors TrackLengthEdgeFilter::operator()(
     const std::size_t nNodes = tensors.nodeFeatures.shape().at(0);
     tensors.edgeIndex = detail::cudaFilterEdgesByTrackLength(
         tensors.edgeIndex, nNodes, m_cfg.minTrackLength,
-        execContext.stream.value());
+        execContext.stream.value(), logger());
     return tensors;
   }
 #endif

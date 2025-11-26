@@ -15,6 +15,7 @@
 
 #include <math.h>
 
+#include "Acts/Utilities/Logger.hpp"
 #include "ActsPlugins/Gnn/Tensor.hpp"
 #include "ActsPlugins/Gnn/detail/CudaUtils.hpp"
 
@@ -148,10 +149,11 @@ __global__ void createEdgeMask(const T1 *srcNodes,
 
 Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
     const Tensor<std::int64_t> &edgeIndex, std::size_t nNodes,
-    std::size_t minTrackLength, cudaStream_t stream) {
-  printf("\n=== cudaFilterEdgesByTrackLength start ===\n");
-  printf("nNodes = %zu, nEdges = %zu, minTrackLength = %zu\n",
-         nNodes, edgeIndex.shape().at(1), minTrackLength);
+    std::size_t minTrackLength, cudaStream_t stream,
+    const Acts::Logger& logger) {
+  ACTS_VERBOSE("cudaFilterEdgesByTrackLength start");
+  ACTS_VERBOSE("nNodes = " << nNodes << ", nEdges = " << edgeIndex.shape().at(1)
+               << ", minTrackLength = " << minTrackLength);
 
   const dim3 blockDim = 1024;
   const std::size_t nEdges = edgeIndex.shape().at(1);
@@ -160,8 +162,8 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
 
   // Handle empty graph - return empty tensor
   if (nEdges == 0) {
-    printf("Empty graph, returning empty edge tensor\n");
-    printf("=== cudaFilterEdgesByTrackLength end ===\n\n");
+    ACTS_VERBOSE("Empty graph, returning empty edge tensor");
+    ACTS_VERBOSE("cudaFilterEdgesByTrackLength end");
     return Tensor<std::int64_t>::Create({2, 0}, execContext);
   }
 
@@ -206,7 +208,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   // Accumulate forward through graph
   int forwardIter = 0;
   do {
-    printf("Forward iteration %d\n", forwardIter++);
+    ACTS_VERBOSE("Forward iteration " << forwardIter++);
     ACTS_CUDA_CHECK(cudaMemsetAsync(cudaChanged, 0, sizeof(bool), stream));
 
     // Initialize Next buffer with Prev values before kernel
@@ -222,7 +224,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
                                     cudaMemcpyDeviceToHost, stream));
     ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    printf("  changed = %d\n", static_cast<int>(changed));
+    ACTS_VERBOSE("  changed = " << static_cast<int>(changed));
 
     // Copy Next back to Prev for next iteration
     ACTS_CUDA_CHECK(cudaMemcpyAsync(forwardAccumulatedPrev, forwardAccumulatedNext,
@@ -251,7 +253,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   // Propagate backwards
   int backwardIter = 0;
   do {
-    printf("Backward iteration %d\n", backwardIter++);
+    ACTS_VERBOSE("Backward iteration " << backwardIter++);
     ACTS_CUDA_CHECK(cudaMemsetAsync(cudaChanged, 0, sizeof(bool), stream));
 
     // Initialize Next buffer with Prev values before kernel
@@ -266,7 +268,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
                                     cudaMemcpyDeviceToHost, stream));
     ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    printf("  changed = %d\n", changed);
+    ACTS_VERBOSE("  changed = " << static_cast<int>(changed));
 
     // Copy Next back to Prev for next iteration
     ACTS_CUDA_CHECK(cudaMemcpyAsync(backwardAccumulatedPrev, backwardAccumulatedNext,
@@ -289,7 +291,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   const std::size_t nEdgesAfter =
       thrust::count(thrust::device.on(stream), mask, mask + nEdges, true);
 
-  printf("Edges after filtering: %zu (from %zu)\n", nEdgesAfter, nEdges);
+  ACTS_VERBOSE("Edges after filtering: " << nEdgesAfter << " (from " << nEdges << ")");
 
   // Create output tensor
   auto outputEdgeIndex =
@@ -310,7 +312,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   ACTS_CUDA_CHECK(cudaFreeAsync(mem3, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(mask, stream));
 
-  printf("=== cudaFilterEdgesByTrackLength end ===\n\n");
+  ACTS_VERBOSE("cudaFilterEdgesByTrackLength end");
   return outputEdgeIndex;
 }
 
