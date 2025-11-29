@@ -12,7 +12,12 @@
 #include "ActsPlugins/Gnn/TrackLengthEdgeFilter.hpp"
 
 #include <algorithm>
+#include <random>
+#include <set>
 #include <vector>
+
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/topological_sort.hpp>
 
 using namespace Acts;
 using namespace ActsPlugins;
@@ -277,6 +282,91 @@ BOOST_AUTO_TEST_CASE(test_track_length_filter_outgoing_branch_cuda) {
 
 BOOST_AUTO_TEST_CASE(test_track_length_filter_junction_cuda) {
   runTestJunction(execContextCuda);
+}
+
+BOOST_AUTO_TEST_CASE(test_track_length_filter_large_random_dag_cuda) {
+  const int n_nodes = 64;
+  const int n_edges = 128;
+  const int seed = 42;
+
+  // Generate DAG using lower triangular sampling
+  std::mt19937 rng(seed);
+  std::uniform_int_distribution<int> node_dist(0, n_nodes - 1);
+
+  // Sample exactly n_edges unique edges
+  std::set<std::pair<int, int>> edge_set;
+  while (edge_set.size() < n_edges) {
+    int i = node_dist(rng);
+    int j = node_dist(rng);
+    if (i < j) {
+      edge_set.insert({i, j});
+    } else if (i > j) {
+      edge_set.insert({j, i});
+    }
+  }
+
+  // Convert to vectors
+  std::vector<std::int64_t> inputSources, inputTargets;
+  inputSources.reserve(n_edges);
+  inputTargets.reserve(n_edges);
+  for (const auto& [src, tgt] : edge_set) {
+    inputSources.push_back(src);
+    inputTargets.push_back(tgt);
+  }
+
+  // Assign node radii: inner nodes (0-31) get 25.0, outer nodes (32-63) get
+  // 75.0
+  std::vector<float> node_radii;
+  node_radii.reserve(n_nodes);
+  for (int i = 0; i < n_nodes; ++i) {
+    node_radii.push_back(i < n_nodes / 2 ? 25.0f : 75.0f);
+  }
+
+  // Verify DAG property using boost::topological_sort
+  using Graph =
+      boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS>;
+  Graph g(n_nodes);
+  for (std::size_t i = 0; i < inputSources.size(); ++i) {
+    boost::add_edge(inputSources[i], inputTargets[i], g);
+  }
+
+  std::vector<Graph::vertex_descriptor> topo_order;
+  BOOST_REQUIRE_NO_THROW(
+      boost::topological_sort(g, std::back_inserter(topo_order)));
+
+  // Configuration
+  TrackLengthEdgeFilter::Config cfg;
+  cfg.minTrackLength = 5;
+  cfg.stripRadius = 50.0f;
+  cfg.radiusFeatureIdx = 0;
+
+  // First run on CPU to get expected result
+  auto edgeTensor =
+      createEdgeTensor(inputSources, inputTargets, execContextCpu);
+  auto nodeFeatures =
+      Tensor<float>::Create({node_radii.size(), 1}, execContextCpu);
+  std::copy(node_radii.begin(), node_radii.end(), nodeFeatures.data());
+
+  PipelineTensors input{nodeFeatures.clone(execContextCpu),
+                        edgeTensor.clone(execContextCpu), std::nullopt,
+                        std::nullopt};
+
+  auto logger = Acts::getDefaultLogger("TestLogger", Acts::Logging::INFO);
+  TrackLengthEdgeFilter filter(cfg, std::move(logger));
+
+  auto cpuOutput = filter(std::move(input), execContextCpu);
+
+  // Extract CPU result as expected output
+  const std::size_t nEdgesKept = cpuOutput.edgeIndex.shape()[1];
+  std::vector<std::int64_t> expectedSources(
+      cpuOutput.edgeIndex.data(), cpuOutput.edgeIndex.data() + nEdgesKept);
+  std::vector<std::int64_t> expectedTargets(
+      cpuOutput.edgeIndex.data() + nEdgesKept,
+      cpuOutput.edgeIndex.data() + 2 * nEdgesKept);
+
+  // Test CUDA against CPU result
+  testTrackLengthFilter(inputSources, inputTargets, expectedSources,
+                        expectedTargets, node_radii, cfg, execContextCuda);
 }
 
 #endif  // ACTS_GNN_WITH_CUDA
