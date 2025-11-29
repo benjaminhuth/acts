@@ -51,7 +51,6 @@ inline auto make_graph(const Vi &from, const Vi &to, const Vi &weights) {
   }
   for (auto i = 0ul; i < boost::num_vertices(g); ++i) {
     g[i].weight = weights.at(i);
-    // g[i].distance = weights.at(i);
   }
   return g;
 }
