@@ -74,11 +74,13 @@ __global__ void forward(const T1 *srcNodes, const T1 *tgtNodes,
     changed = true;
   }
 
-  printf(
-      "  [FWD] edge %d (%lld->%lld): Prev[src]=%d, Prev[tgt]=%d, nextTgt=%d, "
-      "Next[tgt]=%d, changed=%d\n",
-      i, (long long)srcNode, (long long)tgtNode, (int)accumulatedPrev[srcNode],
-      (int)prevTgt, (int)nextTgt, (int)accumulatedNext[tgtNode], changed);
+  // printf(
+  //     "  [FWD] edge %d (%lld->%lld): Prev[src]=%d, Prev[tgt]=%d, nextTgt=%d,
+  //     "
+  //     "Next[tgt]=%d, changed=%d\n",
+  //     i, (long long)srcNode, (long long)tgtNode,
+  //     (int)accumulatedPrev[srcNode], (int)prevTgt, (int)nextTgt,
+  //     (int)accumulatedNext[tgtNode], changed);
 
   if (__syncthreads_or(changed) && threadIdx.x == 0) {
     *globalChanged = true;
@@ -113,14 +115,14 @@ __global__ void backward(const T1 *srcNodes, const T1 *tgtNodes,
     changed = true;
   }
 
-  printf(
-      "  [BWD] edge %d (%lld->%lld): fwd[src]=%d, fwd[tgt]=%d, "
-      "bwdPrev[src]=%d, bwdPrev[tgt]=%d, diff=%d, nextSrc=%d, Next[src]=%d, "
-      "changed=%d\n",
-      i, (long long)srcNode, (long long)tgtNode,
-      (int)forwardAccumulated[srcNode], (int)forwardAccumulated[tgtNode],
-      (int)prevSrc, (int)backwardAccumulatedPrev[tgtNode], (int)diff,
-      (int)nextSrc, (int)backwardAccumulatedNext[srcNode], changed);
+  // printf(
+  //     "  [BWD] edge %d (%lld->%lld): fwd[src]=%d, fwd[tgt]=%d, "
+  //     "bwdPrev[src]=%d, bwdPrev[tgt]=%d, diff=%d, nextSrc=%d, Next[src]=%d, "
+  //     "changed=%d\n",
+  //     i, (long long)srcNode, (long long)tgtNode,
+  //     (int)forwardAccumulated[srcNode], (int)forwardAccumulated[tgtNode],
+  //     (int)prevSrc, (int)backwardAccumulatedPrev[tgtNode], (int)diff,
+  //     (int)nextSrc, (int)backwardAccumulatedNext[srcNode], changed);
 
   if (__syncthreads_or(changed) && threadIdx.x == 0) {
     *globalChanged = true;
@@ -150,13 +152,14 @@ __global__ void createEdgeMask(const T1 *srcNodes, const T1 *tgtNodes,
 
   mask[i] = edgeAccumulated >= static_cast<int>(minTrackLength);
 
-  printf(
-      "  [MASK] edge %d (%lld->%lld): fwd[src]=%d, fwd[tgt]=%d, bwd[tgt]=%d, "
-      "edgeAcc=%d, pass=%d (minLen=%d)\n",
-      i, (long long)srcNode, (long long)tgtNode,
-      (int)forwardAccumulated[srcNode], (int)forwardAccumulated[tgtNode],
-      (int)backwardAccumulated[tgtNode], edgeAccumulated, mask[i],
-      (int)minTrackLength);
+  // printf(
+  //     "  [MASK] edge %d (%lld->%lld): fwd[src]=%d, fwd[tgt]=%d, bwd[tgt]=%d,
+  //     "
+  //     "edgeAcc=%d, pass=%d (minLen=%d)\n",
+  //     i, (long long)srcNode, (long long)tgtNode,
+  //     (int)forwardAccumulated[srcNode], (int)forwardAccumulated[tgtNode],
+  //     (int)backwardAccumulated[tgtNode], edgeAccumulated, mask[i],
+  //     (int)minTrackLength);
 }
 
 Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
