@@ -21,6 +21,12 @@
 
 namespace ActsPlugins::detail {
 
+// Node weight constants
+constexpr int PIXEL_WEIGHT =
+    1;  // Weight for pixel layers (radius < stripRadius)
+constexpr int STRIP_WEIGHT =
+    2;  // Weight for strip layers (radius >= stripRadius)
+
 //
 //   1 - 2
 //        \
@@ -42,7 +48,7 @@ __global__ void fillNodeWeights(T *weights, const float *features,
   }
 
   const int j = radiusOffset + i * nFeatures;
-  weights[i] = features[j] < minStripRadius ? 1 : 2;
+  weights[i] = features[j] < minStripRadius ? PIXEL_WEIGHT : STRIP_WEIGHT;
 }
 
 template <typename T1, typename T2, typename T3>

@@ -19,8 +19,8 @@ class TrackLengthEdgeFilter final : public EdgeClassificationBase {
  public:
   struct Config {
     /// Radius threshold to distinguish pixel (r < threshold) from strip layers.
-    /// Nodes with radius < stripRadius get weight 1 (pixel layers),
-    /// nodes with radius >= stripRadius get weight 2 (strip layers).
+    /// Nodes with radius < stripRadius get weight 1 (pixel),
+    /// nodes with radius >= stripRadius get weight 2 (strip).
     /// Default 0.f means all nodes are treated as strip layers (weight 2).
     float stripRadius = 0.f;
 
