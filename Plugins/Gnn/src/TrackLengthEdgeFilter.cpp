@@ -149,19 +149,14 @@ TrackLengthEdgeFilter::TrackLengthEdgeFilter(
 
 TrackLengthEdgeFilter::~TrackLengthEdgeFilter() = default;
 
-PipelineTensors TrackLengthEdgeFilter::operator()(
-    PipelineTensors tensors, const ExecutionContext &execContext) {
-#ifndef ACTS_GNN_CPUONLY
-  // CUDA path - keep tensors on device
-  if (execContext.device.isCuda()) {
-    const std::size_t nNodes = tensors.nodeFeatures.shape().at(0);
-    tensors.edgeIndex = detail::cudaFilterEdgesByTrackLength(
-        tensors.edgeIndex, tensors.nodeFeatures, nNodes, m_cfg.minTrackLength,
-        m_cfg.stripRadius, m_cfg.radiusFeatureIdx, execContext.stream.value(),
-        logger());
-    return tensors;
+PipelineTensors TrackLengthEdgeFilter::filterEdgesCpu(
+    PipelineTensors &&tensors, const ExecutionContext &execContext) {
+  // Check for unsupported features
+  if (tensors.edgeFeatures.has_value()) {
+    throw std::runtime_error(
+        "TrackLengthEdgeFilter does not yet support edge features. "
+        "This will be implemented in a future update.");
   }
-#endif
 
   // CPU path - clone to CPU and use Boost Graph
   auto edgesCpu = tensors.edgeIndex.clone({Device::Cpu(), execContext.stream});
@@ -208,39 +203,27 @@ PipelineTensors TrackLengthEdgeFilter::operator()(
   tensors.edgeIndex = std::move(newEdges).clone(
       {tensors.edgeIndex.device(), execContext.stream});
 
-  if (tensors.edgeFeatures.has_value()) {
-    auto edgeFeaturesCpu =
-        tensors.edgeFeatures->clone({Device::Cpu(), execContext.stream});
-    auto newEdgeFeatures =
-        Tensor<float>::Create({nEdgesKept, tensors.edgeFeatures->shape().at(1)},
-                              {Device::Cpu(), execContext.stream});
-    std::span<const float> edgeFeatSpan{
-        edgeFeaturesCpu.data(),
-        edgeFeaturesCpu.shape().at(0) * edgeFeaturesCpu.shape().at(1)};
-    std::span<float> newEdgeFeatSpan{
-        newEdgeFeatures.data(),
-        newEdgeFeatures.shape().at(0) * newEdgeFeatures.shape().at(1)};
+  return std::move(tensors);
+}
 
-    for (auto i = 0ul, j = 0ul; i < edgesCpu.shape().at(1); ++i) {
-      if (mask[i]) {
-        std::span<const float> edgeFeatureRow{
-            edgeFeatSpan.data() + i * edgeFeaturesCpu.shape().at(1),
-            edgeFeaturesCpu.shape().at(1)};
-        std::span<float> newEdgeFeatureRow{
-            newEdgeFeatSpan.data() + j * newEdgeFeatures.shape().at(1),
-            newEdgeFeatures.shape().at(1)};
-        std::copy(edgeFeatureRow.begin(), edgeFeatureRow.end(),
-                  newEdgeFeatureRow.begin());
-        ++j;
-      }
-    }
+#ifdef ACTS_GNN_CPUONLY
+PipelineTensors TrackLengthEdgeFilter::filterEdgesCuda(
+    PipelineTensors &&tensors, const ExecutionContext &execContext) {
+  (void)tensors;
+  (void)execContext;
+  throw std::runtime_error(
+      "TrackLengthEdgeFilter CUDA support is not enabled. "
+      "Please rebuild with ACTS_GNN_WITH_CUDA=ON.");
+}
+#endif
 
-    tensors.edgeFeatures =
-        std::move(newEdgeFeatures)
-            .clone({tensors.edgeFeatures->device(), execContext.stream});
+PipelineTensors TrackLengthEdgeFilter::operator()(
+    PipelineTensors tensors, const ExecutionContext &execContext) {
+  if (execContext.device.isCuda()) {
+    return filterEdgesCuda(std::move(tensors), execContext);
+  } else {
+    return filterEdgesCpu(std::move(tensors), execContext);
   }
-
-  return tensors;
 }
 
 }  // namespace ActsPlugins

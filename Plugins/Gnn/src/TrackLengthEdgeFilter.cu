@@ -8,6 +8,7 @@
 
 #include "Acts/Utilities/Logger.hpp"
 #include "ActsPlugins/Gnn/Tensor.hpp"
+#include "ActsPlugins/Gnn/TrackLengthEdgeFilter.hpp"
 #include "ActsPlugins/Gnn/detail/CudaUtils.hpp"
 
 #include <cstdint>
@@ -26,6 +27,11 @@ constexpr int PIXEL_WEIGHT =
     1;  // Weight for pixel layers (radius < stripRadius)
 constexpr int STRIP_WEIGHT =
     2;  // Weight for strip layers (radius >= stripRadius)
+
+// Predicate for filtering with boolean mask
+struct BoolPredicate {
+  __device__ bool operator()(bool x) const { return x; }
+};
 
 //
 //   1 - 2
@@ -162,27 +168,32 @@ __global__ void createEdgeMask(const T1 *srcNodes, const T1 *tgtNodes,
   //     (int)minTrackLength);
 }
 
-Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
-    const Tensor<std::int64_t> &edgeIndex, const Tensor<float> &nodeFeatures,
-    std::size_t nNodes, std::size_t minTrackLength, float stripRadius,
-    std::size_t radiusFeatureIdx, cudaStream_t stream,
-    const Acts::Logger &logger) {
-  ACTS_VERBOSE("cudaFilterEdgesByTrackLength start");
-  ACTS_VERBOSE("nNodes = " << nNodes << ", nEdges = " << edgeIndex.shape().at(1)
-                           << ", minTrackLength = " << minTrackLength);
+}  // namespace ActsPlugins::detail
 
-  const dim3 blockDim = 1024;
-  const std::size_t nEdges = edgeIndex.shape().at(1);
+namespace ActsPlugins {
 
-  ExecutionContext execContext{edgeIndex.device(), stream};
+PipelineTensors TrackLengthEdgeFilter::filterEdgesCuda(
+    PipelineTensors &&tensors, const ExecutionContext &execContext) {
+  // Check for unsupported features
+  if (tensors.edgeFeatures.has_value()) {
+    throw std::runtime_error(
+        "TrackLengthEdgeFilter does not yet support edge features. "
+        "This will be implemented in a future update.");
+  }
+
+  ACTS_VERBOSE("Filtering edges using CUDA implementation");
+
+  cudaStream_t stream = execContext.stream.value();
+  const std::size_t nEdges = tensors.edgeIndex.shape().at(1);
+  const std::size_t nNodes = tensors.nodeFeatures.shape().at(0);
 
   // Handle empty graph - return empty tensor
   if (nEdges == 0) {
     ACTS_VERBOSE("Empty graph, returning empty edge tensor");
-    ACTS_VERBOSE("cudaFilterEdgesByTrackLength end");
-    return Tensor<std::int64_t>::Create({2, 0}, execContext);
+    return std::move(tensors);
   }
 
+  const dim3 blockDim = 1024;
   const dim3 gridDimEdges = (nEdges + blockDim.x - 1) / blockDim.x;
   const dim3 gridDimNodes = (nNodes + blockDim.x - 1) / blockDim.x;
 
@@ -190,18 +201,18 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   ACTS_CUDA_CHECK(cudaMallocAsync(&nodeWeights, sizeof(int) * nNodes, stream));
 
   // Get node features data and dimensions
-  const std::size_t nFeatures = nodeFeatures.shape().at(1);
-  const float *nodeFeatureData = nodeFeatures.data();
+  const std::size_t nFeatures = tensors.nodeFeatures.shape().at(1);
+  const float *nodeFeatureData = tensors.nodeFeatures.data();
 
-  // Call fillNodeWeights kernel instead of thrust::fill
-  fillNodeWeights<<<gridDimNodes, blockDim, 0, stream>>>(
-      nodeWeights, nodeFeatureData, stripRadius, radiusFeatureIdx, nNodes,
-      nFeatures);
+  // Fill node weights based on radius feature
+  detail::fillNodeWeights<<<gridDimNodes, blockDim, 0, stream>>>(
+      nodeWeights, nodeFeatureData, m_cfg.stripRadius, m_cfg.radiusFeatureIdx,
+      nNodes, nFeatures);
   ACTS_CUDA_CHECK(cudaGetLastError());
 
   // Extract source and destination node arrays
-  const std::int64_t *srcNodes = edgeIndex.data();
-  const std::int64_t *dstNodes = edgeIndex.data() + nEdges;
+  const std::int64_t *srcNodes = tensors.edgeIndex.data();
+  const std::int64_t *dstNodes = tensors.edgeIndex.data() + nEdges;
 
   // Allocate temporary arrays
   bool *cudaChanged{};
@@ -211,15 +222,13 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   ACTS_CUDA_CHECK(cudaMallocAsync(&mem1, sizeof(int) * nNodes, stream));
   ACTS_CUDA_CHECK(cudaMallocAsync(&mem2, sizeof(int) * nNodes, stream));
 
-  // Initialize forward accumulated prev with node weights,
-  // as first step of forward accumulation
+  // Initialize forward accumulated prev with node weights
   int *forwardAccumulatedPrev = mem2;
   ACTS_CUDA_CHECK(cudaMemcpyAsync(forwardAccumulatedPrev, nodeWeights,
                                   sizeof(int) * nNodes,
                                   cudaMemcpyDeviceToDevice, stream));
 
-  // Initialize forward accumulated with zeros, will always be smaller then max
-  // and thus overwritten in first iteration
+  // Initialize forward accumulated with zeros
   int *forwardAccumulatedNext = mem1;
   ACTS_CUDA_CHECK(
       cudaMemsetAsync(forwardAccumulatedNext, 0, sizeof(int) * nNodes, stream));
@@ -237,7 +246,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
         forwardAccumulatedNext, forwardAccumulatedPrev, sizeof(int) * nNodes,
         cudaMemcpyDeviceToDevice, stream));
 
-    forward<<<gridDimEdges, blockDim, 0, stream>>>(
+    detail::forward<<<gridDimEdges, blockDim, 0, stream>>>(
         srcNodes, dstNodes, nodeWeights, nEdges, forwardAccumulatedPrev,
         forwardAccumulatedNext, cudaChanged);
     ACTS_CUDA_CHECK(cudaGetLastError());
@@ -254,14 +263,14 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
         cudaMemcpyDeviceToDevice, stream));
 
     if (forwardIter > 100) {
-      throw std::runtime_error("iter_error");
+      throw std::runtime_error("Forward propagation exceeded iteration limit");
     }
   } while (changed);
 
-  // Repurpose pointers, due to last swap, prev has the final result
+  // Repurpose pointers
   int *forwardAccumulated = forwardAccumulatedPrev;
   int *backwardAccumulatedPrev = forwardAccumulatedNext;
-  // Initialize backward with forward values (not zeros!)
+  // Initialize backward with forward values
   ACTS_CUDA_CHECK(cudaMemcpyAsync(backwardAccumulatedPrev, forwardAccumulated,
                                   sizeof(int) * nNodes,
                                   cudaMemcpyDeviceToDevice, stream));
@@ -284,7 +293,7 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
         backwardAccumulatedNext, backwardAccumulatedPrev, sizeof(int) * nNodes,
         cudaMemcpyDeviceToDevice, stream));
 
-    backward<<<gridDimEdges, blockDim, 0, stream>>>(
+    detail::backward<<<gridDimEdges, blockDim, 0, stream>>>(
         srcNodes, dstNodes, nEdges, forwardAccumulated, backwardAccumulatedPrev,
         backwardAccumulatedNext, nodeWeights, cudaChanged);
     ACTS_CUDA_CHECK(cudaGetLastError());
@@ -299,18 +308,22 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
     ACTS_CUDA_CHECK(cudaMemcpyAsync(
         backwardAccumulatedPrev, backwardAccumulatedNext, sizeof(int) * nNodes,
         cudaMemcpyDeviceToDevice, stream));
+
+    if (backwardIter > 100) {
+      throw std::runtime_error("Backward propagation exceeded iteration limit");
+    }
   } while (changed);
 
-  // Repurpose pointer, due to last swap, prev has the final result
+  // Repurpose pointer
   int *backwardAccumulated = backwardAccumulatedPrev;
 
   // Create edge mask
   bool *mask{};
   ACTS_CUDA_CHECK(cudaMallocAsync(&mask, nEdges * sizeof(bool), stream));
 
-  createEdgeMask<<<gridDimEdges, blockDim, 0, stream>>>(
+  detail::createEdgeMask<<<gridDimEdges, blockDim, 0, stream>>>(
       srcNodes, dstNodes, nEdges, forwardAccumulated, backwardAccumulated,
-      nodeWeights, minTrackLength, mask);
+      nodeWeights, m_cfg.minTrackLength, mask);
   ACTS_CUDA_CHECK(cudaGetLastError());
 
   // Count passing edges
@@ -325,11 +338,11 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
       Tensor<std::int64_t>::Create({2, nEdgesAfter}, execContext);
 
   // Filter edges using thrust::copy_if
-  auto pred = [] __device__(bool x) { return x; };
   thrust::copy_if(thrust::device.on(stream), srcNodes, srcNodes + nEdges, mask,
-                  outputEdgeIndex.data(), pred);
+                  outputEdgeIndex.data(), detail::BoolPredicate{});
   thrust::copy_if(thrust::device.on(stream), dstNodes, dstNodes + nEdges, mask,
-                  outputEdgeIndex.data() + nEdgesAfter, pred);
+                  outputEdgeIndex.data() + nEdgesAfter,
+                  detail::BoolPredicate{});
 
   // Free temporary arrays
   ACTS_CUDA_CHECK(cudaFreeAsync(nodeWeights, stream));
@@ -339,8 +352,12 @@ Tensor<std::int64_t> cudaFilterEdgesByTrackLength(
   ACTS_CUDA_CHECK(cudaFreeAsync(mem3, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(mask, stream));
 
-  ACTS_VERBOSE("cudaFilterEdgesByTrackLength end");
-  return outputEdgeIndex;
+  ACTS_VERBOSE("CUDA filtering complete");
+
+  // Update tensors
+  tensors.edgeIndex = std::move(outputEdgeIndex);
+
+  return std::move(tensors);
 }
 
-}  // namespace ActsPlugins::detail
+}  // namespace ActsPlugins

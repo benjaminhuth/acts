@@ -35,18 +35,35 @@ class TrackLengthEdgeFilter final : public EdgeClassificationBase {
     std::size_t minTrackLength = 7;
   };
 
-  TrackLengthEdgeFilter(const Config &cfg,
+  TrackLengthEdgeFilter(const Config& cfg,
                         std::unique_ptr<const Acts::Logger> logger);
   ~TrackLengthEdgeFilter();
 
   PipelineTensors operator()(PipelineTensors tensors,
-                             const ExecutionContext &execContext = {}) override;
+                             const ExecutionContext& execContext = {}) override;
 
   Config config() const { return m_cfg; }
 
  private:
+  /// Filter edges using CPU implementation
+  /// @param tensors Pipeline tensors (moved, will be modified)
+  /// @param execContext Execution context for device and stream info
+  /// @return Modified PipelineTensors with filtered edgeIndex
+  /// @throws std::runtime_error if edge features are present (not yet supported)
+  PipelineTensors filterEdgesCpu(PipelineTensors&& tensors,
+                                 const ExecutionContext& execContext);
+
+  /// Filter edges using CUDA implementation
+  /// @param tensors Pipeline tensors (moved, will be modified)
+  /// @param execContext Execution context for device and stream info
+  /// @return Modified PipelineTensors with filtered edgeIndex
+  /// @throws std::runtime_error if CUDA support is not enabled or if edge
+  /// features are present (not yet supported)
+  PipelineTensors filterEdgesCuda(PipelineTensors&& tensors,
+                                  const ExecutionContext& execContext);
+
   std::unique_ptr<const Acts::Logger> m_logger;
-  const auto &logger() const { return *m_logger; }
+  const auto& logger() const { return *m_logger; }
 
   Config m_cfg;
 };
