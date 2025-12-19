@@ -144,7 +144,7 @@ PipelineTensors TensorRTEdgeClassifier::operator()(
     PipelineTensors tensors, const ExecutionContext &execContext) {
   assert(execContext.device.type == Device::Type::eCUDA);
 
-  decltype(std::chrono::high_resolution_clock::now()) t0, t1, t2, t3, t4;
+  decltype(std::chrono::high_resolution_clock::now()) t0, t2, t3, t4;
   t0 = std::chrono::high_resolution_clock::now();
 
   // Curing this would require more complicated handling, and should happen
@@ -229,8 +229,10 @@ PipelineTensors TensorRTEdgeClassifier::operator()(
   ACTS_VERBOSE("Size after classifier: " << scores.shape()[0]);
   printCudaMemInfo(logger());
 
-  auto [newScores, newEdgeIndex] =
-      applyScoreCut(scores, tensors.edgeIndex, m_cfg.cut, execContext.stream);
+  // Use extended applyScoreCut that handles edge features
+  auto [newScores, newEdgeIndex, newEdgeFeatures] =
+      applyScoreCut(scores, tensors.edgeIndex, tensors.edgeFeatures, m_cfg.cut,
+                    execContext.stream);
   ACTS_VERBOSE("Size after score cut: " << newEdgeIndex.shape()[1]);
   printCudaMemInfo(logger());
 
@@ -239,13 +241,12 @@ PipelineTensors TensorRTEdgeClassifier::operator()(
   auto milliseconds = [](const auto &a, const auto &b) {
     return std::chrono::duration<double, std::milli>(b - a).count();
   };
-  ACTS_DEBUG("Time anycast:  " << milliseconds(t0, t1));
-  ACTS_DEBUG("Time alloc, set shape " << milliseconds(t1, t2));
+  ACTS_DEBUG("Time prep:            " << milliseconds(t0, t2));
   ACTS_DEBUG("Time inference:       " << milliseconds(t2, t3));
   ACTS_DEBUG("Time sigmoid and cut: " << milliseconds(t3, t4));
 
   return {std::move(tensors.nodeFeatures), std::move(newEdgeIndex),
-          std::nullopt, std::move(newScores)};
+          std::move(newEdgeFeatures), std::move(newScores)};
 }
 
 }  // namespace ActsPlugins

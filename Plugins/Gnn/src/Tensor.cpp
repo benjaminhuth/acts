@@ -72,9 +72,20 @@ TensorPtr cloneTensorMemory(const TensorPtr &ptr, std::size_t nbytes,
 
 void cudaSigmoid(Tensor<float> &tensor, cudaStream_t stream);
 
-std::pair<Tensor<float>, Tensor<std::int64_t>> cudaApplyScoreCut(
-    const Tensor<float> &scores, const Tensor<std::int64_t> &edgeIndex,
-    float cut, cudaStream_t stream);
+std::tuple<Tensor<float>, Tensor<std::int64_t>, std::optional<Tensor<float>>>
+cudaApplyScoreCut(const Tensor<float> &scores,
+                  const Tensor<std::int64_t> &edgeIndex,
+                  const std::optional<Tensor<float>> &edgeFeatures, float cut,
+                  cudaStream_t stream);
+
+std::pair<Tensor<std::int64_t>, std::optional<Tensor<float>>> cpuApplyEdgeMask(
+    const Tensor<std::int64_t> &edgeIndex,
+    const std::optional<Tensor<float>> &edgeFeatures, const Tensor<bool> &mask);
+
+std::pair<Tensor<std::int64_t>, std::optional<Tensor<float>>> cudaApplyEdgeMask(
+    const Tensor<std::int64_t> &edgeIndex,
+    const std::optional<Tensor<float>> &edgeFeatures, const Tensor<bool> &mask,
+    cudaStream_t stream);
 
 }  // namespace detail
 
@@ -94,18 +105,39 @@ void sigmoid(Tensor<float> &tensor, std::optional<cudaStream_t> stream) {
   }
 }
 
-std::pair<Tensor<float>, Tensor<std::int64_t>> applyScoreCut(
-    const Tensor<float> &scores, const Tensor<std::int64_t> &edgeIndex,
-    float cut, std::optional<cudaStream_t> stream) {
+std::pair<Tensor<std::int64_t>, std::optional<Tensor<float>>> applyEdgeMask(
+    const Tensor<std::int64_t> &edgeIndex,
+    const std::optional<Tensor<float>> &edgeFeatures, const Tensor<bool> &mask,
+    std::optional<cudaStream_t> stream) {
+  // Dispatch to CPU or CUDA implementation
+  if (edgeIndex.device().isCpu()) {
+    return detail::cpuApplyEdgeMask(edgeIndex, edgeFeatures, mask);
+  } else {
+#ifdef ACTS_GNN_WITH_CUDA
+    return detail::cudaApplyEdgeMask(edgeIndex, edgeFeatures, mask,
+                                     stream.value());
+#else
+    throw std::runtime_error(
+        "Cannot apply edge mask to CUDA tensor, library was not compiled with "
+        "CUDA");
+#endif
+  }
+}
+
+std::tuple<Tensor<float>, Tensor<std::int64_t>, std::optional<Tensor<float>>>
+applyScoreCut(const Tensor<float> &scores,
+              const Tensor<std::int64_t> &edgeIndex,
+              const std::optional<Tensor<float>> &edgeFeatures, float cut,
+              std::optional<cudaStream_t> stream) {
   assert(scores.shape()[1] == 1);
   assert(edgeIndex.shape()[0] == 2);
   assert(edgeIndex.shape()[1] == scores.shape()[0]);
   assert(scores.device() == edgeIndex.device());
-  ExecutionContext execContext{scores.device(), stream};
 
   if (scores.device().type == Device::Type::eCUDA) {
 #ifdef ACTS_GNN_WITH_CUDA
-    return detail::cudaApplyScoreCut(scores, edgeIndex, cut, stream.value());
+    return detail::cudaApplyScoreCut(scores, edgeIndex, edgeFeatures, cut,
+                                     stream.value());
 #else
     throw std::runtime_error(
         "Cannot apply score cut to CUDA tensor, library was not compiled with "
@@ -113,31 +145,18 @@ std::pair<Tensor<float>, Tensor<std::int64_t>> applyScoreCut(
 #endif
   }
 
-  std::vector<std::size_t> indices(scores.size());
-  std::iota(indices.begin(), indices.end(), 0);
-  indices.erase(
-      std::remove_if(indices.begin(), indices.end(),
-                     [&](std::size_t i) { return scores.data()[i] < cut; }),
-      indices.end());
-  auto n = indices.size();
-  auto outputScores =
-      Tensor<float>::Create({static_cast<std::size_t>(n), 1}, execContext);
-  auto outputEdges = Tensor<std::int64_t>::Create(
-      {2, static_cast<std::size_t>(n)}, execContext);
+  // CPU implementation
+  throw std::runtime_error(
+      "CPU version of extended applyScoreCut not yet implemented");
+}
 
-  auto scoreIt = outputScores.data();
-  auto edgeIt1 = outputEdges.data();
-  auto edgeIt2 = outputEdges.data() + n;
-  for (auto i : indices) {
-    *scoreIt = scores.data()[i];
-    *edgeIt1 = edgeIndex.data()[i];
-    *edgeIt2 = edgeIndex.data()[i + scores.size()];
-    ++scoreIt;
-    ++edgeIt1;
-    ++edgeIt2;
-  }
-
-  return {std::move(outputScores), std::move(outputEdges)};
+std::pair<Tensor<float>, Tensor<std::int64_t>> applyScoreCut(
+    const Tensor<float> &scores, const Tensor<std::int64_t> &edgeIndex,
+    float cut, std::optional<cudaStream_t> stream) {
+  // Call extended version with nullopt for edge features
+  auto [newScores, newEdgeIndex, _] =
+      applyScoreCut(scores, edgeIndex, std::nullopt, cut, stream);
+  return {std::move(newScores), std::move(newEdgeIndex)};
 }
 
 std::pair<Tensor<std::int64_t>, std::optional<Tensor<float>>> applyEdgeLimit(

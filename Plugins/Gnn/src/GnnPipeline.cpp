@@ -76,11 +76,16 @@ std::vector<std::vector<int>> GnnPipeline::run(
 
     hook(tensors, ctx);
 
+    ACTS_DEBUG("Initial number of edges: " << tensors.edgeIndex.shape().at(1));
+
     if (timing != nullptr) {
       timing->classifierTimes.clear();
     }
 
+    std::size_t i = 0;
     for (const auto &edgeClassifier : m_edgeClassifiers) {
+      const std::size_t nEdgesBefore = tensors.edgeIndex.shape().at(1);
+
       t0 = std::chrono::high_resolution_clock::now();
       tensors = (*edgeClassifier)(std::move(tensors), ctx);
       t1 = std::chrono::high_resolution_clock::now();
@@ -90,6 +95,17 @@ std::vector<std::vector<int>> GnnPipeline::run(
       }
 
       hook(tensors, ctx);
+
+      const std::size_t nEdgesAfter = tensors.edgeIndex.shape().at(1);
+      const std::size_t nEdgesFiltered = nEdgesBefore - nEdgesAfter;
+      const double filterRatio =
+          nEdgesBefore > 0
+              ? static_cast<double>(nEdgesFiltered) / nEdgesBefore * 100.0
+              : 0.0;
+
+      ACTS_DEBUG("Classifier " << ++i << " removed " << nEdgesFiltered << " / "
+                               << nEdgesBefore << " edges (" << filterRatio
+                               << "%)");
     }
 
     t0 = std::chrono::high_resolution_clock::now();

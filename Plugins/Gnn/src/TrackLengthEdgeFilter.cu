@@ -18,7 +18,9 @@
 #include <thrust/copy.h>
 #include <thrust/count.h>
 #include <thrust/device_ptr.h>
+#include <thrust/device_vector.h>
 #include <thrust/execution_policy.h>
+#include <thrust/scan.h>
 
 namespace ActsPlugins::detail {
 
@@ -174,11 +176,25 @@ namespace ActsPlugins {
 
 PipelineTensors TrackLengthEdgeFilter::filterEdgesCuda(
     PipelineTensors &&tensors, const ExecutionContext &execContext) {
-  // Check for unsupported features
-  if (tensors.edgeFeatures.has_value()) {
+  // Assert that execution context is CUDA
+  if (!execContext.device.isCuda()) {
     throw std::runtime_error(
-        "TrackLengthEdgeFilter does not yet support edge features. "
-        "This will be implemented in a future update.");
+        "filterEdgesCuda called with non-CUDA execution context");
+  }
+
+  // Assert tensors are on CUDA
+  if (!tensors.edgeIndex.device().isCuda()) {
+    throw std::runtime_error(
+        "Edge index tensor must be on CUDA for CUDA filtering");
+  }
+  if (!tensors.nodeFeatures.device().isCuda()) {
+    throw std::runtime_error(
+        "Node features tensor must be on CUDA for CUDA filtering");
+  }
+  if (tensors.edgeFeatures.has_value() &&
+      !tensors.edgeFeatures->device().isCuda()) {
+    throw std::runtime_error(
+        "Edge features tensor must be on CUDA for CUDA filtering");
   }
 
   ACTS_VERBOSE("Filtering edges using CUDA implementation");
@@ -317,32 +333,20 @@ PipelineTensors TrackLengthEdgeFilter::filterEdgesCuda(
   // Repurpose pointer
   int *backwardAccumulated = backwardAccumulatedPrev;
 
-  // Create edge mask
-  bool *mask{};
-  ACTS_CUDA_CHECK(cudaMallocAsync(&mask, nEdges * sizeof(bool), stream));
+  // Create edge mask tensor (Tensor expects 2D shape)
+  auto mask = Tensor<bool>::Create({1, nEdges}, execContext);
 
   detail::createEdgeMask<<<gridDimEdges, blockDim, 0, stream>>>(
       srcNodes, dstNodes, nEdges, forwardAccumulated, backwardAccumulated,
-      nodeWeights, m_cfg.minTrackLength, mask);
+      nodeWeights, m_cfg.minTrackLength, mask.data());
   ACTS_CUDA_CHECK(cudaGetLastError());
 
-  // Count passing edges
-  const std::size_t nEdgesAfter =
-      thrust::count(thrust::device.on(stream), mask, mask + nEdges, true);
+  // Apply mask to filter edges and features
+  auto [newEdgeIndex, newEdgeFeatures] = applyEdgeMask(
+      tensors.edgeIndex, tensors.edgeFeatures, mask, execContext.stream);
 
-  ACTS_VERBOSE("Edges after filtering: " << nEdgesAfter << " (from " << nEdges
-                                         << ")");
-
-  // Create output tensor
-  auto outputEdgeIndex =
-      Tensor<std::int64_t>::Create({2, nEdgesAfter}, execContext);
-
-  // Filter edges using thrust::copy_if
-  thrust::copy_if(thrust::device.on(stream), srcNodes, srcNodes + nEdges, mask,
-                  outputEdgeIndex.data(), detail::BoolPredicate{});
-  thrust::copy_if(thrust::device.on(stream), dstNodes, dstNodes + nEdges, mask,
-                  outputEdgeIndex.data() + nEdgesAfter,
-                  detail::BoolPredicate{});
+  ACTS_VERBOSE("Edges after filtering: " << newEdgeIndex.shape().at(1)
+                                         << " (from " << nEdges << ")");
 
   // Free temporary arrays
   ACTS_CUDA_CHECK(cudaFreeAsync(nodeWeights, stream));
@@ -350,12 +354,12 @@ PipelineTensors TrackLengthEdgeFilter::filterEdgesCuda(
   ACTS_CUDA_CHECK(cudaFreeAsync(mem1, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(mem2, stream));
   ACTS_CUDA_CHECK(cudaFreeAsync(mem3, stream));
-  ACTS_CUDA_CHECK(cudaFreeAsync(mask, stream));
 
   ACTS_VERBOSE("CUDA filtering complete");
 
   // Update tensors
-  tensors.edgeIndex = std::move(outputEdgeIndex);
+  tensors.edgeIndex = std::move(newEdgeIndex);
+  tensors.edgeFeatures = std::move(newEdgeFeatures);
 
   return std::move(tensors);
 }

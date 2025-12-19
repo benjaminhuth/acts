@@ -151,57 +151,65 @@ TrackLengthEdgeFilter::~TrackLengthEdgeFilter() = default;
 
 PipelineTensors TrackLengthEdgeFilter::filterEdgesCpu(
     PipelineTensors &&tensors, const ExecutionContext &execContext) {
-  // Check for unsupported features
-  if (tensors.edgeFeatures.has_value()) {
+  // Assert that execution context is CPU
+  if (!execContext.device.isCpu()) {
     throw std::runtime_error(
-        "TrackLengthEdgeFilter does not yet support edge features. "
-        "This will be implemented in a future update.");
+        "filterEdgesCpu called with non-CPU execution context");
   }
 
-  // CPU path - clone to CPU and use Boost Graph
-  auto edgesCpu = tensors.edgeIndex.clone({Device::Cpu(), execContext.stream});
-  std::span<const std::int64_t> srcSpan{edgesCpu.data(),
-                                        edgesCpu.shape().at(1)};
-  std::span<const std::int64_t> tgtSpan{
-      edgesCpu.data() + edgesCpu.shape().at(1), edgesCpu.shape().at(1)};
-  auto nodesCpu =
-      tensors.nodeFeatures.clone({Device::Cpu(), execContext.stream});
+  // Assert tensors are on CPU
+  if (!tensors.edgeIndex.device().isCpu()) {
+    throw std::runtime_error(
+        "Edge index tensor must be on CPU for CPU filtering");
+  }
+  if (!tensors.nodeFeatures.device().isCpu()) {
+    throw std::runtime_error(
+        "Node features tensor must be on CPU for CPU filtering");
+  }
+  if (tensors.edgeFeatures.has_value() &&
+      !tensors.edgeFeatures->device().isCpu()) {
+    throw std::runtime_error(
+        "Edge features tensor must be on CPU for CPU filtering");
+  }
 
-  StridedSpan radius{nodesCpu.data() + m_cfg.radiusFeatureIdx,
-                     nodesCpu.shape().at(0), nodesCpu.shape().at(1)};
+  // Process directly on CPU (no cloning needed - tensors already on CPU)
+  std::span<const std::int64_t> srcSpan{tensors.edgeIndex.data(),
+                                        tensors.edgeIndex.shape().at(1)};
+  std::span<const std::int64_t> tgtSpan{
+      tensors.edgeIndex.data() + tensors.edgeIndex.shape().at(1),
+      tensors.edgeIndex.shape().at(1)};
+
+  StridedSpan radius{tensors.nodeFeatures.data() + m_cfg.radiusFeatureIdx,
+                     tensors.nodeFeatures.shape().at(0),
+                     tensors.nodeFeatures.shape().at(1)};
 
   Vi from, to, weights;
-  from.reserve(edgesCpu.shape().at(1));
-  to.reserve(edgesCpu.shape().at(1));
-  weights.reserve(nodesCpu.shape().at(0));
+  from.reserve(tensors.edgeIndex.shape().at(1));
+  to.reserve(tensors.edgeIndex.shape().at(1));
+  weights.reserve(tensors.nodeFeatures.shape().at(0));
 
-  for (auto i = 0ul; i < edgesCpu.shape().at(1); ++i) {
+  for (auto i = 0ul; i < tensors.edgeIndex.shape().at(1); ++i) {
     from.push_back(static_cast<int>(srcSpan[i]));
     to.push_back(static_cast<int>(tgtSpan[i]));
   }
 
-  for (auto i = 0ul; i < nodesCpu.shape().at(0); ++i) {
+  for (auto i = 0ul; i < tensors.nodeFeatures.shape().at(0); ++i) {
     weights.push_back(radius[i] < m_cfg.stripRadius ? 1 : 2);
   }
 
-  auto [mask, nEdgesKept] =
+  auto [boolMask, nEdgesKept] =
       filterEdges(from, to, weights, m_cfg.minTrackLength, logger());
 
-  auto newEdges = Tensor<std::int64_t>::Create(
-      {2, nEdgesKept}, {Device::Cpu(), execContext.stream});
-  std::span<std::int64_t> newSrcSpan{newEdges.data(), nEdgesKept};
-  std::span<std::int64_t> newTgtSpan{newEdges.data() + nEdgesKept, nEdgesKept};
+  // Convert std::vector<bool> to Tensor<bool> (Tensor expects 2D shape)
+  auto mask = Tensor<bool>::Create({1, boolMask.size()}, execContext);
+  std::copy(boolMask.begin(), boolMask.end(), mask.data());
 
-  for (auto i = 0ul, j = 0ul; i < edgesCpu.shape().at(1); ++i) {
-    if (mask[i]) {
-      newSrcSpan[j] = srcSpan[i];
-      newTgtSpan[j] = tgtSpan[i];
-      ++j;
-    }
-  }
+  // Apply mask to filter edges and features
+  auto [newEdgeIndex, newEdgeFeatures] =
+      applyEdgeMask(tensors.edgeIndex, tensors.edgeFeatures, mask, {});
 
-  tensors.edgeIndex = std::move(newEdges).clone(
-      {tensors.edgeIndex.device(), execContext.stream});
+  tensors.edgeIndex = std::move(newEdgeIndex);
+  tensors.edgeFeatures = std::move(newEdgeFeatures);
 
   return std::move(tensors);
 }
@@ -220,10 +228,12 @@ PipelineTensors TrackLengthEdgeFilter::filterEdgesCuda(
 PipelineTensors TrackLengthEdgeFilter::operator()(
     PipelineTensors tensors, const ExecutionContext &execContext) {
   if (execContext.device.isCuda()) {
-    return filterEdgesCuda(std::move(tensors), execContext);
+    tensors = filterEdgesCuda(std::move(tensors), execContext);
   } else {
-    return filterEdgesCpu(std::move(tensors), execContext);
+    tensors = filterEdgesCpu(std::move(tensors), execContext);
   }
+
+  return tensors;
 }
 
 }  // namespace ActsPlugins

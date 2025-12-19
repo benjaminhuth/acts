@@ -157,8 +157,21 @@ class Tensor {
 /// @param stream The stream to use for the operation in case of CUDA
 void sigmoid(Tensor<float> &tensor, std::optional<cudaStream_t> stream = {});
 
+/// Apply a score cut to filter edges, scores, and optional edge features
+/// @param scores The edge score tensor [nEdges, 1]
+/// @param edgeIndex The edge index tensor [2, nEdges]
+/// @param edgeFeatures Optional edge feature tensor [nEdges, nFeatures]
+/// @param cut The score cut value which edges to accept
+/// @param stream The stream to use for the operation in case of CUDA
+/// @return Tuple of (filtered scores, filtered edge index, filtered edge features)
+std::tuple<Tensor<float>, Tensor<std::int64_t>, std::optional<Tensor<float>>>
+applyScoreCut(const Tensor<float> &scores,
+              const Tensor<std::int64_t> &edgeIndex,
+              const std::optional<Tensor<float>> &edgeFeatures, float cut,
+              std::optional<cudaStream_t> stream = {});
+
 /// Apply a score cut to the tensor and return a new tensor with the values that
-/// satisfy the cut
+/// satisfy the cut (backward compatibility overload)
 /// @param scores The edge score tensor
 /// @param edgeIndex The edge index tensor
 /// @param cut The score cut value which edges to accept
@@ -179,5 +192,16 @@ std::pair<Tensor<std::int64_t>, std::optional<Tensor<float>>> applyEdgeLimit(
     const Tensor<std::int64_t> &edgeIndex,
     const std::optional<Tensor<float>> &edgeFeatures, std::size_t maxEdges,
     std::optional<cudaStream_t> stream);
+
+/// Apply a boolean mask to filter edge indices and optional edge features
+/// @param edgeIndex The edge index tensor [2, nEdges]
+/// @param edgeFeatures Optional edge feature tensor [nEdges, nFeatures]
+/// @param mask Boolean mask tensor [nEdges] indicating which edges to keep
+/// @param stream The stream to use for the operation in case of CUDA
+/// @return Pair of filtered edge index and optional filtered edge features
+std::pair<Tensor<std::int64_t>, std::optional<Tensor<float>>> applyEdgeMask(
+    const Tensor<std::int64_t> &edgeIndex,
+    const std::optional<Tensor<float>> &edgeFeatures, const Tensor<bool> &mask,
+    std::optional<cudaStream_t> stream = {});
 
 }  // namespace ActsPlugins
