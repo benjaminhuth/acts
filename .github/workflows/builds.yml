@@ -579,7 +579,7 @@ jobs:
         run: ccache -z
 
       - name: Build wheel with pip
-        run: pip wheel . -v
+        run: pip wheel . -v --config-settings=cmake.define.CMAKE_CXX_COMPILER_LAUNCHER=ON
 
       - name: ccache stats
         run: ccache -s
