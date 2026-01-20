@@ -419,7 +419,7 @@ if(ACTS_BUILD_PLUGIN_ACTSVG)
 endif()
 if(ACTS_BUILD_PLUGIN_DD4HEP)
     # Explicitly find python so we can more easily override the version
-    find_package(Python 3.8 REQUIRED COMPONENTS Interpreter Development)
+    find_package(Python 3.8 REQUIRED COMPONENTS Interpreter Development.Module)
     find_package(
         DD4hep
         ${_acts_dd4hep_version}
