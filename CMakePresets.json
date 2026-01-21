@@ -182,6 +182,7 @@
                 "CMAKE_CXX_SCAN_FOR_MODULES": "OFF",
                 "CMAKE_FIND_FRAMEWORK": "LAST",
                 "CMAKE_BUILD_TYPE": "Release",
+                "ACTS_BUILD_PLUGIN_ROOT": "OFF",
                 "ACTS_FORCE_ASSERTIONS": "ON",
                 "ACTS_ENABLE_LOG_FAILURE_THRESHOLD": "ON",
                 "ACTS_BUILD_PYTHON_WHEEL": "ON",
