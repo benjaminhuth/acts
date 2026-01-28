@@ -43,24 +43,33 @@ std::vector<std::vector<int>> EdgeLayerConnector::operator()(
   ACTS_CUDA_CHECK(cudaMemcpyAsync(spacepointIDsTensor.data(), spacepointIDs.data(),
                                   spacepointIDs.size() * sizeof(int),
                                   cudaMemcpyHostToDevice, stream));
+  ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
 
   ACTS_DEBUG("Setup graph...");
   CUDA_graph<float> graph(spacepointIDsTensor.data(), numSpacepoints,
                           edgeSrc.data(), edgeTgt.data(),
                           tensors.edgeScores->data(), numEdges);
+  ACTS_CUDA_CHECK(cudaDeviceSynchronize());
+  ACTS_CUDA_CHECK(cudaGetLastError());
 
   ACTS_DEBUG("Setup EdgeLayerConnector...");
   CUDA_edge_layer_connector<float> connector(&graph, m_cfg.weightsCut,
                                              static_cast<int>(m_cfg.minHits),
                                              static_cast<int>(m_cfg.nBlocks),
                                              static_cast<int>(m_cfg.maxHitsPerTrack));
+  ACTS_CUDA_CHECK(cudaDeviceSynchronize());
+  ACTS_CUDA_CHECK(cudaGetLastError());
  
   ACTS_DEBUG("Build tracks...");
   connector.build_tracks();
+  ACTS_CUDA_CHECK(cudaDeviceSynchronize());
+  ACTS_CUDA_CHECK(cudaGetLastError());
 
   const int maxHitsPerTrack = connector.cuda_tracks()->max_hits_per_track();
   const int tracksSize = connector.cuda_tracks()->size();
   const int nbTracks = connector.cuda_tracks()->nb_tracks();
+  ACTS_CUDA_CHECK(cudaDeviceSynchronize());
+  ACTS_CUDA_CHECK(cudaGetLastError());
 
   ACTS_DEBUG("maxHitsPerTrack: " << maxHitsPerTrack << ", tracksSize: " << tracksSize << ", nbTracks: " << nbTracks); 
 
@@ -72,8 +81,10 @@ std::vector<std::vector<int>> EdgeLayerConnector::operator()(
   ACTS_CUDA_CHECK(cudaMemcpyAsync(flatHits.data(), connector.cuda_tracks()->hits(),
                                   tracksSize * sizeof(int), cudaMemcpyDeviceToHost, stream));
 
+  ACTS_CUDA_CHECK(cudaDeviceSynchronize());
   ACTS_CUDA_CHECK(cudaStreamSynchronize(stream));
-
+  ACTS_CUDA_CHECK(cudaGetLastError());
+  
   std::vector<std::vector<int>> trackCandidates;
   trackCandidates.reserve(nbTracks);
 

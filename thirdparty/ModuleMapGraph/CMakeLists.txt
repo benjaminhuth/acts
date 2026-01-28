@@ -14,12 +14,13 @@ include(FetchContent)
 # Tell the user what's happening.
 message(STATUS "Building ModuleMapGraph as part of the Acts project")
 
-# Declare where to get traccc from.
+# Declare where to get ModuleMapGraph from.
 FetchContent_Declare(
     ModuleMapGraph
     SYSTEM
     ${ACTS_MODULEMAPGRAPH_SOURCE}
     OVERRIDE_FIND_PACKAGE
+    PATCH_COMMAND git apply --ignore-whitespace "${CMAKE_CURRENT_SOURCE_DIR}/remove_unused_members.patch"
 )
 
 set(MMG_USE_MPI OFF)

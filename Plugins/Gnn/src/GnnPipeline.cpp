@@ -57,6 +57,12 @@ std::vector<std::vector<int>> GnnPipeline::run(
   ExecutionContext ctx;
   ctx.device = device;
 #ifdef ACTS_GNN_WITH_CUDA
+  auto lastError = cudaGetLastError();
+  if (lastError != cudaSuccess) {
+    ACTS_WARNING("CUDA error state detected at begin of event execution: "
+               << cudaGetErrorString(lastError));
+  }
+
   std::optional<CudaStreamGuard> streamGuard;
   if (ctx.device.type == Device::Type::eCUDA) {
     streamGuard.emplace();
