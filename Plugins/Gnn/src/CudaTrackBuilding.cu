@@ -124,11 +124,21 @@ std::vector<std::vector<int>> CudaTrackBuilding::operator()(
   ACTS_CUDA_CHECK(cudaGetLastError());
 
   ACTS_DEBUG("Bounds size: " << bounds.size());
-  ACTS_DEBUG("Bounds: " << bounds.at(0) << ", " << bounds.at(1) << ", "
-                        << bounds.at(2) << ", ..., "
-                        << bounds.at(numberLabels - 2) << ", "
-                        << bounds.at(numberLabels - 1) << ", "
-                        << bounds.at(numberLabels));
+  if (bounds.size() > 6) {
+    ACTS_DEBUG("Bounds: " << bounds.at(0) << ", " << bounds.at(1) << ", "
+                          << bounds.at(2) << ", ..., "
+                          << bounds.at(numberLabels - 2) << ", "
+                          << bounds.at(numberLabels - 1) << ", "
+                          << bounds.at(numberLabels));
+  } else {
+    ACTS_DEBUG("Bounds: " << [&]() {
+      std::ostringstream oss;
+      for (const auto& b : bounds) {
+        oss << b << ", ";
+      }
+      return oss.str();
+    }());
+  }
 
   std::vector<std::vector<int>> trackCandidates;
   trackCandidates.reserve(numberLabels);
