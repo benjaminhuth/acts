@@ -83,8 +83,15 @@ set(ACTS_ODD_SOURCE
 mark_as_advanced(ACTS_ODD_SOURCE)
 
 set(ACTS_MODULEMAPGRAPH_SOURCE
-    "GIT_REPOSITORY;https://gitlab.cern.ch/gnn4itkteam/ModuleMapGraph;GIT_TAG;1.1.16"
+    "GIT_REPOSITORY;https://gitlab.cern.ch/gnn4itkteam/ModuleMapGraph;GIT_TAG;1.1.18"
     CACHE STRING
     "Source to take ModuleMapGraph from"
 )
 mark_as_advanced(ACTS_MODULEMAPGRAPH_SOURCE)
+
+set(ACTS_SOFIEGNN_SOURCE
+    "GIT_REPOSITORY;https://github.com/sanjibansg/sofie-atlas-tracking;GIT_TAG;18144e38a2003282e46ea33e6120c6d18d3d1b4c"
+    CACHE STRING
+    "Source to take SofieGnn from"
+)
+mark_as_advanced(ACTS_SOFIEGNN_SOURCE)
