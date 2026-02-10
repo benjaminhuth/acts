@@ -630,3 +630,8 @@ detail::CUDA_edge_data<float> ModuleMapCuda::makeEdges(
 }
 
 }  // namespace ActsPlugins
+
+// clang-format off
+// EdgeLayerConnector implementation included here due to ODR violations in ModuleMapGraph
+#include "EdgeLayerConnector.cu"
+// clang-format on
