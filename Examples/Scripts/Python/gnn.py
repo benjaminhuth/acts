@@ -86,6 +86,7 @@ def runGnnMetricLearning(
     elif filterModelPath.suffix == ".onnx":
         from acts.examples.gnn import OnnxEdgeClassifier
 
+        filterConfig["useCuda"] = False
         edgeClassifiers.append(OnnxEdgeClassifier(**filterConfig))
     else:
         raise ValueError(f"Unsupported model format: {filterModelPath.suffix}")
@@ -99,6 +100,7 @@ def runGnnMetricLearning(
             )
         )
     elif gnnModelPath.suffix == ".onnx":
+        gnnConfig["useCuda"] = False
         edgeClassifiers.append(
             OnnxEdgeClassifier(**gnnConfig),
         )
