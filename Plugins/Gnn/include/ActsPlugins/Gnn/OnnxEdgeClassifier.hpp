@@ -17,6 +17,7 @@ namespace Ort {
 class Env;
 class Session;
 class Value;
+class MemoryInfo;
 }  // namespace Ort
 
 namespace ActsPlugins {
@@ -28,6 +29,7 @@ class OnnxEdgeClassifier final : public EdgeClassificationBase {
   struct Config {
     std::string modelPath;
     float cut = 0.5;
+    bool useCuda = true;
   };
 
   OnnxEdgeClassifier(const Config &cfg,
