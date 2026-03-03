@@ -48,18 +48,21 @@ namespace detail::Gsf {
 
 double computeSymmetricKlDivergence(const GsfComponent &a,
                                     const GsfComponent &b) {
-  const double parsA = a.boundPars[eBoundQOverP];
-  const double parsB = b.boundPars[eBoundQOverP];
+  const double qopA = a.boundPars[eBoundQOverP];
+  const double qopB = b.boundPars[eBoundQOverP];
   const double covA = a.boundCov(eBoundQOverP, eBoundQOverP);
   const double covB = b.boundCov(eBoundQOverP, eBoundQOverP);
+  return computeSymmetricKlDivergence(qopA, covA, qopB, covB);
+}
 
+double computeSymmetricKlDivergence(double qopA, double covA, double qopB, double covB){
   assert(covA != 0.0);
   assert(std::isfinite(covA));
   assert(covB != 0.0);
   assert(std::isfinite(covB));
 
   const double kl = covA * (1 / covB) + covB * (1 / covA) +
-                    (parsA - parsB) * (1 / covA + 1 / covB) * (parsA - parsB);
+                    (qopA - qopB) * (1 / covA + 1 / covB) * (qopA - qopB);
 
   assert(kl >= 0.0 && "kl-divergence must be non-negative");
 

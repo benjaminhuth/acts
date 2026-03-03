@@ -327,6 +327,8 @@ BoundVector mergeGaussianMixtureParams(const component_range_t &cmps,
 double computeSymmetricKlDivergence(const GsfComponent &a,
                                     const GsfComponent &b);
 
+double computeSymmetricKlDivergence(double qopA, double covA, double qopB, double covB);
+
 /// Reduce Gaussian mixture into a single parameter vector and covariance, using
 /// the specified method to reduce the mixture.
 ///

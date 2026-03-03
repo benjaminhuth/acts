@@ -86,6 +86,15 @@ void Acts::reduceMixtureWithKLDistanceNaive(
     return;
   }
 
+  // Allocate cache friendly objects for minimum distance computation
+  std::vector<double> qops(cmpCache.size());
+  std::vector<double> covs(cmpCache.size());
+
+  std::transform(cmpCache.begin(), cmpCache.end(), qops.begin(),
+                 [](const auto &c) { return c.boundPars[eBoundQOverP]; });
+  std::transform(cmpCache.begin(), cmpCache.end(), covs.begin(),
+                 [](const auto &c) { return c.boundCov(eBoundQOverP, eBoundQOverP); });
+
   while (cmpCache.size() > maxCmpsAfterMerge) {
     // Recompute ALL distances every iteration (naive approach)
     double minDistance = std::numeric_limits<double>::max();
@@ -95,7 +104,7 @@ void Acts::reduceMixtureWithKLDistanceNaive(
     for (std::size_t i = 0; i < cmpCache.size(); ++i) {
       for (std::size_t j = i + 1; j < cmpCache.size(); ++j) {
         double distance =
-            detail::Gsf::computeSymmetricKlDivergence(cmpCache[i], cmpCache[j]);
+            detail::Gsf::computeSymmetricKlDivergence(qops[i], covs[i], qops[j], covs[j]);
         if (distance < minDistance) {
           minDistance = distance;
           minI = i;
@@ -109,7 +118,13 @@ void Acts::reduceMixtureWithKLDistanceNaive(
                                                      cmpCache[minJ], surface);
 
     // Remove the merged component immediately
-    cmpCache.erase(cmpCache.begin() + minJ);
+    auto remove = [](auto &vec, std::size_t idx) {
+      std::swap(vec.at(idx), vec.back());
+      vec.resize(vec.size() - 1);
+    };
+    remove(cmpCache, minJ);
+    remove(qops, minJ);
+    remove(covs, minJ);
   }
 
   assert(cmpCache.size() == maxCmpsAfterMerge && "size mismatch");
