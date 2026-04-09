@@ -32,8 +32,15 @@ macro(add_plugin_binding_if _name _dependency _flag)
     set(PLUGIN_NAME "${_name}")
     set(PLUGIN_BUILD_FLAG "${_flag}")
 
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/python/${_name_lower}.py.in)
+        set(_plugin_py_template
+            ${CMAKE_CURRENT_SOURCE_DIR}/python/${_name_lower}.py.in)
+    else()
+        set(_plugin_py_template ${CMAKE_CURRENT_SOURCE_DIR}/python/plugin.py.in)
+    endif()
+
     configure_file(
-        ${CMAKE_CURRENT_SOURCE_DIR}/python/plugin.py.in
+        ${_plugin_py_template}
         ${_python_dir}/acts/${_name_lower}.py
         @ONLY
     )

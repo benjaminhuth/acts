@@ -15,7 +15,7 @@ from acts.gnn import (
     TorchEdgeClassifier,
     BoostTrackBuilding,
 )
-from acts.examples.gnn import NodeFeature
+from acts.gnn import NodeFeature
 from acts import UnitConstants as u
 
 from digitization import runDigitization

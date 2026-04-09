@@ -33,7 +33,7 @@ from acts.gnn import (
     ModuleMapCuda,
     CudaTrackBuilding,
 )
-from acts.examples.gnn import NodeFeature
+from acts.gnn import NodeFeature
 
 
 def runGnnModuleMap(
