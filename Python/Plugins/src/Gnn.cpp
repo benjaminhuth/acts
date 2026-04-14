@@ -11,9 +11,9 @@
 #include "ActsPlugins/Gnn/GnnPipeline.hpp"
 #include "ActsPlugins/Gnn/ModuleMapCuda.hpp"
 #include "ActsPlugins/Gnn/OnnxEdgeClassifier.hpp"
+#include "ActsPlugins/Gnn/EdgeLayerConnector.hpp"
+#include "ActsPlugins/Gnn/ModuleMapCpu.hpp"
 #include "ActsPlugins/Gnn/SofieEdgeClassifier.hpp"
-#include "ActsPlugins/Gnn/ModuleMapCpu.hpp"
-#include "ActsPlugins/Gnn/ModuleMapCpu.hpp"
 #include "ActsPlugins/Gnn/TensorRTEdgeClassifier.hpp"
 #include "ActsPlugins/Gnn/TorchEdgeClassifier.hpp"
 #include "ActsPlugins/Gnn/TorchMetricLearning.hpp"
@@ -92,7 +92,7 @@ PYBIND11_MODULE(ActsPluginsPythonBindingsGnn, gnn) {
 
 #ifdef ACTS_GNN_ONNX_BACKEND
   ACTS_PYTHON_DECLARE_GNN_STAGE(OnnxEdgeClassifier, EdgeClassificationBase, gnn,
-                                modelPath, cut);
+                                modelPath, cut, useCuda);
 #endif
 
 #ifdef ACTS_GNN_SOFIE_BACKEND
