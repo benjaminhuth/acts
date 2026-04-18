@@ -143,6 +143,24 @@ def test_odd_gen1():
 
 @pytest.mark.skipif(not dd4hepEnabled, reason="DD4hep not set up")
 @pytest.mark.odd
+def test_tracking_geometry_json_converter():
+    from acts.json import TrackingGeometryJsonConverter
+
+    with getOpenDataDetector(gen3=True) as detector:
+        geometry = detector.trackingGeometry()
+        gctx = acts.GeometryContext.dangerouslyDefaultConstruct()
+
+        converter = TrackingGeometryJsonConverter()
+        json_str = converter.toJson(gctx, geometry)
+
+        assert json_str, "serialized geometry must not be empty"
+
+        reimported = converter.fromJson(gctx, json_str)
+        assert reimported is not None, "deserialized geometry must not be None"
+
+
+@pytest.mark.skipif(not dd4hepEnabled, reason="DD4hep not set up")
+@pytest.mark.odd
 def test_odd_gen3():
     with getOpenDataDetector(gen3=True) as detector:
         trackingGeometry = detector.trackingGeometry()
