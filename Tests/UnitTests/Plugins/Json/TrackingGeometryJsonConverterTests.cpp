@@ -25,6 +25,8 @@
 #include "Acts/Geometry/TrackingVolume.hpp"
 #include "Acts/Geometry/TrivialPortalLink.hpp"
 #include "Acts/MagneticField/ConstantBField.hpp"
+#include "Acts/Geometry/IndexGrid.hpp"
+#include "Acts/Navigation/MultiLayerNavigationPolicy.hpp"
 #include "Acts/Navigation/TryAllNavigationPolicy.hpp"
 #include "Acts/Propagator/EigenStepper.hpp"
 #include "Acts/Propagator/Navigator.hpp"
@@ -479,6 +481,62 @@ BOOST_AUTO_TEST_CASE(TrackingGeometryJsonConverterNavigation) {
     BOOST_CHECK(steppingA.nSteps == steppingB.nSteps);
     BOOST_CHECK(steppingA.pathAccumulated == steppingB.pathAccumulated);
   }
+}
+
+BOOST_AUTO_TEST_CASE(MultiLayerNavigationPolicyRoundTrip) {
+  using namespace Acts;
+  using namespace Acts::Experimental;
+
+  GeometryContext gctx = GeometryContext::dangerouslyDefaultConstruct();
+
+  auto volume = std::make_shared<TrackingVolume>(
+      Transform3::Identity(),
+      std::make_shared<CuboidVolumeBounds>(15., 15., 5.), "TestVolume");
+  volume->assignGeometryId(GeometryIdentifier{}.withVolume(1u));
+
+  auto bounds = std::make_shared<RectangleBounds>(2., 2.);
+  for (int ix = -1; ix <= 1; ++ix) {
+    for (int iy = -1; iy <= 1; ++iy) {
+      Transform3 trf = Transform3::Identity();
+      trf.translation() = Vector3(5. * ix, 5. * iy, 0.);
+      auto surface = Surface::makeShared<PlaneSurface>(trf, bounds);
+      surface->assignGeometryId(
+          GeometryIdentifier{}.withVolume(1u).withSensitive(
+              static_cast<std::size_t>((ix + 1) * 3 + (iy + 1) + 1)));
+      surface->assignIsSensitive(true);
+      volume->addSurface(surface);
+    }
+  }
+
+  Axis<AxisType::Equidistant, AxisBoundaryType::Bound> axisX(-12., 12., 6);
+  Axis<AxisType::Equidistant, AxisBoundaryType::Bound> axisY(-12., 12., 6);
+  Grid gridXY(Type<std::vector<std::size_t>>, std::move(axisX),
+              std::move(axisY));
+  MultiLayerNavigationPolicy::IndexedUpdatorType indexedGrid(
+      std::move(gridXY), {AxisDirection::AxisX, AxisDirection::AxisY});
+
+  MultiLayerNavigationPolicy::Config cfg;
+  cfg.binExpansion = {1u, 1u};
+  volume->setNavigationPolicy(std::make_unique<MultiLayerNavigationPolicy>(
+      gctx, *volume, *logger, cfg, std::move(indexedGrid)));
+
+  TrackingGeometryJsonConverter converter;
+  nlohmann::json encoded = converter.trackingVolumeToJson(gctx, *volume);
+
+  auto decoded = converter.trackingVolumeFromJson(gctx, encoded);
+  BOOST_REQUIRE(decoded != nullptr);
+  BOOST_CHECK_EQUAL(decoded->volumeName(), "TestVolume");
+
+  const auto* policy = dynamic_cast<const MultiLayerNavigationPolicy*>(
+      decoded->navigationPolicy());
+  BOOST_REQUIRE(policy != nullptr);
+
+  BOOST_CHECK_EQUAL(policy->indexedGrid().grid.axes()[0]->getNBins(), 6u);
+  BOOST_CHECK_EQUAL(policy->indexedGrid().grid.axes()[1]->getNBins(), 6u);
+  BOOST_CHECK_EQUAL(policy->indexedGrid().casts[0], AxisDirection::AxisX);
+  BOOST_CHECK_EQUAL(policy->indexedGrid().casts[1], AxisDirection::AxisY);
+  BOOST_CHECK_EQUAL(policy->binExpansion()[0], 1u);
+  BOOST_CHECK_EQUAL(policy->binExpansion()[1], 1u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

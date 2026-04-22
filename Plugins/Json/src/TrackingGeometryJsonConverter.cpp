@@ -13,6 +13,7 @@
 #include "Acts/Geometry/CuboidVolumeBounds.hpp"
 #include "Acts/Geometry/CutoutCylinderVolumeBounds.hpp"
 #include "Acts/Geometry/CylinderVolumeBounds.hpp"
+#include "Acts/Geometry/DiamondVolumeBounds.hpp"
 #include "Acts/Geometry/GenericCuboidVolumeBounds.hpp"
 #include "Acts/Geometry/GeometryContext.hpp"
 #include "Acts/Geometry/GeometryIdentifier.hpp"
@@ -25,6 +26,7 @@
 #include "Acts/Geometry/TrivialPortalLink.hpp"
 #include "Acts/Geometry/VolumeBounds.hpp"
 #include "Acts/Navigation/INavigationPolicy.hpp"
+#include "Acts/Navigation/MultiLayerNavigationPolicy.hpp"
 #include "Acts/Navigation/MultiNavigationPolicy.hpp"
 #include "Acts/Navigation/SurfaceArrayNavigationPolicy.hpp"
 #include "Acts/Navigation/TryAllNavigationPolicy.hpp"
@@ -37,6 +39,7 @@
 #include "ActsPlugins/Json/AlgebraJsonConverter.hpp"
 #include "ActsPlugins/Json/GeometryIdentifierJsonConverter.hpp"
 #include "ActsPlugins/Json/GridJsonConverter.hpp"
+#include "ActsPlugins/Json/MultiLayerNavigationJsonConverter.hpp"
 #include "ActsPlugins/Json/SurfaceJsonConverter.hpp"
 #include "ActsPlugins/Json/UtilitiesJsonConverter.hpp"
 
@@ -197,6 +200,8 @@ std::string getVolumeBoundsKind() {
     return "CutoutCylinder";
   } else if (std::is_same_v<bounds_t, Acts::CylinderVolumeBounds>) {
     return "Cylinder";
+  } else if (std::is_same_v<bounds_t, Acts::DiamondVolumeBounds>) {
+    return "Diamond";
   } else if (std::is_same_v<bounds_t, Acts::GenericCuboidVolumeBounds>) {
     return "GenericCuboid";
   } else if (std::is_same_v<bounds_t, Acts::TrapezoidVolumeBounds>) {
@@ -214,6 +219,9 @@ std::string getNavigationPolicyKind() {
     return "SurfaceArray";
   } else if (std::is_same_v<bounds_t, Acts::MultiNavigationPolicy>) {
     return "MultiNavigation";
+  } else if (std::is_same_v<bounds_t,
+                             Acts::Experimental::MultiLayerNavigationPolicy>) {
+    return "MultiLayerNavigation";
   } else {
     throw std::invalid_argument("Unknown portal link kind");
   }
@@ -241,6 +249,18 @@ nlohmann::json encodeVolumeBoundsT(const bounds_t& bounds) {
   jBounds["kind"] = getVolumeBoundsKind<bounds_t>();
   jBounds[kValuesKey] = bounds.values();
   return jBounds;
+}
+
+std::unique_ptr<Acts::VolumeBounds> decodeDiamondVolumeBounds(
+    const nlohmann::json& jBounds) {
+  const auto values = jBounds.at(kValuesKey).get<std::vector<double>>();
+  return std::make_unique<Acts::DiamondVolumeBounds>(
+      values[Acts::DiamondVolumeBounds::eHalfLengthX1],
+      values[Acts::DiamondVolumeBounds::eHalfLengthX2],
+      values[Acts::DiamondVolumeBounds::eHalfLengthX3],
+      values[Acts::DiamondVolumeBounds::eLengthY1],
+      values[Acts::DiamondVolumeBounds::eLengthY2],
+      values[Acts::DiamondVolumeBounds::eHalfLengthZ]);
 }
 
 // -------------------------------------------------------------------
@@ -322,6 +342,25 @@ nlohmann::json encodeSurfaceArrayNavigationPolicy(
   jPolicy["layerType"] = cfg.layerType;
   jPolicy["bins0"] = cfg.bins.first;
   jPolicy["bins1"] = cfg.bins.second;
+  return jPolicy;
+}
+
+std::unique_ptr<Acts::INavigationPolicy> decodeMultiLayerNavigationPolicy(
+    const nlohmann::json& encoded, const Acts::GeometryContext& gctx,
+    const Acts::TrackingGeometryJsonConverter& /*converter*/,
+    const Acts::TrackingVolume& volume, const Acts::Logger& logger) {
+  return std::make_unique<Acts::Experimental::MultiLayerNavigationPolicy>(
+      Acts::MultiLayerNavigationJsonConverter::fromJson(encoded, gctx, volume,
+                                                       logger));
+}
+
+nlohmann::json encodeMultiLayerNavigationPolicy(
+    const Acts::Experimental::MultiLayerNavigationPolicy& policy,
+    const Acts::TrackingGeometryJsonConverter& /*converter*/) {
+  nlohmann::json jPolicy =
+      Acts::MultiLayerNavigationJsonConverter::toJson(policy);
+  jPolicy[kKindKey] =
+      getNavigationPolicyKind<Acts::Experimental::MultiLayerNavigationPolicy>();
   return jPolicy;
 }
 
@@ -711,12 +750,14 @@ Acts::TrackingGeometryJsonConverter::Config::defaultConfig() {
       .registerFunction(encodeVolumeBoundsT<CuboidVolumeBounds>)
       .registerFunction(encodeVolumeBoundsT<CutoutCylinderVolumeBounds>)
       .registerFunction(encodeVolumeBoundsT<CylinderVolumeBounds>)
+      .registerFunction(encodeVolumeBoundsT<DiamondVolumeBounds>)
       .registerFunction(encodeVolumeBoundsT<GenericCuboidVolumeBounds>)
       .registerFunction(encodeVolumeBoundsT<TrapezoidVolumeBounds>);
 
   cfg.encodeNavigationPolicy.registerFunction(encodeTryAllNavigationPolicy)
       .registerFunction(encodeSurfaceArrayNavigationPolicy)
-      .registerFunction(encodeMultiNavigationPolicy);
+      .registerFunction(encodeMultiNavigationPolicy)
+      .registerFunction(encodeMultiLayerNavigationPolicy);
 
   cfg.encodePortalLink.registerFunction(encodeTrivialPortalLink)
       .registerFunction(encodeCompositePortalLink)
@@ -738,6 +779,8 @@ Acts::TrackingGeometryJsonConverter::Config::defaultConfig() {
                     decodeVolumeBoundsT<CutoutCylinderVolumeBounds>)
       .registerKind(getVolumeBoundsKind<CylinderVolumeBounds>(),
                     decodeVolumeBoundsT<CylinderVolumeBounds>)
+      .registerKind(getVolumeBoundsKind<DiamondVolumeBounds>(),
+                    decodeDiamondVolumeBounds)
       .registerKind(getVolumeBoundsKind<GenericCuboidVolumeBounds>(),
                     decodeVolumeBoundsT<GenericCuboidVolumeBounds>)
       .registerKind(getVolumeBoundsKind<TrapezoidVolumeBounds>(),
@@ -749,7 +792,11 @@ Acts::TrackingGeometryJsonConverter::Config::defaultConfig() {
       .registerKind(getNavigationPolicyKind<SurfaceArrayNavigationPolicy>(),
                     decodeSurfaceArrayNavigationPolicy)
       .registerKind(getNavigationPolicyKind<MultiNavigationPolicy>(),
-                    decodeMultiNavigationPolicy);
+                    decodeMultiNavigationPolicy)
+      .registerKind(
+          getNavigationPolicyKind<
+              Experimental::MultiLayerNavigationPolicy>(),
+          decodeMultiLayerNavigationPolicy);
 
   return cfg;
 }
