@@ -81,14 +81,22 @@ def runPropagation(
 
 
 if "__main__" == __name__:
-    matDeco = None
+    #matDeco = None
     contextDecorators = []
     # matDeco = acts.IMaterialDecorator.fromFile("material.json")
     # matDeco = acts.IMaterialDecorator.fromFile("material.root")
 
+    from acts.json import TrackingGeometryJsonConverter
+    import sys
+    from pathlib import Path
+
+    gctx = acts.GeometryContext.dangerouslyDefaultConstruct()
+    converter = TrackingGeometryJsonConverter(acts.logging.DEBUG)
+    json_str = Path(sys.argv[1]).read_text()
+    trackingGeometry = converter.fromJson(gctx, json_str)
     ## Generic detector: Default
-    detector = GenericDetector(materialDecorator=matDeco)
-    trackingGeometry = detector.trackingGeometry()
+    #detector = GenericDetector(materialDecorator=matDeco)
+    #trackingGeometry = detector.trackingGeometry()
 
     ## Alternative: Aligned Generic detector
     # detector = AlignedGenericDetector(materialDecorator=matDeco)

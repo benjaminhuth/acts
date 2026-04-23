@@ -8,6 +8,7 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include "Acts/Utilities/Axis.hpp"
 #include "Acts/Utilities/GridAccessHelpers.hpp"
 #include "Acts/Utilities/GridAxisGenerators.hpp"
 #include "ActsPlugins/Json/GridJsonConverter.hpp"
@@ -472,6 +473,30 @@ BOOST_AUTO_TEST_CASE(BoundCylinderToZPhiTest) {
   BOOST_REQUIRE(bct != nullptr);
   CHECK_CLOSE_ABS(bct->radius, 100., 1e-5);
   CHECK_CLOSE_ABS(bct->shift, 10., 1e-5);
+}
+
+BOOST_AUTO_TEST_CASE(AxisJsonRoundTrip) {
+  // Equidistant axis round-trip
+  Axis<AxisType::Equidistant, AxisBoundaryType::Bound> eqAxis(0., 10., 5);
+  nlohmann::json jEq = AxisJsonConverter::toJson(eqAxis);
+  auto eqRestored = AxisJsonConverter::fromJson(jEq);
+  BOOST_REQUIRE(eqRestored != nullptr);
+  BOOST_CHECK_EQUAL(eqRestored->getNBins(), 5u);
+  CHECK_CLOSE_ABS(eqRestored->getMin(), 0., 1e-6);
+  CHECK_CLOSE_ABS(eqRestored->getMax(), 10., 1e-6);
+
+  // Variable axis round-trip
+  Axis<AxisType::Variable, AxisBoundaryType::Bound> varAxis({0., 1., 3., 6.});
+  nlohmann::json jVar = AxisJsonConverter::toJson(varAxis);
+  auto varRestored = AxisJsonConverter::fromJson(jVar);
+  BOOST_REQUIRE(varRestored != nullptr);
+  BOOST_CHECK_EQUAL(varRestored->getNBins(), 3u);
+  auto edges = varRestored->getBinEdges();
+  BOOST_REQUIRE_EQUAL(edges.size(), 4u);
+  CHECK_CLOSE_ABS(edges[0], 0., 1e-6);
+  CHECK_CLOSE_ABS(edges[1], 1., 1e-6);
+  CHECK_CLOSE_ABS(edges[2], 3., 1e-6);
+  CHECK_CLOSE_ABS(edges[3], 6., 1e-6);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

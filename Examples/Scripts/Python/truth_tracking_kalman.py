@@ -53,7 +53,7 @@ def runTruthTrackingKalman(
     )
 
     s = s or acts.examples.Sequencer(
-        events=100, numThreads=-1, logLevel=acts.logging.INFO
+        events=2, numThreads=1, logLevel=acts.logging.INFO
     )
 
     for d in decorators:
@@ -225,11 +225,11 @@ if "__main__" == __name__:
     srcdir = Path(__file__).resolve().parent.parent.parent.parent
 
     # ODD
-    from acts.examples.odd import getOpenDataDetector
+    #from acts.examples.odd import getOpenDataDetector
 
-    detector = getOpenDataDetector()
-    trackingGeometry = detector.trackingGeometry()
-    digiConfigFile = srcdir / "Examples/Configs/odd-digi-smearing-config.json"
+    #detector = getOpenDataDetector()
+    #trackingGeometry = detector.trackingGeometry()
+    #digiConfigFile = srcdir / "Examples/Configs/odd-digi-smearing-config.json"
 
     ## GenericDetector
     # detector = acts.examples.GenericDetector()
@@ -238,8 +238,21 @@ if "__main__" == __name__:
     #     srcdir
     #     / "Examples/Configs/generic-digi-smearing-config.json"
     # )
+    from acts.json import TrackingGeometryJsonConverter
+    import sys
+    from pathlib import Path
 
+    gctx = acts.GeometryContext.dangerouslyDefaultConstruct()
+    converter = TrackingGeometryJsonConverter(acts.logging.DEBUG)
+    json_str = Path(sys.argv[1]).read_text()
+    trackingGeometry = converter.fromJson(gctx, json_str)
+
+    volumes = set()
+    trackingGeometry.visitSurfaces(lambda s: volumes.add(s.geometryId.volume))
+    print(volumes)
+    
     field = acts.ConstantBField(acts.Vector3(0, 0, 2 * u.T))
+    digiConfigFile = srcdir / "atlas-digi-dummy.json"
 
     runTruthTrackingKalman(
         trackingGeometry=trackingGeometry,

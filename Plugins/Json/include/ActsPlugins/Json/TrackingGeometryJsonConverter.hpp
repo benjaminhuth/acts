@@ -11,7 +11,6 @@
 #include "Acts/Geometry/GeometryContext.hpp"
 #include "Acts/Navigation/INavigationPolicy.hpp"
 #include "Acts/Navigation/SurfaceArrayNavigationPolicy.hpp"
-#include "Acts/Surfaces/RegularSurface.hpp"
 #include "Acts/Utilities/TypeDispatcher.hpp"
 #include "ActsPlugins/Json/JsonKindDispatcher.hpp"
 
@@ -75,7 +74,7 @@ class TrackingGeometryJsonConverter {
   using SurfaceIdLookup = PointerToIdLookup<Surface, kSurfaceLookupContext>;
   /// JSON ID map to its surface
   using SurfacePointerLookup =
-      IdToPointerLikeLookup<RegularSurface, std::shared_ptr<RegularSurface>,
+      IdToPointerLikeLookup<Surface, std::shared_ptr<Surface>,
                             kSurfaceLookupContext>;
 
   /// Portal map to its JSON ID
@@ -147,7 +146,7 @@ class TrackingGeometryJsonConverter {
   ///
   /// @param config is the conversion dispatch configuration
   explicit TrackingGeometryJsonConverter(
-      Config config = Config::defaultConfig());
+      Config config = Config::defaultConfig(), std::unique_ptr<const Acts::Logger> logger = Acts::getDefaultLogger("TrackingGeometryJsonConverter", Acts::Logging::INFO));
 
   /// @brief Convert a tracking geometry to JSON.
   ///
@@ -243,7 +242,10 @@ class TrackingGeometryJsonConverter {
       const Acts::TrackingVolume& volume, const Acts::Logger& logger) const;
 
  private:
+  const Acts::Logger& logger() const { return *m_logger; }
+
   Config m_cfg;
+  std::unique_ptr<const Acts::Logger> m_logger;
 };
 
 NLOHMANN_JSON_SERIALIZE_ENUM(

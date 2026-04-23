@@ -227,6 +227,10 @@ void addGeometry(py::module_& m) {
                  [](TrackingGeometry& self, py::function& func) {
                    self.visitSurfaces(func);
                  })
+            .def("visitVolumes",
+                 [](TrackingGeometry& self, py::function& func) {
+                   self.visitVolumes(func);
+                 })
             .def("geoIdSurfaceMap", &TrackingGeometry::geoIdSurfaceMap)
             .def("extractMaterialSurfaces",
                  [](TrackingGeometry& self) {

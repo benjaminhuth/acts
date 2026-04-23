@@ -103,12 +103,19 @@ ProcessCode TruthTrackFinder::execute(const AlgorithmContext& ctx) const {
       hits.emplace_back(&simHit);
     }
 
+    if(hits.size() == 0) {
+      ACTS_WARNING("No hits found for particle " << particle.particleId());
+      continue;
+    }
+
     std::vector<std::size_t> indices;
     indices.resize(hits.size());
     std::iota(indices.begin(), indices.end(), 0);
 
+    std::cout << "indices.size() = " << indices.size() << std::endl;
+    std::cout << "hits.size() = " << hits.size() << std::endl;
     std::ranges::sort(indices, [&hits](std::size_t a, std::size_t b) {
-      return hits[a]->time() < hits[b]->time();
+      return hits.at(a)->time() < hits.at(b)->time();
     });
     ProtoTrack sortedTrack;
     for (const auto& idx : indices) {
