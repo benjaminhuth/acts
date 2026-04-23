@@ -328,9 +328,8 @@ nlohmann::json encodeSurfaceArrayNavigationPolicy(
 // -------------------------------------------------------------------
 // Portal link encoder/decoder
 
-std::shared_ptr<Acts::RegularSurface> regularSurfaceFromJson(
-    const nlohmann::json& jSurface) {
-  auto surface = Acts::SurfaceJsonConverter::fromJson(jSurface);
+std::shared_ptr<Acts::RegularSurface> requireRegularSurface(
+    const std::shared_ptr<Acts::Surface>& surface) {
   auto regular = std::dynamic_pointer_cast<Acts::RegularSurface>(surface);
   if (regular == nullptr) {
     throw std::invalid_argument("Portal link surface is not a RegularSurface");
@@ -471,8 +470,9 @@ std::unique_ptr<Acts::PortalLinkBase> decodeTrivialPortalLink(
     const Acts::TrackingGeometryJsonConverter::VolumePointerLookup& volumes) {
   const auto linkSurfaceId = encoded.at(kSurfaceIdKey).get<std::size_t>();
   const auto targetVolumeId = encoded.at(kTargetVolumeIdKey).get<std::size_t>();
-  return std::make_unique<Acts::TrivialPortalLink>(surfaces.at(linkSurfaceId),
-                                                   *volumes.at(targetVolumeId));
+  return std::make_unique<Acts::TrivialPortalLink>(
+      requireRegularSurface(surfaces.at(linkSurfaceId)),
+      *volumes.at(targetVolumeId));
 }
 
 std::unique_ptr<Acts::PortalLinkBase> decodeCompositePortalLink(
@@ -506,7 +506,8 @@ std::unique_ptr<Acts::PortalLinkBase> decodeGridPortalLink(
   }
 
   auto grid =
-      makeGridPortalLink(surfaces.at(linkSurfaceId), direction, *axes.at(0),
+      makeGridPortalLink(requireRegularSurface(surfaces.at(linkSurfaceId)),
+                         direction, *axes.at(0),
                          axes.size() == 2u ? axes.at(1).get() : nullptr);
 
   Acts::AnyGridView<const Acts::TrackingVolume*> view(grid->grid());
