@@ -964,10 +964,9 @@ Acts::TrackingGeometryJsonConverter::trackingVolumeFromJson(
   // Collect surface pointers
   SurfacePointerLookup surfacePointers;
 
-  // ---------------------------------------------------
   for (const auto& [surfaceId, record] : surfaceRecords) {
-    auto surface = regularSurfaceFromJson(record.payload);
-    surfacePointers.emplace(surfaceId, surface);
+    surfacePointers.emplace(surfaceId,
+                            Acts::SurfaceJsonConverter::fromJson(record.payload));
   }
 
   // Collect volume pointers
