@@ -182,7 +182,8 @@ void computePosteriorWeights(const traj_t &mt,
   // Loop over the tips and compute new weights
   for (auto tip : tips) {
     const auto state = mt.getTrackState(tip);
-    const double chi2 = state.chi2() - minChi2;
+    const double chi2 =
+        (state.chi2() - minChi2) / static_cast<double>(state.calibratedSize());
     const double detR = calculateDeterminant(
         state.effectiveCalibratedCovariance().data(),
         state.predictedCovariance(), state.projectorSubspaceIndices(),
@@ -352,7 +353,7 @@ double applyBetheHeitler(
     const Logger &logger);
 
 template <typename traj_t, typename propagator_state_t, typename stepper_t>
-void convoluteComponents(
+double convoluteComponents(
     propagator_state_t &state, const stepper_t &stepper,
     const TemporaryStates<traj_t> &tmpStates,
     const BetheHeitlerApprox &betheHeitlerApprox,
@@ -381,7 +382,9 @@ void convoluteComponents(
 
   // Store average material seen by the components
   // Should not be too broadly distributed
-  sumPathXOverX0 += pathXOverX0 / tmpStates.tips.size();
+  const double surfaceXOverX0 = pathXOverX0 / tmpStates.tips.size();
+  sumPathXOverX0 += surfaceXOverX0;
+  return surfaceXOverX0;
 }
 
 /// Apply the multiple scattering to the state

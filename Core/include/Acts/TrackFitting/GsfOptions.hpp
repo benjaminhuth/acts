@@ -38,6 +38,10 @@ constexpr std::string_view kFwdSumMaterialXOverX0 =
     "gsf-fwd-sum-material-x-over-x0";
 constexpr std::string_view kFwdMaxMaterialXOverX0 =
     "gsf-fwd-max-material-x-over-x0";
+/// Per-track-state column: X/X₀ from Bethe-Heitler convolution at this surface
+/// (forward pass only; 0 for states without material).
+constexpr std::string_view kGsfMaterialXOverX0PerState =
+    "gsf-material-x-over-x0";
 }  // namespace GsfConstants
 
 /// The extensions needed for the GSF

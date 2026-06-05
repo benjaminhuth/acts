@@ -19,6 +19,7 @@
 #include "Acts/TrackFitting/GsfOptions.hpp"
 #include "Acts/TrackFitting/detail/GsfComponentMerging.hpp"
 #include "Acts/TrackFitting/detail/GsfUtils.hpp"
+#include "Acts/Utilities/HashedString.hpp"
 #include "Acts/Utilities/Helpers.hpp"
 
 #include <map>
@@ -281,11 +282,21 @@ struct GsfActor {
       std::vector<GsfComponent>& componentCache = result.componentCache;
       componentCache.clear();
 
-      convoluteComponents(
+      const double surfaceXOverX0 = convoluteComponents(
           state, stepper, tmpStates, *m_cfg.bethe_heitler_approx,
           result.betheHeitlerCache, m_cfg.weightCutoff, componentCache,
           result.nInvalidBetheHeitler.tmp(), result.maxPathXOverX0.tmp(),
           result.sumPathXOverX0.tmp(), logger());
+
+      if (!m_cfg.inReversePass && result.currentTip != kTrackIndexInvalid) {
+        if (result.fittedStates->hasColumn(
+                Acts::hashString(Acts::GsfConstants::kGsfMaterialXOverX0PerState))) {
+          result.fittedStates->getTrackState(result.currentTip)
+              .template component<double>(
+                  Acts::hashString(Acts::GsfConstants::kGsfMaterialXOverX0PerState)) =
+              surfaceXOverX0;
+        }
+      }
 
       if (componentCache.empty()) {
         ACTS_WARNING(
