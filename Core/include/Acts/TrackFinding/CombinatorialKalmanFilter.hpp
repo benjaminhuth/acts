@@ -698,8 +698,13 @@ class CombinatorialKalmanFilter {
           ACTS_VERBOSE("Branch on surface " << surface.geometryId()
                                             << " has been stopped");
 
+<<<<<<< HEAD
           Result<void> resetRes = reset(state, stepper, navigator, result);
           if (!resetRes.ok()) {
+=======
+          if (auto resetRes = reset(state, stepper, navigator, result);
+              !resetRes.ok()) {
+>>>>>>> bc693e2c47 (fix discarded result in CKF)
             return resetRes.error();
           }
 
