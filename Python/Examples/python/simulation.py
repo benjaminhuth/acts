@@ -272,6 +272,8 @@ def addPythia8(
     printPythiaEventListing: Optional[Union[None, str]] = None,
     writeHepMC3: Optional[Path] = None,
     printListing: bool = False,
+    writeHelixParameters: bool = False,
+    bField: Optional[acts.MagneticFieldProvider] = None,
     logLevel: Optional[acts.logging.Level] = None,
     searchUpToHeavyFlavourQuark: bool = False,
 ) -> None:
@@ -303,6 +305,10 @@ def addPythia8(
         write directly from Pythia8 into HepMC3
     printPythiaEventListing
         None or "short" or "long"
+    writeHelixParameters : bool, False
+        write helix track parameters (d0, z0, phi, theta, qOverP) to ROOT output
+    bField : MagneticFieldProvider, None
+        magnetic field used for helix parameter computation (required when writeHelixParameters=True)
     searchUpToHeavyFlavourQuark: bool
         Search up to the quark in HF tagging
     """
@@ -433,6 +439,10 @@ def addPythia8(
                 level=customLogLevel(),
                 inputParticles=hepmc3Converter.config.outputParticles,
                 filePath=str(outputDirRoot / "particles.root"),
+                **acts.examples.defaultKWArgs(
+                    bField=bField,
+                    writeHelixParameters=writeHelixParameters,
+                ),
             )
         )
 
