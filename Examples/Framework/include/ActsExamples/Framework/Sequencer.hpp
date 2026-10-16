@@ -64,6 +64,10 @@ class Sequencer {
     /// number of events to process, std::numeric_limits<std::size_t>::max() to
     /// process all available events
     std::optional<std::size_t> events = std::nullopt;
+    /// event numbers to exclude from processing, e.g. to skip corrupted input
+    /// events. Entries outside of the processed range are ignored with a
+    /// warning.
+    std::vector<std::size_t> excludeEvents = {};
     /// logging level
     Acts::Logging::Level logLevel = Acts::Logging::INFO;
     /// number of parallel threads to run, negative for automatic

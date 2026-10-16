@@ -988,3 +988,28 @@ def test_hepmc3_reader_multiple_files(tmp_path, rng):
         assert std > 40 * u.um
         std = numpy.std(vz)
         assert std > 140 * u.mm
+
+
+@pytest.mark.parametrize("inOrder", [True, False], ids=["in_order", "any_order"])
+def test_hepmc3_writer_event_exclusion(common_evgen, tmp_path, inOrder):
+    from acts.examples.hepmc3 import HepMC3Writer
+
+    s = Sequencer(numThreads=1, events=10, excludeEvents=[3])
+    evGen = common_evgen(s)
+
+    out = tmp_path / "events_pytest.hepmc3"
+    s.addWriter(
+        HepMC3Writer(
+            acts.logging.INFO,
+            inputEvent=evGen.config.outputEvent,
+            outputPath=out,
+            writeEventsInOrder=inOrder,
+        )
+    )
+
+    if inOrder:
+        with pytest.raises(RuntimeError):
+            s.run()
+    else:
+        s.run()
+        assert out.exists()

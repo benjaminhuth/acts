@@ -40,6 +40,10 @@ class SequenceElement {
   /// @note Usually, you should not override this method
   virtual ProcessCode internalExecute(const AlgorithmContext& context) = 0;
 
+  /// Whether this element can handle gaps in the processed event numbers, as
+  /// introduced by the sequencer's event exclusion list.
+  virtual bool supportsEventExclusion() const { return true; }
+
   const std::vector<const DataHandleBase*>& writeHandles() const;
   const std::vector<const DataHandleBase*>& readHandles() const;
 

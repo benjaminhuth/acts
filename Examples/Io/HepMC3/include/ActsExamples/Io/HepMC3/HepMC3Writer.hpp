@@ -78,6 +78,11 @@ class HepMC3Writer final : public WriterT<std::shared_ptr<HepMC3::GenEvent>> {
 
   ProcessCode finalize() override;
 
+  /// In-order writing waits for every event number, so gaps would stall it.
+  bool supportsEventExclusion() const override {
+    return !m_cfg.writeEventsInOrder;
+  }
+
   /// Get readonly access to the config parameters
   const Config& config() const { return m_cfg; }
 

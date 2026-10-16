@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 import acts
 import acts.examples
 
@@ -46,3 +48,31 @@ def test_event_skip(tmp_path):
 
     assert sequence_a == list(range(20))
     assert sequence_b == list(range(1, 20, 2))
+
+
+class RecordAlgorithm(acts.examples.IAlgorithm):
+    def __init__(self, name: str, output_file: Path):
+        acts.examples.IAlgorithm.__init__(self, name, acts.logging.INFO)
+        self.output_file = output_file
+
+    def execute(self, context):
+        with self.output_file.open("a", encoding="utf-8") as out:
+            out.write(f"{context.eventNumber}\n")
+        return acts.examples.ProcessCode.SUCCESS
+
+
+@pytest.mark.parametrize("numThreads", [1, 4])
+def test_event_exclusion_list(tmp_path, numThreads):
+    output = tmp_path / "events.txt"
+
+    # 25 is outside of the processed range [2, 12) and must be ignored
+    seq = acts.examples.Sequencer(
+        skip=2,
+        events=10,
+        numThreads=numThreads,
+        excludeEvents=[3, 7, 7, 11, 25],
+    )
+    seq.addAlgorithm(RecordAlgorithm("Record", output))
+    seq.run()
+
+    assert sorted(_read_sequence(output)) == [2, 4, 5, 6, 8, 9, 10]

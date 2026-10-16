@@ -389,9 +389,9 @@ void addFramework(py::module& mex) {
 
   auto c = py::class_<Config>(sequencer, "Config").def(py::init<>());
 
-  ACTS_PYTHON_STRUCT(c, skip, events, logLevel, numThreads, outputDir,
-                     outputTimingFile, trackFpes, fpeMasks, failOnFirstFpe,
-                     failOnUnmaskedFpe, fpeStackTraceLength);
+  ACTS_PYTHON_STRUCT(c, skip, events, excludeEvents, logLevel, numThreads,
+                     outputDir, outputTimingFile, trackFpes, fpeMasks,
+                     failOnFirstFpe, failOnUnmaskedFpe, fpeStackTraceLength);
 
   auto fpem =
       py::class_<Sequencer::FpeMask>(sequencer, "_FpeMask")

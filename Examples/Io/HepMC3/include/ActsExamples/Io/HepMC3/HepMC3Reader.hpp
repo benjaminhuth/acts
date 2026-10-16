@@ -173,6 +173,10 @@ class HepMC3Reader final : public IReader {
 
   ProcessCode skip(std::size_t events) override;
 
+  /// Events are read sequentially, so excluded events would still be read and
+  /// never released from the buffer.
+  bool supportsEventExclusion() const override { return false; }
+
  private:
   std::size_t determineNumEvents(const std::filesystem::path& path) const;
 
