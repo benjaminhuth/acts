@@ -428,13 +428,8 @@ int Sequencer::run() {
   excludedEvents.erase(std::ranges::unique(excludedEvents).begin(),
                        excludedEvents.end());
 
-  std::vector<std::size_t> eventNumbers;
-  eventNumbers.reserve(lastEvent - firstEvent - excludedEvents.size());
-  for (std::size_t event = firstEvent; event < lastEvent; ++event) {
-    if (!std::ranges::binary_search(excludedEvents, event)) {
-      eventNumbers.push_back(event);
-    }
-  }
+  const std::size_t nTotalEvents =
+      (lastEvent - firstEvent) - excludedEvents.size();
 
   if (!excludedEvents.empty()) {
     bool supported = true;
@@ -450,7 +445,7 @@ int Sequencer::run() {
     }
   }
 
-  if (eventNumbers.empty()) {
+  if (nTotalEvents == 0) {
     ACTS_ERROR("No events left to process after applying the exclusion list");
     return EXIT_FAILURE;
   }
@@ -505,7 +500,6 @@ int Sequencer::run() {
 
   // execute the parallel event loop
   std::atomic<std::size_t> nProcessedEvents = 0;
-  std::size_t nTotalEvents = eventNumbers.size();
 
   std::atomic<std::size_t> nextThreadId = 0;
   tbb::enumerable_thread_specific<std::size_t> threadIds{
@@ -515,7 +509,7 @@ int Sequencer::run() {
 
   m_taskArena.execute([&] {
     tbbWrap::parallel_for(
-        tbb::blocked_range<std::size_t>(0, eventNumbers.size()),
+        tbb::blocked_range<std::size_t>(0, nTotalEvents),
         [&](const tbb::blocked_range<std::size_t>& r) {
           std::vector<Duration> localClocksAlgorithms(names.size(),
                                                       Duration::zero());
@@ -530,7 +524,13 @@ int Sequencer::run() {
               }
             }
 
-            std::size_t event = eventNumbers.at(nextEventIndex++);
+            // Step over excluded events, which are sorted ascending
+            std::size_t event = firstEvent + nextEventIndex++;
+            for (std::size_t excluded : excludedEvents) {
+              if (excluded <= event) {
+                ++event;
+              }
+            }
 
             ACTS_DEBUG("start processing event " << event << " on thread "
                                                  << threadId);
@@ -661,7 +661,7 @@ int Sequencer::run() {
   Duration totalWall = Clock::now() - clockWallStart;
   Duration totalReal = std::accumulate(
       clocksAlgorithms.begin(), clocksAlgorithms.end(), Duration::zero());
-  std::size_t numEvents = eventNumbers.size();
+  std::size_t numEvents = nTotalEvents;
   if (m_nSkippedEvents > 0) {
     ACTS_INFO("Attention: Skipped " << m_nSkippedEvents
                                     << " events during execution");
